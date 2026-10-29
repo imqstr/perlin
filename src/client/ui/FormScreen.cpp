@@ -114,8 +114,37 @@ namespace perlin::ui {
         std::atomic<uint32_t> gImageVersion{0};
         uint64_t gImageEpoch = 0;
 
-        std::string ImageSource(const FormButton& b) {
-            if (b.imageData.empty())
+        // tab stops have no defined advance in the bitmap font: long runs push labels out of view,
+    // so server menus treat them as plain word separators
+    void NormalizeFormText(std::string& text) {
+        for (char& c : text)
+            if (c == '\t')
+                c = '\n';
+        std::string collapsed;
+        collapsed.reserve(text.size());
+        bool lastBreak = true;
+        for (const char c : text) {
+            if (c == '\n') {
+                if (lastBreak)
+                    continue;
+                lastBreak = true;
+                collapsed += c;
+                continue;
+            }
+            if (c == ' ') {
+                collapsed += c;
+                lastBreak = false;
+                continue;
+            }
+            lastBreak = false;
+            collapsed += c;
+        }
+        while (!collapsed.empty() && collapsed.back() == '\n')
+            collapsed.pop_back();
+        text = std::move(collapsed);
+    }
+
+    std::string ImageSource(const FormButton& b) {            if (b.imageData.empty())
                 return {};
             if (b.imageType == "path") {
                 std::string path = b.imageData;
@@ -131,14 +160,29 @@ namespace perlin::ui {
             return {};
         }
 
+        float ButtonHeight(const std::string& label, float w, float h) {
+            std::string shown = label;
+            NormalizeFormText(shown);
+            const int perLine = std::max(8, static_cast<int>(w / 5.2f));
+            const int lines = std::max(1, LineCount(shown, perLine));
+            return std::max(h, static_cast<float>(lines * 9 + 8));
+        }
+
         std::string Button(const std::string& id, const std::string& label, float x, float y, float w, float h) {
-            const std::string W = F(w), H = F(h);
+            // fallback-only display copy: tabs have no advance here, wrap them into lines
+            std::string shown = label;
+            NormalizeFormText(shown);
+            const int perLine = std::max(8, static_cast<int>(w / 5.2f));
+            const int lines = std::max(1, LineCount(shown, perLine));
+            const float hh = ButtonHeight(label, w, h);
+            const std::string W = F(w), H = F(hh);
             std::string s = "<div id=\"" + EscapeRml(id) + "\" class=\"btn\" style=\"left:" + F(x) + "px;top:" + F(y) + "px;width:" + W + "px;height:" + H + "px;\">";
-            s += "<div class=\"rim\" style=\"width:" + F(w - 3) + "px;height:" + F(h - 4) + "px;\"></div>";
-            s += "<div class=\"face\" style=\"width:" + F(w - 4) + "px;height:" + F(h - 5) + "px;\"></div>";
-            s += "<div class=\"shade\" style=\"top:" + F(h - 3) + "px;width:" + F(w - 2) + "px;height:2px;\"></div>";
-            s += "<div class=\"edge\" style=\"left:" + F(w - 2) + "px;width:1px;height:" + F(h - 4) + "px;\"></div>";
-            s += "<div class=\"lbl\" style=\"top:" + F((h - 9) / 2) + "px;width:" + W + "px;height:9px;\">" + Rich(label) + "</div></div>\n";
+            s += "<div class=\"rim\" style=\"width:" + F(w - 3) + "px;height:" + F(hh - 4) + "px;\"></div>";
+            s += "<div class=\"face\" style=\"width:" + F(w - 4) + "px;height:" + F(hh - 5) + "px;\"></div>";
+            s += "<div class=\"shade\" style=\"top:" + F(hh - 3) + "px;width:" + F(w - 2) + "px;height:2px;\"></div>";
+            s += "<div class=\"edge\" style=\"left:" + F(w - 2) + "px;width:1px;height:" + F(hh - 4) + "px;\"></div>";
+            s += "<div class=\"lbl\" style=\"top:" + F((hh - lines * 9) / 2) + "px;width:" + W + "px;height:" + F(static_cast<float>(lines * 9)) +
+                 "px;\">" + FormatCodesToRmlLines(shown) + "</div></div>\n";
             return s;
         }
     }
@@ -222,34 +266,6 @@ namespace perlin::ui {
         return false;
     }
 
-    // tab stops have no defined advance in the bitmap font: long runs push labels out of view,
-    // so server menus treat them as plain word separators
-    void NormalizeFormText(std::string& text) {
-        for (char& c : text)
-            if (c == '\t')
-                c = ' ';
-        std::string collapsed;
-        collapsed.reserve(text.size());
-        bool lastSpace = true;
-        for (const char c : text) {
-            if (c == '\n') {
-                collapsed += c;
-                lastSpace = true;
-                continue;
-            }
-            if (c == ' ') {
-                if (lastSpace)
-                    continue;
-                lastSpace = true;
-                collapsed += c;
-                continue;
-            }
-            lastSpace = false;
-            collapsed += c;
-        }
-        text = std::move(collapsed);
-    }
-
     bool ParseForm(uint32_t id, const std::string& json, FormModel& out) {
         Json root;
         std::string error;
@@ -264,10 +280,6 @@ namespace perlin::ui {
             out.content = Str(root.Find("content"));
             out.button1 = Str(root.Find("button1"));
             out.button2 = Str(root.Find("button2"));
-            NormalizeFormText(out.title);
-            NormalizeFormText(out.content);
-            NormalizeFormText(out.button1);
-            NormalizeFormText(out.button2);
             return true;
         }
         if (type == "custom_form") {
@@ -317,16 +329,9 @@ namespace perlin::ui {
                     } else {
                         continue;
                     }
-                    NormalizeFormText(el.text);
-                    NormalizeFormText(el.placeholder);
-                    NormalizeFormText(el.value);
-                    for (std::string& option : el.options)
-                        NormalizeFormText(option);
                     out.elements.push_back(std::move(el));
                 }
             }
-            NormalizeFormText(out.title);
-            NormalizeFormText(out.submit);
             return true;
         }
         out.type = FormModel::Type::Simple;
@@ -344,11 +349,8 @@ namespace perlin::ui {
                     fb.imageType = Str(img->Find("type"));
                     fb.imageData = Str(img->Find("data"));
                 }
-                NormalizeFormText(fb.text);
                 out.buttons.push_back(std::move(fb));
             }
-        NormalizeFormText(out.title);
-        NormalizeFormText(out.content);
         return true;
     }
 
@@ -362,9 +364,11 @@ namespace perlin::ui {
         std::string body;
         float y = 0.0f;
         const auto text = [&](const std::string& t, bool center) {
-            const int lines = LineCount(t, perLine);
+            std::string shown = t;
+            NormalizeFormText(shown);
+            const int lines = LineCount(shown, perLine);
             const float h = static_cast<float>(lines * 9);
-            body += "<div class=\"t" + std::string(center ? " c" : "") + "\" style=\"left:10px;top:" + F(y) + "px;width:" + F(inner) + "px;height:" + F(h) + "px;\">" + Rich(t) + "</div>\n";
+            body += "<div class=\"t" + std::string(center ? " c" : "") + "\" style=\"left:10px;top:" + F(y) + "px;width:" + F(inner) + "px;height:" + F(h) + "px;\">" + FormatCodesToRmlLines(shown) + "</div>\n";
             y += h + 4.0f;
         };
         if (!form.content.empty() && form.type != FormModel::Type::Custom)
@@ -372,7 +376,8 @@ namespace perlin::ui {
         if (form.type == FormModel::Type::Simple) {
             for (size_t i = 0; i < form.buttons.size(); i++) {
                 const std::string src = ImageSource(form.buttons[i]);
-                const float h = src.empty() ? 20.0f : 32.0f;
+                float h = src.empty() ? 20.0f : 32.0f;
+                h = ButtonHeight(form.buttons[i].text, inner, h);
                 std::string b = Button("b:" + std::to_string(i), form.buttons[i].text, 10, y, inner, h);
                 if (!src.empty()) {
                     const std::string img = "<mcimg src=\"" + EscapeRml(src) + "\" style=\"left:4px;top:4px;width:24px;height:24px;z-index:8;\"/>";
