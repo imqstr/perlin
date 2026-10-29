@@ -124,22 +124,9 @@ namespace perlin::ui {
         return false;
     }
 
-    float TenFont::Ascent(float scale) const {
-        if (impl)
-            return impl->ascent * Em(scale);
-        return 6.0f * scale;
-    }
-    float TenFont::Descent(float scale) const {
-        if (impl)
-            return impl->descent * Em(scale);
-        return 3.0f * scale;
-    }
-
-    float TenFont::LineHeight(float scale) const {
-        if (impl)
-            return (impl->ascent + impl->descent) * Em(scale);
-        return 12.4f * scale;
-    }
+    float TenFont::Ascent(float scale) const { return 6.0f * scale; }
+    float TenFont::Descent(float scale) const { return 3.0f * scale; }
+    float TenFont::LineHeight(float scale) const { return 9.0f * scale; }
 
     float TenFont::Advance(uint32_t cp, float scale) const {
         if (!impl)
