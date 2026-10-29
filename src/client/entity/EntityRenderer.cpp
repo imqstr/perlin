@@ -420,8 +420,8 @@ namespace perlin::entity {
         const float speed = static_cast<float>(std::sqrt(xd * xd + zd * zd)) / std::max(dt, 0.001f);
         v.bodyTickAcc += (speed - static_cast<float>(v.bodyTickAcc)) * std::min(1.0f, dt * 12.0f);
         const bool moving = v.bodyTickAcc > 0.35 || v.attackTime > 0.0f;
-        const float tau = moving ? 0.06f : 0.11f;
-        const float cap = moving ? 20.0f : 40.0f;
+        const float tau = moving ? 0.045f : 0.09f;
+        const float cap = moving ? 30.0f : 40.0f;
         float diff = WrapDegrees(look - v.body);
         v.body += diff * (1.0f - std::exp(-dt / tau));
         diff = WrapDegrees(look - v.body);

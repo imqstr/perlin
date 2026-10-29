@@ -1151,7 +1151,7 @@ namespace perlin {
                     r.y = static_cast<float>(taken.pos.y);
                     r.z = static_cast<float>(taken.pos.z);
                     r.volume = 0.2f;
-                    r.pitch = 1.4f + (static_cast<float>(taken.runtimeId % 7) * 0.05f);
+                    r.pitch = 1.4f + (static_cast<float>(taken.runtimeId % 7) * 0.03f);
                     PushSound(std::move(r));
                 } else if (taken.type == "minecraft:xp_orb") {
                     // vanilla predicts the orb pickup sound locally; server echo (SoundOrb) suppressed below for the same pickup
@@ -1161,8 +1161,8 @@ namespace perlin {
                     r.x = static_cast<float>(taken.pos.x);
                     r.y = static_cast<float>(taken.pos.y);
                     r.z = static_cast<float>(taken.pos.z);
-                    r.volume = 0.5f;
-                    r.pitch = 0.9f + (static_cast<float>(taken.runtimeId % 5) * 0.05f);
+                    r.volume = 0.35f;
+                    r.pitch = 1.0f + (static_cast<float>(taken.runtimeId % 5) * 0.03f);
                     PushSound(std::move(r));
                     lastLocalOrbMs = nowMs;
                     lastOrbX = r.x;

@@ -8167,8 +8167,7 @@ namespace perlin {
                     const float top = col.Query(bx, by + 1, bz).fluid == 2 ? 1.0f : cell.fluidLevel;
                     eyeInLava = e.y < static_cast<float>(by) + top;
                 }
-                if (underwater)
-                    eyeBiome = levelRenderer->Tints().NameForId(live->NetLevel().GetBiome(bx, by, bz));
+                eyeBiome = levelRenderer->Tints().NameForId(live->NetLevel().GetBiome(bx, by, bz));
                 {
                     const int fy = static_cast<int>(std::floor(camera.y - 1.62f));
                     const int fx = static_cast<int>(std::floor(e.x)), fz = static_cast<int>(std::floor(e.z));
@@ -8534,6 +8533,19 @@ namespace perlin {
                     }
                     if (m.color)
                         fog.color = glm::vec4(*m.color, fog.color.w);
+                } else if (live && static_cast<Dimension>(std::clamp(live->DimensionId(), 0, 2)) == Dimension::Nether) {
+                    // no server fog pushed: fall back to per-biome nether haze
+                    const std::string bn = eyeBiome.rfind("minecraft:", 0) == 0 ? eyeBiome.substr(10) : eyeBiome;
+                    glm::vec3 tint(0.2f, 0.05f, 0.05f);
+                    if (bn == "crimson_forest")
+                        tint = glm::vec3(0.35f, 0.05f, 0.07f);
+                    else if (bn == "warped_forest")
+                        tint = glm::vec3(0.05f, 0.25f, 0.22f);
+                    else if (bn == "basalt_deltas")
+                        tint = glm::vec3(0.18f, 0.16f, 0.18f);
+                    else if (bn == "soul_sand_valley")
+                        tint = glm::vec3(0.15f, 0.12f, 0.14f);
+                    fog.color = glm::vec4(tint, fog.color.w);
                 }
             }
 
@@ -9182,6 +9194,7 @@ namespace perlin {
                     particleQuads.clear();
                     particles.Collect(static_cast<float>(particleClock / 0.05), pw, particleQuads);
                     if (const int fireTile = levelRenderer->Blocks().TileContaining("fire_1"); fireTile >= 0) {
+                        const int soulTile = levelRenderer->Blocks().TileContaining("soul_fire_1");
                         for (const entity::Entity& burner : entities) {
                             const bool selfBurning = burner.isSelf && hudState.burning;
                             if (!selfBurning && !(burner.flags & entity::flag::Onfire))
@@ -9190,13 +9203,26 @@ namespace perlin {
                                 continue;
                             const glm::dvec3 at = burner.pos;
                             const float scale = burner.scale;
+                            // blue flames when standing on soul soil/sand, matches the valley look
+                            int tile = fireTile;
+                            {
+                                bool loaded = false;
+                                const uint16_t below = live->NetLevel().GetBlock(
+                                    static_cast<int>(std::floor(at.x)), static_cast<int>(std::floor(at.y - 0.5)),
+                                    static_cast<int>(std::floor(at.z)), loaded);
+                                if (loaded && soulTile >= 0) {
+                                    const std::string bn = BlockPalette::Instance().Name(below);
+                                    if (bn == "soul_sand" || bn == "soul_soil")
+                                        tile = soulTile;
+                                }
+                            }
                             for (int k = 0; k < 6; k++) {
                                 const float a = static_cast<float>(k) * 1.0472f + 0.5f;
                                 const float h = 0.15f + 0.3f * static_cast<float>(k % 3);
                                 particle::Quad q;
                                 q.centre = at + glm::dvec3(std::cos(a) * 0.3 * scale, (h + 0.35f * (k / 3)) * scale, std::sin(a) * 0.3 * scale);
                                 q.half = 0.4f * scale;
-                                q.terrainTile = fireTile;
+                                q.terrainTile = tile;
                                 particleQuads.push_back(q);
                             }
                         }

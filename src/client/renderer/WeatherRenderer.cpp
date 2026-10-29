@@ -234,8 +234,10 @@ namespace perlin {
                     const float raw = -(static_cast<float>(gameTime & 131071) + static_cast<float>(mix) + partial) / 32.0f * speed;
                     vOffset = std::fmod(raw, 32.0f);
                 } else {
-                    uOffset = static_cast<float>(random.NextDouble() + static_cast<double>(time * 0.01f) * random.NextGaussian());
-                    const float drift = static_cast<float>(random.NextDouble() + static_cast<double>(time * static_cast<float>(random.NextGaussian())) * 0.001);
+                    // hash-seeded drift, stable per column instead of per-frame noise
+                    const uint32_t h = Hash(x, z);
+                    uOffset = static_cast<float>((h >> 5) & 255u) / 256.0f + time * 0.002f;
+                    const float drift = static_cast<float>((h & 255u)) / 255.0f * 0.05f;
                     vOffset = -(static_cast<float>(gameTime & 511) + partial) / 512.0f + drift;
                 }
                 constexpr float kVScale = 4.0f;

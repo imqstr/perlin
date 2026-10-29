@@ -386,7 +386,7 @@ namespace perlin {
             s.scaffoldingStability = static_cast<int8_t>(State(id, "stability", 0));
             return info;
         }
-        if (n == "vine" || n == "scaffolding_none" || n == "twisting_vines" || n == "weeping_vines" ||
+        if (n == "vine" || n == "ladder" || n == "scaffolding_none" || n == "twisting_vines" || n == "weeping_vines" ||
             n == "cave_vines" || n == "cave_vines_body_with_berries" || n == "cave_vines_head_with_berries") {
             s.climbable = true;
             return info;
@@ -401,6 +401,16 @@ namespace perlin {
                 s.friction = r.friction;
                 s.surface = r.surface;
                 s.climbable = (r.flags & 1) != 0;
+                // registry misses the vanilla ladder flag on some packs, restore it by name
+                if (n == "ladder")
+                    s.climbable = true;
+                // keep vanilla slip even when the registry ships its own values
+                if (n == "ice" || n == "packed_ice" || n == "frosted_ice")
+                    s.friction = 0.98f;
+                else if (n == "blue_ice")
+                    s.friction = 0.989f;
+                else if (n == "slime" || n == "slime_block")
+                    s.friction = 0.8f;
                 s.web = (r.flags & 8) != 0;
                 info.full = r.boxes.size() == 1 && r.boxes[0].x0 <= 0 && r.boxes[0].y0 <= 0 && r.boxes[0].z0 <= 0 &&
                             r.boxes[0].x1 >= 1 && r.boxes[0].y1 >= 1 && r.boxes[0].z1 >= 1;

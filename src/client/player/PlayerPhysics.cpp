@@ -634,7 +634,8 @@ namespace perlin::physics {
         }
         if (in.jump && (water || lava)) {
             if (jumpBlockedBySwim) {
-                if (water) s.vy = 0;
+                // surface exit still gets a small lift or the server corrects us
+                if (water) s.vy = F(static_cast<float>(s.vy) + 0.04f);
             } else {
                 s.vy = F(static_cast<float>(s.vy) + 0.04f);
             }
