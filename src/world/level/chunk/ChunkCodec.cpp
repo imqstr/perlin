@@ -361,7 +361,11 @@ namespace perlin {
         std::vector<std::pair<int, SubChunkData>> parsed;
         size_t offset = 0;
         int nextY = firstSubY;
-        while (offset < size && static_cast<int>(parsed.size()) < slots) {
+        // some proxies declare a raised minY yet still ship the full vanilla span: accept indexes
+        // across the union of both so terrain below the declared floor still applies
+        const int loY = std::min(firstSubY, -4);
+        const int hiY = std::max(firstSubY + slots, 20);
+        while (offset < size && static_cast<int>(parsed.size()) < (hiY - loY)) {
             // trailing block-entity nbt starts with a compound tag, never a sub-chunk version
             const uint8_t version = data[offset];
             if (version != 1 && version != 8 && version != 9)
@@ -378,13 +382,13 @@ namespace perlin {
             }
             offset += used;
             // some proxies repeat or overshoot heights: skip the entry, keep the column
-            if (y > std::numeric_limits<int>::max() || y < firstSubY || y >= static_cast<int64_t>(firstSubY) + slots)
+            if (y > std::numeric_limits<int>::max() || y < loY || y >= static_cast<int64_t>(hiY))
                 continue;
             if (std::any_of(parsed.begin(), parsed.end(), [y](const auto& entry) { return entry.first == y; }))
                 continue;
             parsed.emplace_back(static_cast<int>(y), std::move(sc));
         }
-        if (parsed.size() < count) {
+        if (parsed.empty() && count > 0) {
             if (err) *err = "inline subchunk count exceeds dimension height";
             return false;
         }
