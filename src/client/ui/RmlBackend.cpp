@@ -422,6 +422,9 @@ namespace perlin::ui {
             meshes.resize(meshes.size() + 1);
             Rml::TexturedMesh& out = meshes.back();
             out.texture = texture;
+            meshes.resize(meshes.size() + 1);
+            Rml::TexturedMesh& fallback = meshes.back();
+            fallback.texture = renderManager.LoadTexture("mcfont:atlas#" + std::to_string(McFont::Instance().Version()));
 
             const Rml::ColourbPremultiplied main = Fade(colour, opacity);
             const Rml::ColourbPremultiplied shade(static_cast<Rml::byte>(main.red / 4), static_cast<Rml::byte>(main.green / 4),
@@ -443,6 +446,20 @@ namespace perlin::ui {
                         Rml::MeshUtilities::GenerateQuad(out.mesh, {x, y},
                                                          {static_cast<float>(g.w) * k, static_cast<float>(g.h) * k}, c,
                                                          {g.u0, g.v0}, {g.u1, g.v1});
+                        pen += ten.Advance(cp, s);
+                        continue;
+                    }
+                    // server icons live in the bitmap atlas, not in the heading face
+                    const McFont::Glyph& mg = McFont::Instance().Get(cp);
+                    if (mg.width > 0) {
+                        const float ks = k * (TenFont::kEm / 8.0f);
+                        const float x = snap(position.x + pen + ox);
+                        const float y = snap(position.y - 7.0f * ks + oy) + mg.top * ks;
+                        Rml::MeshUtilities::GenerateQuad(fallback.mesh, {x, y},
+                                                         {static_cast<float>(mg.width) * ks, static_cast<float>(mg.height) * ks}, c,
+                                                         {mg.u0, mg.v0}, {mg.u1, mg.v1});
+                        pen += static_cast<float>(mg.advance) * ks;
+                        continue;
                     }
                     pen += ten.Advance(cp, s);
                 }

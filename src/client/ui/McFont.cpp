@@ -365,6 +365,7 @@ namespace perlin::ui {
             int advance = 0, bearing = 0;
             stbtt_GetGlyphHMetrics(&font->info, index, &advance, &bearing);
             int ink = 0;
+            int topRow = 16;
             if (w > 0 && h > 0 && w <= 32 && h <= 32) {
                 std::vector<unsigned char> bitmap(static_cast<size_t>(w) * static_cast<size_t>(h));
                 stbtt_MakeGlyphBitmap(&font->info, bitmap.data(), w, h, w, scale, scale, index);
@@ -378,8 +379,12 @@ namespace perlin::ui {
                         uint8_t* dst = &atlas[(static_cast<size_t>(cy + py) * static_cast<size_t>(atlasWidth) + static_cast<size_t>(cx + px)) * 4];
                         dst[0] = dst[1] = dst[2] = dst[3] = 255;
                         ink = std::max(ink, px + 1);
+                        topRow = std::min(topRow, py);
                     }
             }
+            // atlas slot is 16 px for an 8 px line: store the bearing so the draw lands on the baseline
+            out.top = topRow >= 16 ? 0.0f : static_cast<float>(topRow) / 2.0f - 7.0f;
+            out.height = 8.0f;
             if (ink == 0) {
                 out.width = 0;
                 out.advance = std::max(2, static_cast<int>(std::lround(static_cast<float>(advance) * scale / 2.0f)));
