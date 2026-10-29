@@ -19,7 +19,7 @@ namespace perlin::ui {
     struct TenFont::Impl {
         std::vector<unsigned char> data;
         stbtt_fontinfo info{};
-        float ascent = 0.99f, descent = 0.25f;  // fractions of the em, from hhea
+        float ascent = 0, descent = 0;
     };
 
     namespace {
@@ -124,8 +124,17 @@ namespace perlin::ui {
         return false;
     }
 
-    float TenFont::Ascent(float scale) const { return 6.0f * scale; }
-    float TenFont::Descent(float scale) const { return 3.0f * scale; }
+    float TenFont::Ascent(float scale) const { return impl ? impl->ascent * Em(scale) : 0.0f; }
+    float TenFont::Descent(float scale) const { return impl ? impl->descent * Em(scale) : 0.0f; }
+
+    float TenFont::XHeight(float scale) const {
+        if (!impl)
+            return 0.0f;
+        int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        if (!stbtt_GetCodepointBox(&impl->info, 'x', &x0, &y0, &x1, &y1))
+            return 0.0f;
+        return static_cast<float>(y1 - y0) * stbtt_ScaleForMappingEmToPixels(&impl->info, Em(scale));
+    }
 
     float TenFont::Advance(uint32_t cp, float scale) const {
         if (!impl)

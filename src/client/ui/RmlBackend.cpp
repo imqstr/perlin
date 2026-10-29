@@ -274,7 +274,7 @@ namespace perlin::ui {
                 f.metrics.ascent = ten.Ascent(s);
                 f.metrics.descent = ten.Descent(s);
                 f.metrics.line_spacing = ten.LineHeight(s);
-                f.metrics.x_height = ten.Ascent(s) * 0.7f;
+                f.metrics.x_height = ten.XHeight(s);
                 f.metrics.underline_position = 1.0f;
                 f.metrics.underline_thickness = 1.0f;
                 return f.metrics;
@@ -427,7 +427,6 @@ namespace perlin::ui {
             const Rml::ColourbPremultiplied shade(static_cast<Rml::byte>(main.red / 4), static_cast<Rml::byte>(main.green / 4),
                                                   static_cast<Rml::byte>(main.blue / 4), main.alpha);
             const auto snap = [&](float v) { return std::round(v * device) / device; };
-            const float ascent = ten.Ascent(s);
             const std::string text(string.begin(), string.end());
 
             const auto quads = [&](float ox, float oy, const Rml::ColourbPremultiplied& c) {
@@ -438,8 +437,9 @@ namespace perlin::ui {
                     const auto it = page->glyphs.find(cp);
                     if (it != page->glyphs.end() && it->second.w > 0 && it->second.h > 0) {
                         const TenFont::Glyph& g = it->second;
-                        const float x = snap(position.x + pen + ox);
-                        const float y = snap(position.y + ascent + oy) + static_cast<float>(g.y) * k;
+                        // glyph bearings are relative to RmlUi's supplied baseline
+                        const float x = snap(position.x + pen + ox + static_cast<float>(g.x) * k);
+                        const float y = snap(position.y + oy + static_cast<float>(g.y) * k);
                         Rml::MeshUtilities::GenerateQuad(out.mesh, {x, y},
                                                          {static_cast<float>(g.w) * k, static_cast<float>(g.h) * k}, c,
                                                          {g.u0, g.v0}, {g.u1, g.v1});

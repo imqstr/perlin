@@ -798,17 +798,8 @@ namespace perlin::ui {
                     if (!element.IsObject())
                         continue;
                     for (const auto& member : element.object) {
-                        ChildEntry entry{member.first, &member.second, ns};
-                        const std::string name = SplitName(member.first);
-                        bool replaced = false;
-                        for (ChildEntry& existing : list)
-                            if (SplitName(existing.key) == name) {
-                                existing = entry;
-                                replaced = true;
-                                break;
-                            }
-                        if (!replaced)
-                            list.push_back(std::move(entry));
+                        // sibling names may repeat: each entry is a separate conditional route
+                        list.push_back({member.first, &member.second, ns});
                     }
                 }
             }

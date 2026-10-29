@@ -21,3 +21,18 @@ gone and a new atlas and mesh render after repeated unloads.
 
 These are bounded checks. Full UI parity, binding scheduling and every server
 screen are not established by these fixtures.
+
+Repeated names in a `controls` array identify separate sibling instances, not
+updates to one sibling. Collapsing them dropped conditional form routes and
+exposed the fallback layout, including protocol titles and placeholder rows.
+`ui_repeated_routes` checks a selected route between two inactive siblings
+with the same name, including its collection-driven factory.
+
+MinecraftTen baseline: RmlUi's `FontEngineInterface::GenerateString` position
+is already the glyph baseline. The bitmap bearings from stb_truetype are
+relative to that same baseline. Adding ascent a second time moved the ink
+downward. Rendering now applies the bearings directly, with ascent/descent
+from the installed font's `hhea` table and x-height from its `x` glyph. There
+are no screen-specific adjustments. The metrics regression reads `head` and
+`hhea` independently across several scales; offline captured menus check the
+rendered placement.

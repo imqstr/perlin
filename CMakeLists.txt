@@ -825,6 +825,11 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_font_sizes")
     set_tests_properties(ui_bound_alpha PROPERTIES ENVIRONMENT "SCREEN_RML=1;SCREEN_VARS={\"#opacity\":0.3}"
         PASS_REGULAR_EXPRESSION "alpha=\"0[.]30*\"")
+    add_test(NAME ui_repeated_routes COMMAND screen_dump routes.routing_screen 320 240
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_routes")
+    set_tests_properties(ui_repeated_routes PROPERTIES ENVIRONMENT "SCREEN_TREE=1;SCREEN_VARS={\"#title_text\":\"middle\"}"
+        PASS_REGULAR_EXPRESSION "text=EXPECTED_MIDDLE_ROUTE"
+        FAIL_REGULAR_EXPRESSION "text=WRONG_FIRST_ROUTE;text=WRONG_LAST_ROUTE")
     add_test(NAME ui_deferred_text COMMAND screen_dump regression.deferred_screen 320 240
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_deferred")
     set_tests_properties(ui_deferred_text PROPERTIES ENVIRONMENT "SCREEN_TREE=1"
@@ -836,6 +841,12 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     target_link_libraries(gpu_level_unload_selftest PRIVATE perlin_gpu)
     add_test(NAME gpu_level_unload_selftest COMMAND gpu_level_unload_selftest "${PERLIN_SHADER_PACK}")
     set_tests_properties(gpu_level_unload_selftest PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(ten_font_metrics_selftest tests/ten_font_metrics_selftest.cpp
+        src/client/ui/TenFont.cpp src/client/ui/McFont.cpp)
+    target_include_directories(ten_font_metrics_selftest PRIVATE src "${stb_SOURCE_DIR}")
+    target_compile_features(ten_font_metrics_selftest PRIVATE cxx_std_23)
+    add_test(NAME ten_font_metrics_selftest COMMAND ten_font_metrics_selftest)
+    set_tests_properties(ten_font_metrics_selftest PROPERTIES SKIP_RETURN_CODE 77)
     add_executable(font_cache_selftest tests/font_cache_selftest.cpp src/client/ui/McFont.cpp)
     target_include_directories(font_cache_selftest PRIVATE src "${stb_SOURCE_DIR}")
     target_compile_features(font_cache_selftest PRIVATE cxx_std_23)
