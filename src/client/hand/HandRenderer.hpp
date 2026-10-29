@@ -38,6 +38,7 @@ namespace perlin {
             bool eating = false;
         };
         static bool IsFood(const std::string& name);
+        static bool IsThrowable(const std::string& name);
         int EatTicks() const { return eatTicks; }
         bool Scoping() const { return scoping; }
         void RenderScope(int width, int height, float partial);

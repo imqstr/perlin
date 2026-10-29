@@ -962,8 +962,9 @@ namespace perlin {
         }
         for (const auto& b : live->BossBars())
             data.bars.push_back({b.title, b.progress, b.color, b.overlay});
-        if (data.bars.size() > 4)
-            data.bars.resize(4);
+        // vanilla stacks all bars, no 4-cap
+        if (data.bars.size() > 8)
+            data.bars.resize(8);
         const auto sb = live->Scoreboard();
         if (sb.visible && !pauseShown && !(hud.Ready() && (options.bedrockMenus || hud.Overrides("scoreboard")))) {
             data.scoreboard = true;
@@ -7936,6 +7937,10 @@ namespace perlin {
                     const bool tooSoon = Clock::now() - lastUseSent < std::chrono::milliseconds(60);
                     // held building repeats only when build rules allow it this tick; other held use keeps the 200 ms repeat
                     const bool repeatReady = bedrockBuild && use == blockuse::Use::Place ? heldRepeat : useClock >= 0.2 && !tooSoon;
+                    // press and held repeat can fire on consecutive ticks for the same cell: drop the duplicate
+                    const bool sameCell = destination == lastBuildCell && useTime - lastBuildAt < 200;
+                    if (use == blockuse::Use::Place && holdsBlock && sameCell && useHeld && !usePressed)
+                        use = blockuse::Use::Nothing;
                     // never place a block into the player's own body
                     if (use == blockuse::Use::Place && holdsBlock) {
                         const auto& placed = LevelCollision::ShapeOf(BlockPalette::Instance().InternRuntime(static_cast<int32_t>(held.blockRuntimeId)));

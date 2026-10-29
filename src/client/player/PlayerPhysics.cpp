@@ -223,7 +223,9 @@ namespace perlin::physics {
                 const auto surface = supportingSurface == 1 ? bds::LandingSurface::Slime
                                      : supportingSurface == 2 ? bds::LandingSurface::Bed
                                                             : bds::LandingSurface::Ordinary;
-                motion = bds::VerticalCollision(motion, {}, surface, sneaking, false, false, true,
+                // bounce event needs the block position, empty would drop it
+                const bds::Float3 pos{static_cast<float>(state.x), static_cast<float>(state.y), static_cast<float>(state.z)};
+                motion = bds::VerticalCollision(motion, pos, surface, sneaking, false, false, true,
                                                 state.restitution).velocity;
             }
             if (state.restitution) {

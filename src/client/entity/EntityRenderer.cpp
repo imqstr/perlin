@@ -447,7 +447,13 @@ namespace perlin::entity {
             v.hurtSerial = e.hurtSerial;
             v.swingSerial = e.swingSerial;
         }
-        const bool projectile = e.type == "minecraft:arrow" || e.type == "minecraft:thrown_trident";
+        const bool projectile = e.type == "minecraft:arrow" || e.type == "minecraft:thrown_trident" ||
+                                        e.type == "minecraft:snowball" || e.type == "minecraft:egg" || e.type == "minecraft:ender_pearl" ||
+                                        e.type == "minecraft:splash_potion" || e.type == "minecraft:lingering_potion" ||
+                                        e.type == "minecraft:xp_bottle" || e.type == "minecraft:fireball" ||
+                                        e.type == "minecraft:wither_skull" || e.type == "minecraft:small_fireball" ||
+                                        e.type == "minecraft:shulker_bullet" || e.type == "minecraft:llama_spit" ||
+                                        e.type == "minecraft:dragon_fireball";
         const bool buffered = !e.isSelf && !projectile;
         const double follow = e.isSelf ? 1.0 : 1.0 - std::exp(-static_cast<double>(dt) / 0.06);
         v.lastPos = v.pos;
@@ -510,7 +516,8 @@ namespace perlin::entity {
             v.headYaw = turn(v.headYaw, e.headYaw);
             v.pitch = v.pitch + WrapDegrees(e.pitch - v.pitch) * static_cast<float>(follow);
         }
-        if (e.type == "minecraft:arrow" || e.type == "minecraft:thrown_trident") {
+        // velocity-aligned flight: arrows, tridents and lobbed bottles alike
+        if (projectile) {
             const double len = glm::length(d);
             if (len > 0.04) {
                 const float targetYaw = static_cast<float>(std::atan2(-d.x, d.z) * 180.0 / 3.14159265358979);
@@ -1321,6 +1328,13 @@ namespace perlin::entity {
         if (e.type == "minecraft:thrown_trident") {
             model = glm::rotate(model, (90.0f + v.pitch) * kDeg, glm::vec3(1, 0, 0));
             model = glm::translate(model, glm::vec3(0.0f, -12.0f / 16.0f * scale, 0.0f));
+        }
+        // lobbed items tumble around x/z instead of holding a fixed pose
+        if (e.type == "minecraft:xp_bottle" || e.type == "minecraft:splash_potion" ||
+            e.type == "minecraft:lingering_potion" || e.type == "minecraft:snowball" || e.type == "minecraft:egg" ||
+            e.type == "minecraft:ender_pearl") {
+            const float spin = std::fmod(static_cast<float>((in.time - v.born) * 10800.0), 360.0f);
+            model = glm::rotate(model, spin * kDeg, glm::vec3(1, 0, 0));
         }
         model = glm::scale(model, glm::vec3(scale / 16.0f) * modScale);
         glm::vec3 light(1.0f);

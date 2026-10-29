@@ -18,8 +18,10 @@ namespace perlin::ui {
         }
 
         const char* BarColor(int c) {
-            static const char* const colors[] = {"#ff55ff", "#5555ff", "#ff5555", "#55ff55", "#ffff55", "#aa00aa", "#ffffff"};
-            return colors[std::clamp(c, 0, 6)];
+            // packet color 0 is gray, vanilla order gray/blue/red/green/yellow/purple/white
+            static const char* const colors[] = {"#808080", "#5555ff", "#ff5555", "#55ff55", "#ffff55", "#aa00aa", "#ffffff",
+                                                 "#ff55ff"};
+            return colors[std::clamp(c, 0, 7)];
         }
 
         std::string Text(const std::string& t, float x, float y, float w, const char* align, const char* color = "#ffffff") {
@@ -67,7 +69,8 @@ namespace perlin::ui {
             width += 6.0f;
             const float height = static_cast<float>((data.rows.size() + 1) * 9 + 2);
             const float x = static_cast<float>(guiW) - width - 2.0f;
-            const float top = (static_cast<float>(guiH) - height) / 2.0f + 20.0f;
+            // anchored upper-right below bossbars, vanilla positions it near the top edge
+            const float top = 4.0f;
             out += Rect(x, top, width, height, "background-color:#00000066;z-index:1;");
             out += Rect(x, top, width, 10, "background-color:#00000040;z-index:1;");
             out += Text(data.scoreboardTitle, x, top + 1, width, "center");

@@ -212,7 +212,8 @@ namespace perlin {
         Base DimensionBase(Dimension dimension) {
             switch (dimension) {
             case Dimension::Nether:
-                return {glm::vec3(0.0f), glm::vec3(0.0f), glm::vec4(0.0f), Rgb(0x302821), Rgb(0x7a7aff), 0.0f, 10.0f, 96.0f};
+                // dense tinted haze, biome code overrides when present
+                return {glm::vec3(0.0f), Rgb(0x331414), glm::vec4(0.0f), Rgb(0x302821), Rgb(0x7a7aff), 0.0f, 4.0f, 48.0f};
             case Dimension::End:
                 return {glm::vec3(0.0f), Rgb(0x181318), glm::vec4(0.0f), Rgb(0x3f473f), Rgb(0xac60cd), 0.0f, 0.0f, 1024.0f};
             default:

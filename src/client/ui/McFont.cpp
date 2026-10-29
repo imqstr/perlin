@@ -94,14 +94,8 @@ namespace perlin::ui {
     }
 
     void McFont::UnloadLevelResources() {
+        // glyph pages are per-server, font sheets persist across levels
         glyphPages.clear();
-        sheets.clear();
-        sheetChars.clear();
-        hex.clear();
-        hexPath.clear();
-        ttfs.clear();
-        ttfPaths.clear();
-        UseBuiltin();
     }
 
     void McFont::UseBuiltin() {

@@ -207,6 +207,12 @@ namespace perlin {
         return false;
     }
 
+    bool HandRenderer::IsThrowable(const std::string& full) {
+        const std::string n = full.rfind("minecraft:", 0) == 0 ? full.substr(10) : full;
+        return n == "experience_bottle" || n == "splash_potion" || n == "lingering_potion" || n == "snowball" ||
+               n == "egg" || n == "ender_pearl";
+    }
+
     void HandRenderer::Tick(const TickIn& in, const HandSettings& s) {
         const int duration = std::max(1, static_cast<int>(std::lround(6.0f / std::max(0.1f, s.swingSpeed))));
         oAttackAnim = attackAnim;
@@ -755,8 +761,9 @@ namespace perlin {
             glm::mat4 m = T(static_cast<float>(feet.x), static_cast<float>(feet.y), static_cast<float>(feet.z));
             m = m * T(0.0f, yOff + 0.25f * scale, 0.0f) * Ry(spin);
             if (i > 0)
-                m = m * T((hash(10 + i) * 2.0f - 1.0f) * 0.15f * 0.5f, (hash(20 + i) * 2.0f - 1.0f) * 0.15f * 0.5f,
-                          (hash(30 + i) * 2.0f - 1.0f) * 0.15f * 0.5f);
+                // spread stacked copies so higher counts stay readable
+                m = m * T((hash(10 + i) * 2.0f - 1.0f) * 0.15f, (hash(20 + i) * 2.0f - 1.0f) * 0.15f,
+                          (hash(30 + i) * 2.0f - 1.0f) * 0.15f);
             if (tabled)
                 m = m * itemdisplay::Apply(groundDisplay.ground, false) * T(-0.5f, -0.5f, -0.5f);
             else
@@ -955,6 +962,11 @@ namespace perlin {
                 m = m * T(0.0f, std::fabs(std::cos(remaining / 4.0f * kPi) * 0.1f), 0.0f);
             const float f3 = 1.0f - std::pow(f0, 27.0f);
             m = m * T(side * f3 * 0.6f, f3 * -0.5f, 0.0f) * Ry(side * f3 * 90.0f) * Rx(f3 * 10.0f) * Rz(side * f3 * 30.0f);
+        } else if (IsThrowable(item.name) && swing > 0.0f) {
+            // overhead throw, arm rises then snaps forward
+            const float lift = std::sin(std::min(swing * 1.4f, 1.0f) * kPi * 0.5f);
+            const float snap = std::sin(swing * kPi);
+            m = m * T(side * -0.15f * lift, 0.35f * lift, -0.25f * lift) * Rx(-38.0f * lift + 42.0f * snap);
         } else {
             m = m * T(side * (-0.4f * std::sin(sq * kPi)), 0.2f * std::sin(sq * kPi * 2.0f), -0.2f * std::sin(swing * kPi));
         }

@@ -177,8 +177,14 @@ namespace perlin::ui {
             st.uw = 16;
             st.vh = 16;
             st.alpha = 0.9f;
-            for (const float side : {-1.0f, 1.0f})
+            // two animated layers at slightly different heights, mirrors the vanilla composite
+            for (const float side : {-1.0f, 1.0f}) {
                 w.Image(s.guiW * 0.5f + side * 0.24f * unit - unit * 0.5f, top, unit, unit, n.layer, "textures/blocks/fire_1", st);
+                ImageStyle inner = st;
+                inner.alpha = 0.7f;
+                w.Image(s.guiW * 0.5f + side * 0.18f * unit - unit * 0.4f, top + unit * 0.12f, unit * 0.8f, unit * 0.8f,
+                        n.layer + 1, "textures/blocks/fire_0", inner);
+            }
         }
 
         void Hotbar(const HudState&, const LNode& n, RmlWriter& w) {
