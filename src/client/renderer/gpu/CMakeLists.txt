@@ -18,6 +18,7 @@ if(NOT TARGET perlin_gpu)
         GpuCore.cpp
         ChunkMeshStore.cpp
         RenderContext_rhi.cpp
+        RenderContext_rhi_java.cpp
         RenderContext_rhi_post.cpp
         RenderContext_rhi_shadow.cpp
         RenderContext_rhi_ui.cpp

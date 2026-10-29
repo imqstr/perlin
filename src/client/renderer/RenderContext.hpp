@@ -128,6 +128,9 @@ namespace perlin {
         float screenTint[4];
         float portalOverlay = 0.0f;
         uint32_t frameIndex;
+        // level clock for java pack uniforms; -1 when the session has none yet
+        int worldDay = -1, worldTick = -1;
+        float cameraNear = 0.05f, cameraFar = 1024.0f;
         float handProjection[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         int dynMode = 0;
         int dynCount = 0;

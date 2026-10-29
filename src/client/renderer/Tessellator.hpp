@@ -13,8 +13,13 @@ namespace perlin {
         uint32_t rgba;
         float u, v;
         uint32_t light;
+        // java pack feed, computed in AddQuad so call sites stay unchanged
+        uint32_t normal;
+        float entity;
+        float midU, midV;
+        float tangent;
     };
-    static_assert(sizeof(Vertex) == 28, "Vertex layout must match the GPU vertex layout");
+    static_assert(sizeof(Vertex) == 48, "Vertex layout must match the GPU vertex layout");
 
     struct MeshSection {
         int sy;

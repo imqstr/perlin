@@ -28,10 +28,12 @@ namespace perlin {
             // shader pack variant; null when the pack does not replace it
             const char* pack;
             gpu::VertexLayout layout;
+            // converted java program used when a java pack is active
+            const char* java = nullptr;
         };
 
         constexpr ProgramName kPrograms[static_cast<size_t>(Program::Count)] = {
-            {"terrain_solid", "vv_terrain_solid", gpu::VertexLayout::Terrain},
+            {"terrain_solid", "vv_terrain_solid", gpu::VertexLayout::Terrain, "java_gbuffers_terrain"},
             {"terrain_cutout", "vv_terrain_cutout", gpu::VertexLayout::Terrain},
             {"terrain_translucent", "vv_terrain_translucent", gpu::VertexLayout::Terrain},
             {"sky", "vv_sky", gpu::VertexLayout::Position},
@@ -271,7 +273,8 @@ namespace perlin {
     bool RenderContext_rhi::ResolvePrograms() {
         for (size_t i = 0; i < programIds.size(); i++) {
             const ProgramName& n = kPrograms[i];
-            const char* name = packActive && n.pack ? n.pack : n.builtin;
+            // java pack replaces terrain with the converted program
+            const char* name = javaActive && n.java ? n.java : (packActive && n.pack ? n.pack : n.builtin);
             programIds[i] = name ? gpu.Program(name) : -1;
             programLayouts[i] = n.layout;
         }
@@ -434,6 +437,8 @@ namespace perlin {
         k.alphaToCoverage = s.alphaToCoverage;
         k.color = view.colorFormat;
         k.depth = view.depthFormat;
+        k.colorCount = static_cast<uint8_t>(view.colorCount);
+        k.color1 = view.colorFormat1;
         return k;
     }
 
@@ -638,6 +643,8 @@ namespace perlin {
         const float tiles[4] = {params.waterTile, params.lavaTile, params.waterFlowTile, 0.0f};
         uni.Set("u_tiles", tiles, 4);
         uni.Vec4("u_chunk", 1.0f, 0.0f, 0.0f, 0.0f);
+        if (javaActive)
+            FeedJavaUniforms(params);
     }
 
     void RenderContext_rhi::BeginFrame(const FrameParams& params) {
@@ -719,12 +726,13 @@ namespace perlin {
 
         std::memcpy(mvp, params.viewProjection, sizeof(mvp));
         ConvertDepth(params.skyViewProjection, skyMvp);
+        // sky at infinity: jitter shimmers clouds against unjittered sky
         if (plan.temporal) {
-            for (float* m : {mvp, skyMvp})
-                for (int col = 0; col < 4; col++) {
-                    m[col * 4 + 0] += plan.jitter[0] * m[col * 4 + 3];
-                    m[col * 4 + 1] += plan.jitter[1] * m[col * 4 + 3];
-                }
+            float* m = mvp;
+            for (int col = 0; col < 4; col++) {
+                m[col * 4 + 0] += plan.jitter[0] * m[col * 4 + 3];
+                m[col * 4 + 1] += plan.jitter[1] * m[col * 4 + 3];
+            }
         }
         SetFrameUniforms(params);
         uni.Vec4("u_cloudMap", 0.0f, 3.96f, 1.0f / 3072.0f, 1.0f / 3072.0f);

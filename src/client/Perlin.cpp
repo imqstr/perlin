@@ -8669,6 +8669,8 @@ namespace perlin {
             {
                 const glm::mat4 handProjection = HandRenderer::Projection(70.0f, camera.aspect, camera.farPlane);
                 std::copy_n(glm::value_ptr(handProjection), 16, params.handProjection);
+                params.cameraNear = camera.nearPlane;
+                params.cameraFar = camera.farPlane;
             }
 
             params.sky.enabled = input.dimension == Dimension::Overworld;
@@ -8735,6 +8737,14 @@ namespace perlin {
             }
             params.timeSeconds = std::chrono::duration<float>(frameStart - startedAt).count();
             params.frameIndex = static_cast<uint32_t>(frameCounter++);
+            {
+                int64_t day = -1;
+                int tick = -1;
+                if (sessionReady && session && session->GetWorldTime(day, tick)) {
+                    params.worldDay = static_cast<int>(day);
+                    params.worldTick = tick;
+                }
+            }
 
             LightmapParams lightmap;
             lightmap.blockFactor = blockLight.Value() + 1.4f;

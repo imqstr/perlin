@@ -89,6 +89,11 @@ void stageMain()
         }
     }
     vec3 resolved = sum / max(wsum, 1.0e-4);
+    // sky has no valid motion vector: history smears it into lines
+    if (nearest > 0.9995) {
+        gl_FragColor = vec4(resolved, 1.0);
+        return;
+    }
     vec3 mean = m1 / 9.0;
     vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3_splat(0.0)));
 

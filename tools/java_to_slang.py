@@ -303,10 +303,37 @@ VERTEX_INPUTS = [
     ("float", "a_mcChunkFade", 11, ["mc_chunkFade"]),
 ]
 
+# packed engine feed: the RHI terrain vertex carries java attribs packed to
+# keep the stride small. member -> (packed slang type, packed VsIn name,
+# location, unpack statements with {src} = input member).
+PACKED_INPUTS = {
+    "a_normal": ("float4", "a_nPacked", 1, [
+        "vs_stage::a_normal = normalize({src}.xyz * 2.0 - 1.0);",
+    ]),
+    "a_mcEntity": ("float", "a_ePacked", 8, [
+        "vs_stage::a_mcEntity = float4({src}, 0.0, 0.0, 0.0);",
+    ]),
+    "a_mcMidTexCoord": ("float2", "a_mPacked", 9, [
+        "vs_stage::a_mcMidTexCoord = float4({src}, 0.0, 0.0);",
+    ]),
+    # tangent axis index 0..5 (+x,-x,+y,-y,+z,-z), handedness in the low bit
+    "a_atTangent": ("float", "a_tPacked", 10, [
+        "{ float ti = {src}; float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;",
+        "  float3 ax = ix < 0.5 ? float3(1.0, 0.0, 0.0) : ix < 1.5 ? float3(-1.0, 0.0, 0.0) :",
+        "      ix < 2.5 ? float3(0.0, 1.0, 0.0) : ix < 3.5 ? float3(0.0, -1.0, 0.0) :",
+        "      ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);",
+        "  vs_stage::a_atTangent = float4(ax, hd); }",
+    ]),
+    # chunk load fade is cosmetic: engine feeds a constant until meshing animates it
+    "a_mcChunkFade": (None, None, None, [
+        "vs_stage::a_mcChunkFade = 1.0;",
+    ]),
+}
+
 SAMPLER_SLOTS = {
-    # tex is the pack's plain 2D block atlas; RHI s_atlas is an array, so the
-    # port gets its own 2D slot until the engine binds a matching view.
-    "tex": "s_javaAtlas",
+    # tex is the block atlas; the RHI keeps it as an array, so tex taps are
+    # rewritten to array samples with the tile layer from a_texcoord1 (see below)
+    "tex": "s_atlas",
     "lightmap": "s_lightmap",
     "shadowtex0": "s_shadow",
     "shadowtex1": "s_shadowB",
@@ -314,6 +341,12 @@ SAMPLER_SLOTS = {
     "shadowcolor1": "s_shadowTintB",
     "depthtex0": "s_sceneDepth",
     "depthtex1": "s_depth",
+    "noisetex": "s_noise",
+    "normals": "s_normals",
+    "specular": "s_specular",
+    "gaux2": "s_gaux2",
+    "gaux4": "s_gaux4",
+    **{f"colortex{i}": f"s_colortex{i}" for i in range(16)},
 }
 
 GLSL_TO_SLANG_TYPE = {
@@ -458,7 +491,8 @@ def _rename_builtins(body: str, needed_matrices: dict[str, str]) -> str:
     sub(r"\bgl_Normal\b", "a_normal")
     sub(r"\bgl_Color\b", "a_color0")
     sub(r"\bgl_MultiTexCoord0\b", "vec4(a_texcoord0, 0.0, 1.0)")
-    sub(r"\bgl_MultiTexCoord1\b", "a_texcoord1")
+    # engine light bytes are 0..15 in a_texcoord1.xy; the pack wants 0..1
+    sub(r"\bgl_MultiTexCoord1\b", "javaLightCoord(a_texcoord1)")
     for java, member in LEGACY_MATRIX.items():
         base = java.replace("gl_TextureMatrix", "gl_TextureMatrix")
         if base.startswith("gl_TextureMatrix"):
@@ -548,6 +582,48 @@ def _rename_samplers(body: str, sampler_map: dict[str, str]) -> str:
     return body
 
 
+def _rewrite_atlas_taps(body: str) -> str:
+    """tex taps became s_atlas (a 2D array): resample with the tile layer.
+    jLayer is a generated varying decoded from a_texcoord1 (see emission)."""
+    out: list[str] = []
+    i = 0
+    pat = re.compile(r"\btexture2DLod\s*\(\s*s_atlas\s*,|\btexture2D\s*\(\s*s_atlas\s*,")
+    while True:
+        m = pat.search(body, i)
+        if not m:
+            out.append(body[i:])
+            break
+        out.append(body[i:m.start()])
+        name = "texture2DArrayLod" if m.group(0).startswith("texture2DLod") else "texture2DArray"
+        j = m.end()
+        depth = 1
+        args: list[str] = []
+        cur = ""
+        while j < len(body) and depth:
+            ch = body[j]
+            if ch == "(":
+                depth += 1
+                cur += ch
+            elif ch == ")":
+                depth -= 1
+                if depth:
+                    cur += ch
+            elif ch == "," and depth == 1:
+                args.append(cur)
+                cur = ""
+            else:
+                cur += ch
+            j += 1
+        args.append(cur)
+        uv = args[0].strip()
+        if name == "texture2DArrayLod":
+            out.append(f"texture2DArrayLod(s_atlas, float3({uv}, jLayer), {args[1].strip()})")
+        else:
+            out.append(f"texture2DArray(s_atlas, float3({uv}, jLayer))")
+        i = j
+    return "".join(out)
+
+
 def emit_program(pack: Path, program: str, world: str, out: Path,
                  extra_defines: dict[str, str] | None = None):
     srcs, pps = {}, {}
@@ -598,6 +674,8 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
               for (q, st, t, n) in vary["vertex"] if st in ("varying", "out")]
     f_ins = [(q if q in ("flat", "centroid") else "", t, n)
              for (q, st, t, n) in vary["fragment"] if st in ("varying", "in")]
+    # generated tile-layer varying for atlas array taps (decoded in vsMain)
+    v_outs.append(("", "float", "jLayer"))
 
     v_names = {n for _, _, n in v_outs}
     missing = [n for _, _, n in f_ins if n not in v_names]
@@ -613,6 +691,7 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     smap = {s: SAMPLER_SLOTS.get(s, s) for s in samp}
     for stage in ("vertex", "fragment"):
         bodies[stage] = _rename_samplers(bodies[stage], smap)
+        bodies[stage] = _rewrite_atlas_taps(bodies[stage])
         head = render_defines(pps[stage], emitted_macros)
         if head:
             bodies[stage] = head + "\n" + bodies[stage]
@@ -665,7 +744,14 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append("struct VsIn")
     lines.append("{")
     for ty, nm, lc, _ in VERTEX_INPUTS:
-        lines.append(f"    [[vk::location({lc})]] {GLSL_TO_SLANG_TYPE.get(ty, ty)} {nm} : TEXCOORD{lc};")
+        if nm in PACKED_INPUTS:
+            pty, pnm, plc, _stmts = PACKED_INPUTS[nm]
+            # constant-fed inputs (chunk fade): no vertex channel at all
+            if pty is None:
+                continue
+            lines.append(f"    [[vk::location({plc})]] {GLSL_TO_SLANG_TYPE.get(pty, pty)} {pnm} : TEXCOORD{plc};")
+        else:
+            lines.append(f"    [[vk::location({lc})]] {GLSL_TO_SLANG_TYPE.get(ty, ty)} {nm} : TEXCOORD{lc};")
     lines.append("};")
     lines.append("struct VsOut")
     lines.append("{")
@@ -734,14 +820,26 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append("float javaTextureProj(Texture2D t, SamplerState s, float4 uvw)")
     lines.append("{ float w = max(uvw.w, 1e-6); return t.Sample(s, uvw.xy / w).r; }")
     lines.append("")
+    lines.append("// engine light bytes are 0..15 levels; the pack wants 0..1")
+    lines.append("float4 javaLightCoord(float4 t) { return float4(t.xy * 17.0, t.zw); }")
+    lines.append("")
     lines.append("VsOut vsMain(VsIn input)")
     lines.append("{")
+    # packed java attribs: unpack lines use a literal {src} marker (not
+    # str.format: unpack code itself contains slang braces).
     for _ty, nm, _lc, _ in VERTEX_INPUTS:
-        lines.append(f"    vs_stage::{nm} = input.{nm};")
+        if nm in PACKED_INPUTS:
+            _pty, pnm, _plc, stmts = PACKED_INPUTS[nm]
+            for st in stmts:
+                lines.append(f"    {st.replace('{src}', 'input.' + pnm) if pnm else st}")
+        else:
+            lines.append(f"    vs_stage::{nm} = input.{nm};")
     for name in sorted(uni):
         lines.append(f"    vs_stage::{name} = u_j{name};")
     for _java, member in sorted(needed_matrices.items()):
         lines.append(f"    vs_stage::{member} = {member};")
+    # tile layer for atlas array taps, before the pack body samples anything
+    lines.append("    vs_stage::jLayer = floor(input.a_texcoord1.z * 255.0 + 0.5) + floor(input.a_texcoord1.w * 255.0 + 0.5) * 256.0;")
     lines.append("    vs_stage::stageMain();")
     lines.append("    VsOut output;")
     lines.append("    output.clipPosition = vs_stage::gl_Position;")

@@ -16,8 +16,8 @@ namespace perlin::gpu {
         }
 
         const VertexLayoutInfo kLayouts[static_cast<size_t>(VertexLayout::Count)] = {
-            // terrain: position, packed colour, uv, packed light
-            {28, {{{0, 0, Format::RGB32Float, 0}, {2, 0, Format::RGBA8Unorm, 12}, {4, 0, Format::RG32Float, 16}, {5, 0, Format::RGBA8Unorm, 24}}}, 4},
+            // terrain: position, packed colour, uv, packed light, packed normal, entity, mid uv, tangent
+            {48, {{{0, 0, Format::RGB32Float, 0}, {2, 0, Format::RGBA8Unorm, 12}, {4, 0, Format::RG32Float, 16}, {5, 0, Format::RGBA8Unorm, 24}, {1, 0, Format::RGBA8Unorm, 28}, {8, 0, Format::R32Float, 32}, {9, 0, Format::RG32Float, 36}, {10, 0, Format::R32Float, 44}}}, 8},
             {12, {{{0, 0, Format::RGB32Float, 0}}}, 1},
             {16, {{{0, 0, Format::RGB32Float, 0}, {2, 0, Format::RGBA8Unorm, 12}}}, 2},
             {20, {{{0, 0, Format::RGB32Float, 0}, {4, 0, Format::RG32Float, 12}}}, 2},
@@ -36,7 +36,8 @@ namespace perlin::gpu {
                  (u(blend) << 34) | (u(alphaToCoverage) << 35) | (u(depthOp) << 36) | (u(mask) << 40) | (u(color) << 48);
         out[1] = u(srcColor) | (u(dstColor) << 8) | (u(srcAlpha) << 16) | (u(dstAlpha) << 24) | (u(depth) << 32) |
                  (static_cast<uint64_t>(static_cast<uint16_t>(biasConstant)) << 48);
-        out[2] = static_cast<uint64_t>(static_cast<uint16_t>(biasSlope)) | (u(alphaOp) << 16);
+        out[2] = static_cast<uint64_t>(static_cast<uint16_t>(biasSlope)) | (u(alphaOp) << 16) | (u(colorCount) << 24) |
+                 (u(color1) << 32);
         return out;
     }
 
@@ -333,6 +334,11 @@ namespace perlin::gpu {
             if (key.color != Format::Unknown) {
                 gd.colorFormats[0] = key.color;
                 gd.colorCount = 1;
+            }
+            // extra MRT attachments take no blending: they carry data, not color
+            if (key.colorCount > 1 && key.color1 != Format::Unknown) {
+                gd.colorFormats[1] = key.color1;
+                gd.colorCount = 2;
             }
             gd.depthFormat = key.depth;
             gd.name = library.Programs()[program].name.c_str();

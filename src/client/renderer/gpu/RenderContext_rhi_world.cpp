@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <cstdio>
 
 namespace perlin {
     namespace {
@@ -312,6 +313,11 @@ namespace perlin {
             return;
         const bool ordered = layer == RenderLayer::Translucent || layer == RenderLayer::TranslucentCull;
         meshes.CollectRuns(layer, ordered, runs);
+        if (javaActive && PERLIN_ENV("PERLIN_JAVA_DBG")) {
+            static int m = 0;
+            if (m++ < 10)
+                std::fprintf(stderr, "[javadbg] runs layer=%d count=%zu\n", static_cast<int>(layer), runs.size());
+        }
         if (runs.empty())
             return;
         DrawState state = PassState(layer);
@@ -327,6 +333,8 @@ namespace perlin {
             UploadTileFlags({});
         BindTexture("s_tileFlags", tileFlagsTex.handle, gpu::SamplerKind::PointClamp);
         BindShadowSampling();
+        if (javaActive)
+            BindJavaExtras();
         if (ordered && post.sceneValid) {
             BindTexture("s_sceneColor", post.sceneColor, gpu::SamplerKind::LinearClamp);
             BindTexture("s_sceneDepth", post.sceneDepth, gpu::SamplerKind::PointClamp);
@@ -334,13 +342,32 @@ namespace perlin {
 
         DrawCall templ;
         if (!Prepare(view, state, templ)) {
+            if (javaActive && PERLIN_ENV("PERLIN_JAVA_DBG"))
+                std::fprintf(stderr, "[javadbg] prepare failed layer=%d prog=%d\n", static_cast<int>(layer),
+                             static_cast<int>(program));
             ResetBindings();
             return;
+        }
+        if (javaActive && PERLIN_ENV("PERLIN_JAVA_DBG")) {
+            static int n = 0;
+            if (n++ % 300 == 0)
+                std::fprintf(stderr, "[javadbg] draw layer=%d prog=%d runs=%zu pid=%d\n", static_cast<int>(layer),
+                             static_cast<int>(program), runs.size(), ProgramIndex(program));
         }
         for (const gpu::ChunkMeshStore::Run& r : runs) {
             const Source vertices{meshes.Vertices(r.page), 0};
             const Source indices{meshes.Indices(r.page, layer), 0};
             Push(view, templ, vertices, &indices, rhi::IndexType::U32, r.first, r.count);
+        }
+        if (javaActive && PERLIN_ENV("PERLIN_JAVA_DBG") && layer == RenderLayer::Solid && !runs.empty()) {
+            static int q = 0;
+            if (q++ < 3) {
+                std::string msg = "[javadbg] solid runs=" + std::to_string(runs.size());
+                for (size_t i = 0; i < runs.size() && i < 6; i++)
+                    msg += " (p" + std::to_string(runs[i].page) + " f" + std::to_string(runs[i].first) + " c" +
+                           std::to_string(runs[i].count) + ")";
+                std::fprintf(stderr, "%s\n", msg.c_str());
+            }
         }
         ResetBindings();
     }
@@ -371,6 +398,18 @@ namespace perlin {
             DrawClouds();
             DrawScreenTint();
             return;
+        }
+        if (javaActive && PERLIN_ENV("PERLIN_JAVA_DBG")) {
+            static int c = 0;
+            if (c++ % 300 == 0) {
+                size_t solidChunks = 0, total = 0;
+                for (const auto& [key, g] : meshes.ChunkMap()) {
+                    total++;
+                    if (g.page >= 0 && g.layerCount[0])
+                        solidChunks++;
+                }
+                std::fprintf(stderr, "[javadbg] census chunks=%zu solid=%zu\n", total, solidChunks);
+            }
         }
         meshes.Select(frustum, camX, frame.cameraPosition[1], camZ, chunkCullRadius, caveCulling, frame.timeSeconds);
         RenderShadows(frame.cameraPosition[0], frame.cameraPosition[1], frame.cameraPosition[2]);

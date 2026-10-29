@@ -65,7 +65,7 @@ namespace perlin {
     void RenderContext_rhi::DestroyPostTargets() {
         for (rhi::TextureHandle* t : {&post.worldColor, &post.worldDepth, &post.hist[0], &post.hist[1], &post.bloom[0], &post.bloom[1],
                                       &post.bloom[2], &post.bloom[3], &post.up[0], &post.up[1], &post.up[2], &post.sceneColor,
-                                      &post.sceneDepth})
+                                      &post.sceneDepth, &post.javaAux})
             if (*t) {
                 gpu.DestroyTexture(*t);
                 *t = {};
@@ -197,6 +197,9 @@ namespace perlin {
         ShaderPack& pack = ShaderPack::Instance();
         plan.sceneCopy = packActive && pack.Flag("sceneCopy", false) && !noSsr;
         plan.active = !post.failed && (plan.blur || plan.sceneCopy || plan.bloom || plan.scaled || plan.temporal) && ProgramIndex(Program::Post) >= 0;
+        // java MRT needs the offscreen chain even with every effect off
+        if (javaActive && !post.failed && ProgramIndex(Program::Post) >= 0)
+            plan.active = true;
 
         const float clear[4] = {params.fogColor[0], params.fogColor[1], params.fogColor[2], 1.0f};
         const auto direct = [&] {
@@ -269,11 +272,30 @@ namespace perlin {
             vd.h = static_cast<uint32_t>(plan.h);
             vd.colorFormat = kPostColor;
             vd.depthFormat = kPostDepth;
+            // second MRT attachment carries the java colortex1 buffer
+            vd.colorCount = javaActive && post.javaAux ? 2 : 1;
+            vd.colorFormat1 = kPostColor;
         }
 
         Target world;
         world.color = post.worldColor;
         world.depth = post.worldDepth;
+        if (javaActive) {
+            if (!post.javaAux || post.worldW != static_cast<uint32_t>(plan.w) || post.worldH != static_cast<uint32_t>(plan.h)) {
+                if (post.javaAux)
+                    gpu.DestroyTexture(post.javaAux);
+                post.javaAux = MakeTarget(gpu, static_cast<uint32_t>(plan.w), static_cast<uint32_t>(plan.h), kPostColor,
+                                          kColorRt, "java aux");
+                if (!post.javaAux)
+                    return;
+                postTextures.push_back(post.javaAux);
+            }
+            world.color1 = post.javaAux;
+            for (View v : {View::World, View::Entity, View::Late}) {
+                views[static_cast<size_t>(v)].colorCount = 2;
+                views[static_cast<size_t>(v)].colorFormat1 = kPostColor;
+            }
+        }
         world.w = static_cast<uint32_t>(plan.w);
         world.h = static_cast<uint32_t>(plan.h);
         world.colorFormat = kPostColor;
@@ -576,14 +598,22 @@ namespace perlin {
         const Target& target = stage.target;
         ReadyForSampling(list, target.color, target.depth);
         gpu.Transition(list, target.color, rhi::State::ColorTarget);
+        if (target.color1)
+            gpu.Transition(list, target.color1, rhi::State::ColorTarget);
         if (target.depth)
             gpu.Transition(list, target.depth, rhi::State::DepthWrite);
         rhi::RenderingDesc rd;
-        rd.colorCount = 1;
+        rd.colorCount = target.color1 ? 2 : 1;
         rd.colors[0].texture = target.color;
         rd.colors[0].load = stage.clearColor ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
         rd.colors[0].store = rhi::StoreOp::Store;
         rd.colors[0].clear = {stage.clear[0], stage.clear[1], stage.clear[2], stage.clear[3]};
+        if (target.color1) {
+            rd.colors[1].texture = target.color1;
+            rd.colors[1].load = stage.clearColor ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
+            rd.colors[1].store = rhi::StoreOp::Store;
+            rd.colors[1].clear = {0.0f, 0.0f, 0.0f, 1.0f};
+        }
         if (target.depth) {
             rd.depth.texture = target.depth;
             rd.depth.load = stage.clearDepth ? rhi::LoadOp::Clear : rhi::LoadOp::Load;

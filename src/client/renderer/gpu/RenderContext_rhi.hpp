@@ -98,6 +98,10 @@ namespace perlin {
         void SetVsync(bool enabled) override;
         bool ReloadShaders() override;
         bool PackShadowsActive() const override { return packActive; }
+        bool SetJavaShaderPack(const std::string& path, const std::map<std::string, std::string>& options,
+                               std::string& error) override;
+        void ClearJavaShaderPack() override;
+        bool JavaShaderPackActive() const override { return javaActive; }
 
         void BeginFrame(const FrameParams& params) override;
         void EndFrame() override;
@@ -194,12 +198,17 @@ namespace perlin {
             // attachments the draws of this view render into; the pipelines are built for them
             rhi::Format colorFormat = rhi::Format::BGRA8Unorm;
             rhi::Format depthFormat = rhi::Format::D32Float;
+            // second MRT attachment for java gbuffer passes; 1 keeps single-target
+            uint32_t colorCount = 1;
+            rhi::Format colorFormat1 = rhi::Format::RGBA8Unorm;
             std::vector<DrawCall> draws;
         };
 
         struct Target {
             rhi::TextureHandle color;
             rhi::TextureHandle depth;
+            // optional second MRT color attachment (java colortex1)
+            rhi::TextureHandle color1;
             uint32_t w = 0, h = 0;
             rhi::Format colorFormat = rhi::Format::RGBA8Unorm;
         };
@@ -284,6 +293,8 @@ namespace perlin {
             rhi::TextureHandle sceneColor, sceneDepth;
             bool sceneValid = false;
             bool failed = false;
+            // second MRT attachment for java gbuffer passes (colortex1 content)
+            rhi::TextureHandle javaAux;
         } post;
         void PlanPost(const FrameParams& params);
         bool EnsureWorldTargets(uint32_t w, uint32_t h, bool sampledDepth, bool history);
@@ -413,6 +424,15 @@ namespace perlin {
         int chunkCullRadius = 0;
         bool frameOpen = false;
         bool packActive = false;
+        // converted java pack drives terrain through the baked java programs
+        bool javaActive = false;
+        std::string javaPackPath;
+        // generated/default java samplers (noise, pbr fallbacks, cleared buffers)
+        TexRec javaNoise, javaNormalDef, javaSpecDef, javaBlack;
+        bool javaTexReady = false;
+        bool EnsureJavaSamplers();
+        void FeedJavaUniforms(const FrameParams& params);
+        void BindJavaExtras();
         bool ResolvePrograms();
         std::array<int, static_cast<size_t>(Program::Count)> programIds{};
         std::array<gpu::VertexLayout, static_cast<size_t>(Program::Count)> programLayouts{};

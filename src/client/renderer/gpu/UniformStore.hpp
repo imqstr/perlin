@@ -33,6 +33,16 @@ namespace perlin::gpu {
             std::memcpy(slot.data(), v, sizeof(float) * static_cast<size_t>(count));
             version++;
         }
+        // bit-correct int feed for cbuffer int/bool members (reflection copies raw bytes)
+        void SetI(int id, const int32_t* v, int count) {
+            auto& slot = values[static_cast<size_t>(id)];
+            if (std::memcmp(slot.data(), v, sizeof(int32_t) * static_cast<size_t>(count)) == 0)
+                return;
+            std::memcpy(slot.data(), v, sizeof(int32_t) * static_cast<size_t>(count));
+            version++;
+        }
+        void SetI(std::string_view name, const int32_t* v, int count) { SetI(Id(name), v, count); }
+        void SetI(std::string_view name, int32_t v) { SetI(Id(name), &v, 1); }
         void Set(std::string_view name, const float* v, int count) { Set(Id(name), v, count); }
         void Vec4(std::string_view name, float x, float y, float z, float w) {
             const float v[4] = {x, y, z, w};

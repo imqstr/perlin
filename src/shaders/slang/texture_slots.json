@@ -83,5 +83,93 @@
   "s_final": [
     19,
     "2d"
+  ],
+  "s_javaAtlas": [
+    20,
+    "2d"
+  ],
+  "s_noise": [
+    21,
+    "2d"
+  ],
+  "s_normals": [
+    22,
+    "2d"
+  ],
+  "s_specular": [
+    23,
+    "2d"
+  ],
+  "s_colortex0": [
+    24,
+    "2d"
+  ],
+  "s_colortex1": [
+    25,
+    "2d"
+  ],
+  "s_colortex2": [
+    26,
+    "2d"
+  ],
+  "s_colortex3": [
+    27,
+    "2d"
+  ],
+  "s_colortex4": [
+    28,
+    "2d"
+  ],
+  "s_colortex5": [
+    29,
+    "2d"
+  ],
+  "s_colortex6": [
+    30,
+    "2d"
+  ],
+  "s_colortex7": [
+    31,
+    "2d"
+  ],
+  "s_colortex8": [
+    32,
+    "2d"
+  ],
+  "s_gaux2": [
+    33,
+    "2d"
+  ],
+  "s_gaux4": [
+    34,
+    "2d"
+  ],
+  "s_colortex9": [
+    35,
+    "2d"
+  ],
+  "s_colortex10": [
+    36,
+    "2d"
+  ],
+  "s_colortex11": [
+    37,
+    "2d"
+  ],
+  "s_colortex12": [
+    38,
+    "2d"
+  ],
+  "s_colortex13": [
+    39,
+    "2d"
+  ],
+  "s_colortex14": [
+    40,
+    "2d"
+  ],
+  "s_colortex15": [
+    41,
+    "2d"
   ]
 }
