@@ -341,6 +341,10 @@ namespace perlin::ui {
                     addKid(Instantiate(*child, collections, factoryVars, n->layer, n->alpha, propagate));
                 if (deferredView) {
                     ApplyBindings(*n, collections);
+                    // The source may be a child instantiated above. Resolve label text
+                    // again after its view binding has received that child's value.
+                    if (n->type == "label")
+                        n->text = ResolveText(*n, vars);
                     bool nowVisible = true;
                     if (const Json* v = n->p.Find("visible"))
                         nowVisible = Truthy(*v) || (v->IsString() && v->string.empty());

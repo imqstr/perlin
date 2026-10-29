@@ -1357,13 +1357,12 @@ namespace perlin {
             });
         }
         if (!root.empty())
-            sounds.Configure(root);
+            sounds.Configure(root, ServerPacks::Instance().Directories());
         audio::Volumes volumes;
         const SoundSettings& v = options.sound;
         volumes.v = {v.master, v.music, v.record, v.weather, v.block, v.hostile, v.neutral, v.player, v.ambient, v.voice};
         audioEngine.SetVolumes(volumes);
         audioEngine.SetListener({camera.x, camera.y, camera.z}, camera.yaw - 90.0f);
-        sounds.Tick(now);
 
         static double nextMusic = 0;
         if (live && options.sound.music > 0.0f) {
@@ -1382,7 +1381,7 @@ namespace perlin {
                 NoteModSound(r.name, r.x, r.y, r.z, r.volume, r.pitch);
                 switch (r.kind) {
                 case BedrockSession::SoundRequest::Kind::Named:
-                    sounds.PlayNamed(r.name, at, r.volume > 0.0f ? r.volume : 1.0f, r.pitch > 0.0f ? r.pitch : 1.0f, !r.global);
+                    sounds.PlayNamed(r.name, at, r.volume, r.pitch, !r.global);
                     break;
                 case BedrockSession::SoundRequest::Kind::Level:
                     sounds.PlayLevelSound(r.name, at, r.extra, r.entityType, r.baby, r.global);
@@ -7626,6 +7625,8 @@ namespace perlin {
                         if (around)
                             aimAt(around->anchor, around->face, around->point);
                     }
+                    if (bedrockBuild && inputManager.Pressed(Action::Use))
+                        gHeldBuild.Start(MsNow(), player.TickCount());
                     // Held repeats follow the game's build rules (heldbuild::HeldBuild): direct crosshair hits only, the
                     // repeat delay, and the build line. Reach-around is for fresh presses.
                     bool heldRepeat = false;
@@ -7635,7 +7636,7 @@ namespace perlin {
                         hit.target = {{gAim.bx, gAim.by, gAim.bz}, gAim.face};
                         hit.point = hit.block ? glm::vec3(gAim.point) : buildEye + glm::normalize(camera.Direction()) * static_cast<float>(PickRange(creative, 1));
                         const glm::vec3 posDelta = buildVelocity / 20.0f;
-                        const auto chosen = gHeldBuild.Next(hit, buildEye, posDelta, player.Sneaking(), MsNow(), [&](glm::ivec3 p) {
+                        const auto chosen = gHeldBuild.Next(hit, buildEye, posDelta, player.Sneaking(), MsNow(), player.TickCount(), [&](glm::ivec3 p) {
                             if (!live)
                                 return false;
                             bool loaded = false;
@@ -7726,8 +7727,6 @@ namespace perlin {
                                 lastBuildAt = useTime;
                                 lastBuildCell = destination;
                                 if (sent && bedrockBuild) {
-                                    if (usePressed)
-                                        gHeldBuild.Start();
                                     const auto& placedShape = LevelCollision::ShapeOf(BlockPalette::Instance().InternRuntime(static_cast<int32_t>(held.blockRuntimeId)));
                                     gHeldBuild.Built({{useAim.bx, useAim.by, useAim.bz}, useAim.face}, destination,
                                                      heldbuild::IsSnappable(held.name, std::vector<physics::Box>(placedShape.boxes.begin(), placedShape.boxes.end())),

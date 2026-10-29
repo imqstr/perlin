@@ -30,8 +30,8 @@ namespace perlin::audio {
     public:
         explicit SoundSystem(AudioEngine& engine) : engine(engine) {}
 
-        void Configure(const std::string& root);
-        void Reload() { const std::string r = root; configured = false; Configure(r); }
+        void Configure(const std::string& root, const std::vector<std::string>& packs = {});
+        void Reload() { const std::string r = root; configured = false; Configure(r, packRoots); }
         bool HasSounds() const { return !definitions.empty(); }
         size_t DefinitionCount() const { return definitions.size(); }
 
@@ -65,6 +65,7 @@ namespace perlin::audio {
 
         AudioEngine& engine;
         std::string root;
+        std::vector<std::string> packRoots;
         bool configured = false;
         std::unordered_map<std::string, SoundDefinition> definitions;
         std::unordered_map<std::string, std::unordered_map<std::string, EventSound>> blockEvents;
@@ -77,14 +78,6 @@ namespace perlin::audio {
         std::mt19937 rng{std::random_device{}()};
         SubtitleHook subtitles;
         std::function<std::string(int32_t)> blockNamer;
-        struct LastPlayed {
-            double time = 0;
-            glm::dvec3 position{0.0};
-        };
-        std::unordered_map<std::string, LastPlayed> lastPlayed;
-        double clock = 0;
-    public:
-        void Tick(double seconds) { clock = seconds; }
     };
 
     std::string EventKey(const std::string& id);

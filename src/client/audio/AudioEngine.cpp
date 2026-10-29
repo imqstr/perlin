@@ -115,13 +115,13 @@ namespace perlin::audio {
         if (voice.positional && !voice.loop && !voice.name.empty()) {
             // Predict+echo dedup: the client predicts place/break/hit sounds and the
             // server echo arrives ~1 frame later. Same sound at the same spot within
-            // a short window is the echo, not a second event. Legit repeats (steps at
-            // 250ms+, bridging at 166ms+ in different cells) fall outside the window.
+            // a short window is the echo, not a second event. Different positions
+            // must remain separate events, including adjacent bridge placements.
             for (const Voice& v : voices) {
                 if (v.stopping || v.name != voice.name || nowMs - v.startedMs > 90u)
                     continue;
                 const glm::dvec3 d = v.position - voice.position;
-                if (glm::dot(d, d) < 2.25)
+                if (glm::dot(d, d) < 1.0e-6)
                     return v.id;
             }
         }

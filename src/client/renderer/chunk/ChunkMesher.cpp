@@ -1373,13 +1373,17 @@ namespace perlin {
                             }
 
                             float base[3] = {1, 1, 1};
+                            // Custom geometry has a direct atlas tile and tex=0xFFFF.
+                            // It must never index the Java model texture table.
+                            const std::string tintTexture = q.tile || q.tex >= bm.Textures().size()
+                                ? library->TilePathOf(tile) : bm.Textures()[q.tex];
                             {
-                                const std::string& tn0 = bm.Textures()[q.tex];
+                                const std::string& tn0 = tintTexture;
                                 if (tn0.find("bamboo_leaf") != std::string::npos || tn0.find("bamboo_small_leaf") != std::string::npos)
                                     base[0] = base[1] = base[2] = 0.63f;
                             }
                             if (q.tint >= 0 && !q.tile) {
-                                const std::string& tn = bm.Textures()[q.tex];
+                                const std::string& tn = tintTexture;
                                 const auto tc = biomeTintFor(tn, tile, dir == 1);
                                 if (tc[3]) {
                                     base[0] = tc[0];

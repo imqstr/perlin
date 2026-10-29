@@ -222,7 +222,7 @@ static void TestSoundSystem() {
         "mob.cow.say":{"category":"neutral","max_distance":null,"sounds":["sounds/mob/cow/say1",{"name":"sounds/mob/cow/say2","weight":2}]}}})");
     Write(root / "sounds.json", R"({"block_sounds":{"stone":{"events":{"break":{"sound":"break.stone","volume":1.0},"item.use.on":{"sound":"step.stone"}}}},
         "interactive_sounds":{"block_sounds":{"stone":{"events":{"step":{"sound":"step.stone","volume":0.5,"pitch":[0.9,1.1]}}}}},
-        "entity_sounds":{"defaults":{"events":{"hurt":"mob.generic.hurt"}},"entities":{"cow":{"events":{"ambient":"mob.cow.say","step":{"sound":"mob.cow.step"}}}}},
+        "entity_sounds":{"defaults":{"events":{"hurt":"mob.generic.hurt"}},"entities":{"cow":{"pitch":0.6,"events":{"ambient":"mob.cow.say","step":{"sound":"mob.cow.step"}}}}},
         "individual_named_sounds":{"sounds":{"cow.moo":{"sound":"mob.cow.say","volume":0.4}}}})");
     Write(root / "blocks.json", R"({"stone":{"sound":"stone","textures":"stone"}})");
 
@@ -236,27 +236,55 @@ static void TestSoundSystem() {
     CHECK(sounds.HasSounds() && sounds.DefinitionCount() == 2);
     CHECK(EventKey("minecraft:item_use_on") == EventKey("ItemUseOn") && EventKey("item.use.on") == "itemuseon");
     CHECK(sounds.BlockSoundType("minecraft:stone") == "stone");
+    sounds.LoadBlocksText(R"({"custom:stone":{"sound":"wood"}})");
+    CHECK(sounds.BlockSoundType("custom:stone") == "wood");
+    CHECK(sounds.BlockSoundType("minecraft:stone") == "stone");
 
-    double t = 1.0;
-    sounds.Tick(t);
     CHECK(sounds.PlayLevelSound("Step", {1, 2, 3}, 7, "", false, false));
     CHECK(engine.Active() == 1 && lastSubtitle == "step.stone");
     CHECK(SubtitleText(lastSubtitle) == "Footsteps");
-    sounds.Tick(t += 1.0);
     CHECK(sounds.PlayLevelSound("minecraft:item_use_on", {0, 0, 0}, 7, "", false, false));
-    sounds.Tick(t += 1.0);
     CHECK(!sounds.PlayLevelSound("break", {0, 0, 0}, 7, "", false, false));
-    sounds.Tick(t += 1.0);
     CHECK(sounds.PlayLevelSound("ambient", {0, 0, 0}, 0, "minecraft:cow", false, false));
     CHECK(lastSubtitle == "mob.cow.say" && SubtitleText(lastSubtitle) == "Cow moos");
-    sounds.Tick(t += 1.0);
     CHECK(sounds.PlayNamed("cow.moo", {0, 0, 0}, 1.0f, 1.0f));
-    sounds.Tick(t += 1.0);
     CHECK(sounds.PlayNamed("mob.cow.say", {0, 0, 0}, 1.0f, 1.0f, false) && lastGlobal);
     CHECK(!sounds.PlayNamed("does.not.exist", {0, 0, 0}, 1.0f, 1.0f));
-    sounds.Tick(t += 1.0);
     CHECK(sounds.PlayNamed("step.stone", {0, 0, 0}, 1.0f, 1.0f));
-    CHECK(!sounds.PlayNamed("step.stone", {0, 0, 0}, 1.0f, 1.0f));
+    // Repeated requests are valid events, not an automatic 250 ms mute.
+    CHECK(sounds.PlayNamed("step.stone", {1, 0, 0}, 1.0f, 1.0f));
+    EventSound cow;
+    CHECK(sounds.FindEntityEvent("minecraft:cow", "ambient", cow));
+    CHECK(std::fabs(cow.pitchLo - 0.6f) < 1e-6f);
+    sounds.LoadDefinitionsText(R"({"sound_definitions":{
+        "random.burp":{"sounds":["sounds/step/stone1"]},
+        "random.totem":{"sounds":["sounds/step/stone1"]}}})");
+    CHECK(sounds.PlayLevelSound("Burp", {}, 0, "", false, false));
+    CHECK(lastSubtitle == "random.burp");
+    CHECK(sounds.PlayLevelSound("TotemUsed", {}, 0, "", false, false));
+    CHECK(lastSubtitle == "random.totem");
+
+    const fs::path low = root / "low", high = root / "high";
+    for (const auto& pack : {low, high}) {
+        Write(pack / "sounds/sound_definitions.json", R"({"sound_definitions":{
+            "pack.test":{"category":"block","sounds":["sounds/custom/tone"]}}})");
+        fs::create_directories(pack / "sounds/custom");
+        const auto tone = MakeWav(std::vector<int16_t>(2400, pack == high ? 8000 : 4000), 48000, 1);
+        std::ofstream(pack / "sounds/custom/tone.wav", std::ios::binary).write(
+            reinterpret_cast<const char*>(tone.data()), static_cast<std::streamsize>(tone.size()));
+    }
+    AudioEngine layeredEngine;
+    SoundSystem layered(layeredEngine);
+    layered.Configure(root.string(), {high.string(), low.string()});
+    CHECK(layered.DefinitionCount() == 3); // vanilla plus custom definition
+    CHECK(layered.PlayNamed("pack.test", {}, 1, 1, false));
+    CHECK(std::fabs(RenderPeak(layeredEngine, 2400) - 8000.0f / 32768.0f) < 1e-5f);
+    // Changing the active pack list must invalidate decoded samples.
+    layered.Configure(root.string(), {low.string()});
+    CHECK(layered.PlayNamed("pack.test", {}, 1, 1, false));
+    CHECK(std::fabs(RenderPeak(layeredEngine, 2400) - 4000.0f / 32768.0f) < 1e-5f);
+    layered.Configure(root.string());
+    CHECK(!layered.PlayNamed("pack.test", {}, 1, 1, false));
     fs::remove_all(root);
 }
 

@@ -53,6 +53,12 @@ namespace perlin::ui {
                 }
                 pos += 11;
             }
+            // Packs may place namespace after large control definitions.
+            std::string text, error;
+            Json document;
+            if (ReadFile(path, text) && Json::Parse(text, document, error))
+                if (const Json* ns = document.Find("namespace"); ns && ns->IsString())
+                    return ns->string;
             return {};
         }
 
@@ -167,6 +173,7 @@ namespace perlin::ui {
         stamps.clear();
         watched.clear();
 
+        std::unordered_map<std::string, std::string> fileNamespaces;
         for (size_t r = roots.size(); r-- > 0;) {
             const fs::path root(roots[r]);
             std::error_code ec;
@@ -195,8 +202,14 @@ namespace perlin::ui {
                 if (file.rel == "_ui_defs.json")
                     continue;
                 file.ns = QuickNamespace(file.path);
-                if (file.ns.empty())
-                    continue;
+                if (file.ns.empty()) {
+                    // A namespace-less file refines the same file in a lower pack.
+                    const auto inherited = fileNamespaces.find(file.rel);
+                    if (inherited == fileNamespaces.end())
+                        continue;
+                    file.ns = inherited->second;
+                }
+                fileNamespaces[file.rel] = file.ns;
                 files.push_back(std::move(file));
             }
         }

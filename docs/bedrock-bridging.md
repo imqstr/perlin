@@ -23,6 +23,11 @@ While use stays held, each attempt first picks what to click:
      (dominant axis of the 3D movement, so vertical movement counts too).
 3. Without a direct hit (and no line), nothing.
 
+Held attempts are evaluated at most once per local simulation tick. A fresh press
+marks that tick as attempted, so later render frames cannot repeat in the same tick.
+The saved native reference records elapsed-time delays below; this tick gate does
+not replace them with unverified integer tick delays.
+
 It then waits for the repeat delay since the last placement:
 
 | State | Delay |

@@ -1,4 +1,5 @@
 #include "client/player/Bridging.hpp"
+#include "client/player/HeldBuild.hpp"
 #include "client/player/BlockUse.hpp"
 
 #include <array>
@@ -39,6 +40,33 @@ static Request Looking(glm::dvec3 feet, glm::dvec3 at, bool sneak = false) {
 }
 
 int main() {
+    {
+        heldbuild::HeldBuild build;
+        heldbuild::Hit hit{true, {{0, 0, 0}, 5}, {1, 0.5f, 0.5f}};
+        const auto solid = [](glm::ivec3) { return false; };
+        const glm::vec3 eye{0.5f, 2, 0.5f}, movement{0.2f, 0, 0};
+        CHECK(!build.Next(hit, eye, movement, false, 1000, 20, solid));
+        build.Start(1000, 20);
+        build.Built(hit.target, {1, 0, 0}, true, false, 1000, false);
+        CHECK(!build.Next(hit, eye, movement, false, 1300, 26, solid));
+        const auto repeat = build.Next(hit, eye, movement, false, 1301, 27, solid);
+        CHECK(repeat && repeat->support == glm::ivec3(1, 0, 0) && repeat->face == 5);
+        if (repeat) build.Built(*repeat, {2, 0, 0}, true, false, 1301, true);
+        // Even a delayed render frame must not spend banked build time twice
+        // before the simulation has advanced.
+        CHECK(!build.Next(hit, eye, movement, false, 1500, 27, solid));
+        build.Stop();
+        CHECK(!build.Next(hit, eye, movement, false, 2000, 40, solid));
+        // A new press can fail (air, collision, rejected send). It must still
+        // discard the old line and wait from this press before retrying.
+        build.Start(2000, 40);
+        hit.target = {{10, 0, 0}, 1};
+        CHECK(!build.Next(hit, eye, {}, false, 2001, 40, solid));
+        CHECK(!build.Next(hit, eye, {}, false, 2200, 44, solid));
+        const auto retry = build.Next(hit, eye, {}, false, 2201, 45, solid);
+        CHECK(retry && retry->support == hit.target.support && retry->face == 1);
+    }
+
     CHECK(blockuse::IsReplaceableCell(true, 0, ""));
     CHECK(blockuse::IsReplaceableCell(true, 1, "minecraft:air"));
     CHECK(blockuse::IsReplaceableCell(true, 2, "minecraft:water"));

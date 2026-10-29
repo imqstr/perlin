@@ -40,31 +40,20 @@ namespace {
              !ec && it != end; it.increment(ec)) {
             if (!it->is_regular_file(ec) || it->path().extension() != ".json")
                 continue;
-            const std::string text = ReadAll(it->path());
-            const size_t nsAt = text.find("\"namespace\"");
-            if (nsAt == std::string::npos)
+            Json document;
+            std::string error;
+            if (!Json::Parse(ReadAll(it->path()), document, error) || !document.IsObject())
                 continue;
-            const size_t colon = text.find(':', nsAt);
-            const size_t open = text.find('"', colon);
-            const size_t close = text.find('"', open + 1);
-            if (open == std::string::npos || close == std::string::npos)
+            const Json* ns = document.Find("namespace");
+            if (!ns || !ns->IsString())
                 continue;
-            const std::string ns = text.substr(open + 1, close - open - 1);
-            // Top level control keys are the ones after the namespace member at depth 1.
-            for (size_t at = text.find('"', close + 1); at != std::string::npos; at = text.find('"', at + 1)) {
-                const size_t end2 = text.find('"', at + 1);
-                if (end2 == std::string::npos)
-                    break;
-                std::string key = text.substr(at + 1, end2 - at - 1);
-                at = end2;
-                const size_t after = text.find_first_not_of(" \t\r\n", end2 + 1);
-                if (after == std::string::npos || text[after] != ':')
+            for (const auto& [key, value] : document.object) {
+                if (!value.IsObject())
                     continue;
-                const size_t brace = text.find_first_not_of(" \t\r\n", after + 1);
-                if (brace == std::string::npos || text[brace] != '{')
-                    continue;
-                if (key.size() > 7 && key.compare(key.size() - 7, 7, "_screen") == 0)
-                    out.push_back(ns + "." + key);
+                // A template suffix is inheritance, not part of the control's name.
+                const std::string name = key.substr(0, key.find('@'));
+                if (name.find('/') == std::string::npos && name.ends_with("_screen"))
+                    out.push_back(ns->string + "." + name);
             }
         }
         std::sort(out.begin(), out.end());

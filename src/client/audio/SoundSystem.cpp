@@ -145,7 +145,7 @@ namespace perlin::audio {
         if (const Json* interactive = doc.Find("interactive_sounds"))
             blocks(interactive->Find("block_sounds"));
         if (const Json* es = doc.Find("entity_sounds")) {
-            std::unordered_map<std::string, EventSound> defaults;
+            auto defaults = entityEvents["*"];
             if (const Json* d = es->Find("defaults"); d && d->IsObject())
                 if (const Json* ev = d->Find("events"))
                     ParseEvents(*ev, defaults, 1.0f, 1.0f);
@@ -156,6 +156,8 @@ namespace perlin::audio {
                     float vol = 1.0f, pitch = 1.0f;
                     if (const Json* v = def.Find("volume"); v && v->IsNumber())
                         vol = static_cast<float>(v->number);
+                    if (const Json* p = def.Find("pitch"); p && p->IsNumber())
+                        pitch = static_cast<float>(p->number);
                     auto& dest = entityEvents[ShortName(type)];
                     if (const Json* variants = def.Find("variants"))
                         if (const Json* map = variants->Find("map"))
@@ -194,11 +196,13 @@ namespace perlin::audio {
                     blockSoundType[name] = s->string;
     }
 
-    void SoundSystem::Configure(const std::string& newRoot) {
-        if (configured && root == newRoot)
+    void SoundSystem::Configure(const std::string& newRoot, const std::vector<std::string>& packs) {
+        if (configured && root == newRoot && packRoots == packs)
             return;
         configured = true;
         root = newRoot;
+        packRoots = packs;
+        warned.clear();
         definitions.clear();
         blockEvents.clear();
         entityEvents.clear();
@@ -208,18 +212,26 @@ namespace perlin::audio {
         cacheBytes = 0;
         if (root.empty())
             return;
-        std::string text;
-        if (ReadFile(fs::path(root) / "sounds" / "sound_definitions.json", text))
-            LoadDefinitionsText(text);
-        if (ReadFile(fs::path(root) / "sounds.json", text))
-            LoadSoundsText(text);
-        if (ReadFile(fs::path(root) / "blocks.json", text))
-            LoadBlocksText(text);
+        const auto loadRoot = [&](const std::string& directory) {
+            std::string text;
+            if (ReadFile(fs::path(directory) / "sounds" / "sound_definitions.json", text))
+                LoadDefinitionsText(text);
+            if (ReadFile(fs::path(directory) / "sounds.json", text))
+                LoadSoundsText(text);
+            if (ReadFile(fs::path(directory) / "blocks.json", text))
+                LoadBlocksText(text);
+        };
+        loadRoot(root);
+        // Directories are highest priority first, as for textures and JSON UI.
+        for (auto it = packRoots.rbegin(); it != packRoots.rend(); ++it)
+            loadRoot(*it);
         std::cout << "[audio] " << definitions.size() << " sound definitions, " << blockEvents.size() << " block sound types, "
                   << entityEvents.size() << " entities with sounds" << std::endl;
     }
 
     std::string SoundSystem::BlockSoundType(const std::string& blockName) const {
+        if (const auto exact = blockSoundType.find(blockName); exact != blockSoundType.end())
+            return exact->second;
         const auto it = blockSoundType.find(ShortName(blockName));
         return it == blockSoundType.end() ? std::string() : it->second;
     }
@@ -265,23 +277,31 @@ namespace perlin::audio {
         if (const auto it = cache.find(file); it != cache.end())
             return it->second;
         PcmPtr result;
-        for (const char* ext : {".fsb", ".ogg", ".wav"}) {
-            const fs::path p = fs::path(root) / (file + ext);
-            std::error_code ec;
-            if (!fs::exists(p, ec))
-                continue;
-            std::ifstream f(p, std::ios::binary);
-            std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-            auto pcm = std::make_shared<Pcm>();
-            std::string error;
-            if (DecodeSound(bytes, ext, *pcm, &error)) {
-                result = pcm;
-                cacheBytes += pcm->samples.size() * sizeof(int16_t);
-            } else if (!warned[file]) {
-                warned[file] = true;
-                std::cout << "[audio] cannot decode " << file << ext << ": " << error << std::endl;
+        std::vector<std::string> roots = packRoots;
+        roots.push_back(root);
+        bool found = false;
+        for (const auto& directory : roots) {
+            for (const char* ext : {".fsb", ".ogg", ".wav"}) {
+                const fs::path p = fs::path(directory) / (file + ext);
+                std::error_code ec;
+                if (!fs::exists(p, ec))
+                    continue;
+                found = true;
+                std::ifstream f(p, std::ios::binary);
+                std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                auto pcm = std::make_shared<Pcm>();
+                std::string error;
+                if (DecodeSound(bytes, ext, *pcm, &error)) {
+                    result = pcm;
+                    cacheBytes += pcm->samples.size() * sizeof(int16_t);
+                } else if (!warned[file]) {
+                    warned[file] = true;
+                    std::cout << "[audio] cannot decode " << file << ext << ": " << error << std::endl;
+                }
+                break;
             }
-            break;
+            if (found)
+                break;
         }
         if (!result && !warned[file]) {
             warned[file] = true;
@@ -319,14 +339,6 @@ namespace perlin::audio {
             }
             r -= e.weight;
         }
-        if (auto last = lastPlayed.find(definition); last != lastPlayed.end()) {
-            const double age = clock - last->second.time;
-            const double apart = glm::length(last->second.position - position);
-            if (age >= 0.0 && (age < 0.04 || (age < 0.25 && apart < 1.5)))
-                return false;
-        }
-        lastPlayed[definition] = {clock, position};
-
         Voice voice;
         voice.pcm = Load(chosen->file);
         if (!voice.pcm)
@@ -386,15 +398,13 @@ namespace perlin::audio {
         if (key.empty() || key == "undefined")
             return false;
         const bool positional = !global;
-        if (key == "burp")
-            return false;
         static const std::unordered_map<std::string, const char*> kDirect = {
             {"explode", "random.explode"}, {"thunder", "ambient.weather.thunder"}, {"lightningimpact", "ambient.weather.lightning.impact"},
             {"bow", "random.bow"}, {"bowhit", "random.bowhit"}, {"levelup", "random.levelup"}, {"pop", "random.pop"},
             {"burp", "random.burp"}, {"splash", "random.splash"}, {"swim", "random.swim"}, {"fizz", "random.fizz"},
             {"attacknodamage", "game.player.attack.nodamage"}, {"attackstrong", "game.player.attack.strong"},
             {"drink", "random.drink"}, {"eat", "random.eat"}, {"throw", "random.bow"}, {"glass", "random.glass"},
-            {"click", "random.click"}, {"orb", "random.orb"}, {"totemused", "item.trident.hit"}, {"fire", "fire.fire"},
+            {"click", "random.click"}, {"orb", "random.orb"}, {"totemused", "random.totem"}, {"fire", "fire.fire"},
             {"ignite", "fire.ignite"}, {"teleport", "mob.endermen.portal"}, {"portal", "portal.portal"},
             {"pop2", "random.pop2"}, {"anvilbreak", "random.anvil_break"}, {"anvilland", "random.anvil_land"},
             {"anvilused", "random.anvil_use"}, {"chestopen", "random.chestopen"}, {"chestclosed", "random.chestclosed"},
