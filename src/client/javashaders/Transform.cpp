@@ -974,7 +974,9 @@ namespace perlin::jshader {
                     const auto fixed = options.fixedSamplerSlots.find(smp.name);
                     if (fixed != options.fixedSamplerSlots.end()) { samplerBindings[smp.name] = fixed->second; used.insert(fixed->second); }
                 }
-            int cursor = 0;
+            int cursor = 1;
+            // Binding 0 is reserved for the IrisGlobals uniform buffer: Vulkan requires unique
+            // set+binding pairs, while GL/D3D tolerate the UBO and first sampler sharing 0.
             for (const StageResult* st : {&program.vertex, &program.fragment})
                 for (const SamplerDecl& smp : st->samplers) {
                     if (samplerBindings.count(smp.name)) continue;

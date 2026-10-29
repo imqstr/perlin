@@ -153,6 +153,31 @@ namespace perlin::jshader {
             }
         }
 
+        bool ReflectVulkan(const std::vector<uint32_t>& spirv, Stage stage, CrossResult& out, std::string& error) {
+            try {
+                spirv_cross::CompilerGLSL c(spirv);
+                spirv_cross::ShaderResources res = c.get_shader_resources();
+                const bool fragment = stage == Stage::Fragment;
+                if (!CollectSamplers(c, res, out, fragment, error)) return false;
+                if (stage == Stage::Vertex) {
+                    for (const auto& in : res.stage_inputs) {
+                        const uint32_t loc = c.get_decoration(in.id, spv::DecorationLocation);
+                        if (loc >= 26) { error = "bad vertex attribute location"; return false; }
+                        out.attributes.push_back(static_cast<uint16_t>(loc));
+                    }
+                }
+                // Keep a marker so the caller knows a uniform block exists; the real payload is SPIR-V.
+                if (!res.uniform_buffers.empty())
+                    out.source = "IrisGlobals";
+                else
+                    out.source.clear();
+                return true;
+            } catch (const std::exception& e) {
+                error = e.what();
+                return false;
+            }
+        }
+
         std::string ForceLod0(const std::string& src) {
             const std::string key = ".Sample(";
             std::string out;
@@ -293,6 +318,7 @@ namespace perlin::jshader {
             bool ok = false;
             if (options.kind == BackendKind::OpenGL) ok = CrossGlsl(spirv, stages[i].s->stage, options, cross, err);
             else if (options.kind == BackendKind::D3D11) ok = CrossHlsl(spirv, stages[i].s->stage, options.explicitLod0, cross, err);
+            else if (options.kind == BackendKind::Vulkan) ok = ReflectVulkan(spirv, stages[i].s->stage, cross, err);
             else err = "this renderer is not supported by Java shader packs yet";
             if (!ok) {
                 result.error = std::string(stages[i].fragment ? "fragment" : "vertex") + " shader conversion failed: " + err;
@@ -330,6 +356,9 @@ namespace perlin::jshader {
             if (options.kind == BackendKind::OpenGL) {
                 codePtr = cross.source.data();
                 codeSize = cross.source.size();
+            } else if (options.kind == BackendKind::Vulkan) {
+                codePtr = spirv.data();
+                codeSize = spirv.size() * sizeof(uint32_t);
             } else {
                 if (!options.hlslCompiler) {
                     result.error = "no HLSL compiler available";

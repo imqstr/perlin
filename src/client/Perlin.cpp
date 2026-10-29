@@ -919,7 +919,7 @@ namespace perlin {
         if (data.bars.size() > 4)
             data.bars.resize(4);
         const auto sb = live->Scoreboard();
-        if (sb.visible && !pauseShown && !(hud.Ready() && (options.bedrockMenus || hud.Overrides("scoreboard")))) {
+        if (sb.visible && !pauseShown && !(hud.Ready() && hud.Overrides("scoreboard"))) {
             data.scoreboard = true;
             data.scoreboardTitle = sb.title;
             for (const auto& r : sb.rows)
@@ -968,7 +968,7 @@ namespace perlin {
         }
         if (live->TakeFormClosed() && formShown)
             closeForm();
-        if (formShown && !formEngine && formUi.Ready() && (options.bedrockMenus || formUi.ServerStyled()))
+        if (formShown && !formEngine && formUi.Ready() && formUi.ServerStyled())
             formEngine = true;
         if (!formShown) {
             if (deathShown || invShown || pauseShown || chat.IsOpen())
@@ -1004,7 +1004,7 @@ namespace perlin {
             formUi.Warm(ServerPacks::Instance().Directories());
             formUi.WaitReady(150);
             // Forms use the server's JSON UI only when the server restyles them; otherwise Perlin's Java layout.
-            formEngine = formUi.Ready() && (options.bedrockMenus || formUi.ServerStyled());
+            formEngine = formUi.Ready() && formUi.ServerStyled();
             formShown = true;
             formScroll = 0.0f;
             formContentH = formViewH = 0.0f;
@@ -3369,14 +3369,6 @@ namespace perlin {
                            options.maxFps = steps >= 25 ? 0 : 10 + steps * 10;
                        });
                 toggle(tr("options.vsync", "VSync"), options.vsync);
-                model.push_back({std::string("Menu Style"), options.bedrockMenus ? std::string("Bedrock") : std::string("Java"), -1.0f,
-                                 [this](float, bool click) {
-                                     if (!click)
-                                         return;
-                                     options.bedrockMenus = !options.bedrockMenus;
-                                     pauseSignature.clear();
-                                     titleSignature.clear();
-                                 }});
                 model.push_back({std::string("GUI Scale"), options.guiScale == 0 ? tr("options.guiScale.auto", "Auto") : std::to_string(options.guiScale), -1.0f,
                                  [this](float, bool click) {
                                      if (!click)
@@ -4174,10 +4166,11 @@ namespace perlin {
             return;
         }
 
-        if (options.bedrockMenus) {
+        // Server packs that restyle pause_screen.json get their own layout; otherwise Java.
+        {
             ui::JsonScreens& screens = ui::JsonScreens::Instance();
             screens.Warm(ServerPacks::Instance().Directories());
-            if (screens.Ready()) {
+            if (screens.Ready() && screens.Overridden("pause")) {
                 ui::PauseModel pm;
                 pm.playerName = live ? live->PlayerName() : options.playerName;
                 pm.listTitle = tr("gui.playerList", "Player List");
@@ -5736,7 +5729,7 @@ namespace perlin {
         else
             title.accountUser = options.playerName;
         title.accountLabel = "Logged in as " + title.accountUser;
-        title.oreUi = options.bedrockMenus;
+        title.oreUi = false;
         title.playerName = title.accountUser;
         if (title.oreUi && title.page == ui::TitlePage::Main) {
             const std::string doll = SkinDollKey(options.skin, options.cape, options.skinParts.cape);
@@ -8056,15 +8049,15 @@ namespace perlin {
                 dbgBlock = handBlock;
             }
             if (hud)
-                hud->SetJavaStyle(!options.bedrockMenus);
+                hud->SetJavaStyle(true);
             FillHudState(hudState, live, preview);
             hudState.sidebarVisible = false;
             hudState.sidebar.clear();
             if (live) {
                 // The sidebar is part of the JSON UI HUD, so server packs that restyle scoreboards.json apply.
                 const auto sb = live->Scoreboard();
-                // The JSON UI sidebar is used when the server restyles it (or Bedrock menus are on); otherwise the Java one is drawn.
-                hudState.sidebarVisible = sb.visible && !pauseShown && hud && (options.bedrockMenus || hud->Overrides("scoreboard"));
+                // The JSON UI sidebar is used when the server restyles it; otherwise the Java one is drawn.
+                hudState.sidebarVisible = sb.visible && !pauseShown && hud && hud->Overrides("scoreboard");
                 hudState.sidebarTitle = sb.title;
                 for (const auto& r : sb.rows)
                     hudState.sidebar.push_back({r.name, r.score});

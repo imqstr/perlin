@@ -3237,8 +3237,10 @@ namespace perlin {
         } else if (type == bgfx::RendererType::Direct3D11 || type == bgfx::RendererType::Direct3D12) {
             config.backend = jshader::BackendKind::D3D11;
             config.hlsl = CompilePackHlsl;
+        } else if (type == bgfx::RendererType::Vulkan) {
+            config.backend = jshader::BackendKind::Vulkan;
         } else {
-            error = std::string("Java shader packs need the OpenGL or Direct3D 11 renderer (this one is ") + bgfx::getRendererName(type) + ")";
+            error = std::string("Java shader packs need the OpenGL, Direct3D 11 or Vulkan renderer (this one is ") + bgfx::getRendererName(type) + ")";
             jpackError = error;
             jpackPath.clear();
             return false;

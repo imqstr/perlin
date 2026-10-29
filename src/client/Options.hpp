@@ -58,9 +58,8 @@ namespace perlin {
 
     struct Options {
         bool webTuned = false;
-        // Draw the client's own menus (title, pause, settings) the Bedrock way instead of Perlin's Java layouts. Server UI
-        // (sidebars, forms, container screens a server pack restyles) always uses the server's JSON UI regardless.
-        bool bedrockMenus = false;
+        // Perlin's own menus are always Java-style. Server UI (sidebars, forms, container
+        // screens a server pack restyles) always uses the server's JSON UI when present.
         int maxFps = 120;
         bool vsync = true;
         bool eulaAccepted = false;

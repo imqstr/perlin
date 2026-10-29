@@ -88,7 +88,7 @@ namespace perlin::ui {
         double templateCheck = 0;
         uint64_t hudTemplateVersion = 0, chatTemplateVersion = 0;
         bool dumped = false;
-        bool javaStyle = false;
+        bool javaStyle = true;
         uint64_t fontVersion = 0;
     };
 }
