@@ -203,6 +203,7 @@ namespace perlin {
         virtual void UpdateLodTile(int tx, int tz, int size, const Tessellator& tess, uint64_t version) = 0;
         virtual void RemoveLodTile(int tx, int tz) = 0;
         virtual void ClearChunkMeshes() = 0;
+        virtual void UnloadLevelResources() { ClearChunkMeshes(); }
         virtual void DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) = 0;
         virtual void SetChunkCullRadius(int) {}
         // section (16-block cube) reachable from the camera through open space, last frame

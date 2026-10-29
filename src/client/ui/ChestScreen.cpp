@@ -154,6 +154,19 @@ div { display: block; position: absolute; }
             worker.join();
     }
 
+    void ChestUi::Reset() {
+        if (worker.joinable())
+            worker.join();
+        state = 0;
+        key.clear();
+        problem.clear();
+        trees.clear();
+        library = UiLibrary{};
+        hudState = HudState{};
+        current = nullptr;
+        dumped.clear();
+    }
+
     void ChestUi::Warm(const std::vector<std::string>& packDirs) {
         std::string wanted;
         for (const std::string& d : packDirs)

@@ -249,6 +249,19 @@ namespace perlin {
             meshes.Remove(true, tx, tz);
     }
 
+    void RenderContext_rhi::UnloadLevelResources() {
+        ClearChunkMeshes();
+        for (TexRec* texture : {&atlas, &sunTex, &moonTex, &cloudMapTex, &tileFlagsTex, &crosshair})
+            FreeTexture(*texture);
+        animatedTiles.clear();
+        std::vector<uint8_t>().swap(atlasSource);
+        std::vector<uint8_t>().swap(tileFlagData);
+        sunSource = moonSource = cloudSource = iconSource = Texture{};
+        cloudTexture = {};
+        cloudBuilt = false;
+        atlasLayers = atlasTiles = crosshairPx = 0;
+    }
+
     void RenderContext_rhi::ClearChunkMeshes() {
         if (initialized)
             meshes.Clear();

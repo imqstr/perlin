@@ -24,6 +24,7 @@ namespace perlin {
 
     class HandRenderer {
     public:
+        void UnloadLevelResources() { ClearItems(); }
         void Initialize(RenderContext& renderer);
         void Shutdown();
 

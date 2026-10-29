@@ -626,19 +626,45 @@ namespace perlin {
             platform->Vibrate(24);
     }
 
-    void Perlin::UnloadServerPacks() {
-        if (!ServerPacks::Instance().HasServerPacks())
+    void Perlin::UnloadServerPacks(bool leavingLevel) {
+        if (!leavingLevel) {
+            if (ServerPacks::Instance().HasServerPacks())
+                levelUnloadPending = true;
             return;
+        }
         std::cout << "[packs] unloading the server's resource packs" << std::endl;
-        ServerPacks::Instance().Clear();
-        if (levelRenderer)
-            levelRenderer->ReloadResources();
-        entityRenderer.ClearCaches();
-        ui::UiAssets::Instance().ClearItemCache();
-        i18n::Lang::Get().Invalidate();
-        sounds.Reload();
+        // finish readers before freeing the definitions and textures they reference
+        formUi.Reset();
+        chestUi.Reset();
+        ui::JsonScreens::Instance().Reset();
         if (hud)
-            hud->Reload();
+            hud->UnloadLevelUi();
+        if (levelRenderer) {
+            levelRenderer->Stop();
+            levelRenderer.reset();
+        }
+        entityRenderer.ClearCaches();
+        handRenderer.UnloadLevelResources();
+        ServerPacks::Instance().Clear();
+        ServerBlocks::Instance().Reset();
+        ServerBlocks::Instance().ClearItems();
+        if (renderer) {
+            renderer->UnloadLevelResources();
+            levelRenderer = std::make_unique<LevelRenderer>(*renderer, options);
+        }
+        auto& assets = ui::UiAssets::Instance();
+        const std::string vanilla = assets.VanillaRoot();
+        assets.ClearLevelCache();
+        assets.Configure(vanilla, levelRenderer ? &levelRenderer->Blocks() : nullptr);
+        ui::McFont::Instance().UnloadLevelResources();
+        i18n::Lang::Get().Invalidate();
+        audioEngine.StopAll();
+        sounds.Configure({});
+        formModel = {};
+        formEngine = formEngineFailed = false;
+        formSignature.clear();
+        hudState = {};
+        gHeldBuild.Stop();
     }
 
     void Perlin::CommitTexturePacks() {
@@ -5315,7 +5341,7 @@ namespace perlin {
         deathSignature.clear();
         if (chat.IsOpen())
             chat.Close();
-        UnloadServerPacks();
+        levelUnloadPending = true;
         titleActive = true;
         titleReturnToServers = true;
     }
@@ -7110,6 +7136,11 @@ namespace perlin {
         PERLIN_WEB_PERSIST int handSky = 15, handBlock = 0;
 
         PERLIN_WEB_PERSIST auto frameStep = [&]() {
+            // previous-frame draws may still reference level textures until EndFrame
+            if (levelUnloadPending) {
+                levelUnloadPending = false;
+                UnloadServerPacks(true);
+            }
 #ifdef __EMSCRIPTEN__
             platform->PumpFrame();
 #endif

@@ -788,6 +788,14 @@ namespace perlin::ui {
         generation++;
     }
 
+    void UiAssets::ClearLevelCache() {
+        ClearItemCache();
+        std::lock_guard lock(mutex);
+        heads.clear();
+        lang.clear();
+        langLoaded = false;
+    }
+
     bool UiAssets::HasHead(const std::string& key) {
         std::lock_guard lock(mutex);
         return heads.count(key) != 0;

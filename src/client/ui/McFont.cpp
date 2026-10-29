@@ -93,6 +93,17 @@ namespace perlin::ui {
         return true;
     }
 
+    void McFont::UnloadLevelResources() {
+        glyphPages.clear();
+        sheets.clear();
+        sheetChars.clear();
+        hex.clear();
+        hexPath.clear();
+        ttfs.clear();
+        ttfPaths.clear();
+        UseBuiltin();
+    }
+
     void McFont::UseBuiltin() {
         builtin = true;
         constexpr int cellsAcross = 16, cellPx = 8;

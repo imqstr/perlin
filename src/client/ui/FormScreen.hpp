@@ -46,6 +46,7 @@ namespace perlin::ui {
     public:
         FormUi();
         ~FormUi();
+        void Reset();
         void Warm(const std::vector<std::string>& packDirs);
         bool Ready() const { return state.load() == 2; }
         bool WaitReady(int timeoutMs);

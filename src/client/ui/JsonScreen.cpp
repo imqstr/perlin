@@ -172,6 +172,24 @@ namespace perlin::ui {
             worker.join();
     }
 
+    void JsonScreens::Reset() {
+        if (worker.joinable())
+            worker.join();
+        std::lock_guard lock(mutex);
+        state = 0;
+        key.clear();
+        trees.clear();
+        failed.clear();
+        overriddenNs.clear();
+        library = UiLibrary{};
+        anim = AnimHost{};
+        animCache.clear();
+        items.clear();
+        paperDoll.clear();
+        dollX = dollY = dollW = dollH = 0;
+        generation++;
+    }
+
     void JsonScreens::Warm(const std::vector<std::string>& serverPackDirs) {
         const std::string data = paths::DataDir();
         std::string wanted;

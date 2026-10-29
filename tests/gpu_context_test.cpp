@@ -275,6 +275,19 @@ int main(int argc, char** argv) {
         }
     }
 
+    TestSetBundledPack(false);
+    ctx.ReloadShaders();
+    ctx.UnloadLevelResources();
+    ctx.UnloadLevelResources();
+    const auto afterLeave = MakeFrame({0, 3, 0}, {0, 0, 0}, {0, 0, -1}, 128, 96);
+    Check(Frame(ctx, afterLeave, rgba, w, h), "frame after leaving the level");
+    if (!rgba.empty())
+        Check(Background(At(rgba, w, w / 2, h / 2)), "previous level mesh is gone");
+    ctx.UploadAtlas(tile.data(), 16, 1);
+    ctx.UpdateChunkMesh(0, 0, tess, 100);
+    Check(Frame(ctx, afterLeave, rgba, w, h), "frame after loading the next level");
+    if (!rgba.empty())
+        Check(Red(At(rgba, w, w / 2, h / 2)), "next level atlas and mesh draw correctly");
     ctx.Shutdown();
     std::printf("%d failure(s)\n", failures);
     return failures ? 1 : 0;

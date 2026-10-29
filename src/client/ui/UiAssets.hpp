@@ -51,6 +51,7 @@ namespace perlin::ui {
         void EraseHead(const std::string& key);
         bool Head(const std::string& key, Texture& out);
         void ClearItemCache();
+        void ClearLevelCache();
         std::string LoadFont(const std::string& dataDir);
         uint32_t Generation() const { return generation; }
 

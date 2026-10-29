@@ -26,6 +26,7 @@ namespace perlin::ui {
 
         bool Initialize(RenderContext& renderer, const std::string& vanillaRoot, const std::string& dataDir);
         void Shutdown();
+        void UnloadLevelUi();
 
         int Update(const HudState& state, int framebufferW, int framebufferH, int guiScaleOption);
         void Render();

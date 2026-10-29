@@ -36,6 +36,7 @@ namespace perlin::ui {
         // replaces any page already loaded for `page`
         void AddGlyphPage(uint32_t page, const std::vector<uint8_t>& rgba, int width, int height);
         void ClearGlyphPages();
+        void UnloadLevelResources();
         size_t TtfCount() const { return ttfs.size(); }
 
         const Glyph& Get(uint32_t codepoint) const;

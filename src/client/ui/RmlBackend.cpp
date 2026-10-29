@@ -929,6 +929,15 @@ namespace perlin::ui {
         gLayer = UiLayer::Gui;
     }
 
+    void RmlBackend::UnloadDocuments() {
+        if (!context)
+            return;
+        context->UnloadAllDocuments();
+        document = overlay = plugin = serverLayer = nullptr;
+        context->Update();
+        ReloadTextures();
+    }
+
     void RmlBackend::ReloadTextures() {
         if (!ready)
             return;

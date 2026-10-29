@@ -46,6 +46,7 @@ namespace perlin::ui {
         void Update();
         void Render();
         void ReloadTextures();
+        void UnloadDocuments();
 
     private:
         bool ready = false;

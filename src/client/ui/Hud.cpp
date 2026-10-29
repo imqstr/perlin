@@ -147,6 +147,24 @@ namespace perlin::ui {
         return Rebuild();
     }
 
+    void Hud::UnloadLevelUi() {
+        if (probeLaunched) {
+            changeProbe.wait();
+            probeLaunched = false;
+        }
+        backend.UnloadDocuments();
+        tree.reset();
+        crosshairTree.reset();
+        library = UiLibrary{};
+        animHost = AnimHost{};
+        animCache.clear();
+        state = HudState{};
+        lastRml.clear();
+        lastSignature = lastIncomingSignature = 0;
+        cursorValid = false;
+        reloadRequested = true;
+    }
+
     void Hud::Shutdown() {
         backend.Shutdown();
         tree.reset();

@@ -112,6 +112,7 @@ namespace perlin::ui {
         std::map<std::string, std::string> gImages;
         std::set<std::string> gImagePending;
         std::atomic<uint32_t> gImageVersion{0};
+        uint64_t gImageEpoch = 0;
 
         std::string ImageSource(const FormButton& b) {
             if (b.imageData.empty())
@@ -143,6 +144,7 @@ namespace perlin::ui {
     }
 
     bool FormImageBytes(const std::string& url, std::string& out) {
+        uint64_t epoch;
         {
             std::lock_guard lock(gImageMutex);
             const auto it = gImages.find(url);
@@ -154,13 +156,15 @@ namespace perlin::ui {
             }
             if (!gImagePending.insert(url).second)
                 return false;
+            epoch = gImageEpoch;
         }
         if (url.rfind("http", 0) != 0) {
             std::lock_guard lock(gImageMutex);
-            gImages[url] = {};
+            if (epoch == gImageEpoch)
+                gImages[url] = {};
             return false;
         }
-        std::thread([url]() {
+        std::thread([url, epoch]() {
             std::string body;
             try {
                 const http::Response r = http::GetUrl(url, {}, 20);
@@ -170,9 +174,12 @@ namespace perlin::ui {
             }
             {
                 std::lock_guard lock(gImageMutex);
+                // a download from the previous level cannot repopulate the cache
+                if (epoch != gImageEpoch)
+                    return;
                 gImages[url] = std::move(body);
+                gImageVersion++;
             }
-            gImageVersion++;
         }).detach();
         return false;
     }
@@ -785,6 +792,25 @@ namespace perlin::ui {
     FormUi::~FormUi() {
         if (worker.joinable())
             worker.join();
+    }
+
+    void FormUi::Reset() {
+        if (worker.joinable())
+            worker.join();
+        state = 0;
+        key.clear();
+        tree.reset();
+        modalTree.reset();
+        library = UiLibrary{};
+        anim = AnimHost{};
+        animCache.clear();
+        problem.clear();
+        animStart = std::chrono::steady_clock::now();
+        std::lock_guard lock(gImageMutex);
+        ++gImageEpoch;
+        gImages.clear();
+        gImagePending.clear();
+        gImageVersion++;
     }
 
     void FormUi::Warm(const std::vector<std::string>& packDirs) {

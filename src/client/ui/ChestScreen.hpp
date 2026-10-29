@@ -18,6 +18,7 @@ namespace perlin::ui {
     public:
         ChestUi();
         ~ChestUi();
+        void Reset();
         void Warm(const std::vector<std::string>& packDirs);
         bool Ready() const { return state.load() == 2; }
         bool WaitReady(int timeoutMs);

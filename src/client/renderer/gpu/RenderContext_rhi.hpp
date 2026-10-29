@@ -131,6 +131,7 @@ namespace perlin {
         void UpdateLodTile(int tx, int tz, int size, const Tessellator& tess, uint64_t version) override;
         void RemoveLodTile(int tx, int tz) override;
         void ClearChunkMeshes() override;
+        void UnloadLevelResources() override;
         void DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) override;
         void SetChunkCullRadius(int chunks) override { chunkCullRadius = chunks; }
         bool SectionReached(int sx, int sy, int sz) const override { return meshes.SectionReached(sx, sy, sz, caveCulling); }

@@ -322,7 +322,7 @@ namespace perlin::ui {
                     }
                 }
                 if (const Json* a = n->bag.Find("#alpha"); a && a->IsNumber())
-                    alpha *= static_cast<float>(a->number);
+                    alpha = static_cast<float>(a->number);
                 n->alpha = propagateAlpha ? alpha * parentAlpha : alpha;
                 const bool propagate = n->Bool("propagate_alpha", false) ||
                                        (n->bag.Find("#propagateAlpha") && Truthy(*n->bag.Find("#propagateAlpha")));
@@ -1117,9 +1117,9 @@ namespace perlin::ui {
             float FontScale(const LNode& n) const {
                 float scale = static_cast<float>(n.Num("font_scale_factor", 1.0));
                 const std::string size = n.Str("font_size", "normal");
-                if (size == "small") scale *= 0.75f;
-                else if (size == "large") scale *= 1.5f;
-                else if (size == "extra_large") scale *= 2.0f;
+                if (size == "small") scale *= 0.5f;
+                else if (size == "large") scale *= 2.0f;
+                else if (size == "extra_large") scale *= 4.0f;
                 return scale;
             }
 

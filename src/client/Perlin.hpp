@@ -290,7 +290,8 @@ namespace perlin {
         std::chrono::steady_clock::time_point packFoundAt{};
         int packRowsHover = -1;
         void ApplyTexturePacks();
-        void UnloadServerPacks();
+        void UnloadServerPacks(bool leavingLevel = false);
+        bool levelUnloadPending = false;
         void CommitTexturePacks();
         std::vector<std::string> packPending;
         bool packPendingInit = false;

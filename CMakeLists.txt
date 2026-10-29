@@ -773,10 +773,34 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
         src/client/i18n/Lang.cpp src/client/resources/ServerPackRegistry.cpp src/client/i18n/BuiltinEnglish.cpp src/util/Resources.cpp src/util/Paths.cpp)
     target_include_directories(screen_dump PRIVATE src "${stb_SOURCE_DIR}")
     target_compile_features(screen_dump PRIVATE cxx_std_23)
+    foreach(size small normal large extra_large)
+        add_test(NAME ui_font_${size} COMMAND screen_dump "font_sizes.${size}_screen" 320 240
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_font_sizes")
+        set_tests_properties(ui_font_${size} PROPERTIES ENVIRONMENT "SCREEN_TREE=1;SCREEN_RML=1")
+    endforeach()
+    set_tests_properties(ui_font_small PROPERTIES PASS_REGULAR_EXPRESSION "sample .*12.0x4.5")
+    set_tests_properties(ui_font_normal PROPERTIES PASS_REGULAR_EXPRESSION "sample .*24.0x9.0")
+    set_tests_properties(ui_font_large PROPERTIES PASS_REGULAR_EXPRESSION "sample .*48.0x18.0")
+    set_tests_properties(ui_font_extra_large PROPERTIES PASS_REGULAR_EXPRESSION "sample .*96.0x36.0")
+    add_test(NAME ui_bound_alpha COMMAND screen_dump font_sizes.alpha_screen 320 240
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_font_sizes")
+    set_tests_properties(ui_bound_alpha PROPERTIES ENVIRONMENT "SCREEN_RML=1;SCREEN_VARS={\"#opacity\":0.3}"
+        PASS_REGULAR_EXPRESSION "alpha=\"0[.]30*\"")
     add_test(NAME ui_deferred_text COMMAND screen_dump regression.deferred_screen 320 240
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_deferred")
     set_tests_properties(ui_deferred_text PROPERTIES ENVIRONMENT "SCREEN_TREE=1"
         PASS_REGULAR_EXPRESSION "text=deferred-label-correct")
+    add_executable(gpu_level_unload_selftest tests/gpu_context_test.cpp tests/gpu_context_stubs.cpp
+        src/client/renderer/Tessellator.cpp src/client/renderer/SkyGeometry.cpp src/client/renderer/MaterialDb.cpp
+        src/client/ui/Json.cpp src/util/Paths.cpp src/util/Resources.cpp)
+    target_include_directories(gpu_level_unload_selftest BEFORE PRIVATE tests/stubs src "${glm_SOURCE_DIR}")
+    target_link_libraries(gpu_level_unload_selftest PRIVATE perlin_gpu)
+    add_test(NAME gpu_level_unload_selftest COMMAND gpu_level_unload_selftest "${PERLIN_SHADER_PACK}")
+    set_tests_properties(gpu_level_unload_selftest PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(font_cache_selftest tests/font_cache_selftest.cpp src/client/ui/McFont.cpp)
+    target_include_directories(font_cache_selftest PRIVATE src "${stb_SOURCE_DIR}")
+    target_compile_features(font_cache_selftest PRIVATE cxx_std_23)
+    add_test(NAME font_cache_selftest COMMAND font_cache_selftest)
     add_executable(ui_library_selftest tests/ui_library_selftest.cpp src/client/ui/Json.cpp
         src/client/ui/UiExpr.cpp src/client/ui/JsonUi.cpp)
     target_include_directories(ui_library_selftest PRIVATE src)
