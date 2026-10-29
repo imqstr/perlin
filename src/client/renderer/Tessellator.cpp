@@ -11,7 +11,6 @@ namespace perlin {
         sections.clear();
         visibility.clear();
         specials.clear();
-        quads.clear();
         curBlock = 0;
         layer = RenderLayer::Solid;
         building = true;
@@ -40,9 +39,6 @@ namespace perlin {
             vertices.push_back({v[i][0], v[i][1], v[i][2], PackColor(c[i][0], c[i][1], c[i][2]), u, w,
                                 PackLight(light[i][0], light[i][1]) | tile});
         }
-
-        if (CaptureQuadInfo())
-            quads.push_back({curX, curY, curZ, curBlock, static_cast<uint8_t>(layer)});
 
         std::vector<uint32_t>& out = indices[static_cast<size_t>(layer)];
         static constexpr uint32_t kForward[6] = {0, 1, 2, 0, 2, 3};

@@ -288,9 +288,6 @@ namespace perlin {
         std::vector<std::string> packPending;
         bool packPendingInit = false;
         void ApplyShaderPack();
-        void PollJavaPack(BedrockSession* live);
-        std::string javaPackPending;
-        int javaPackDimension = 0;
         struct HotStamps {
             std::string tex, shader;
         };

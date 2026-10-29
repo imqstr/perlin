@@ -18,8 +18,6 @@ Open work on the `ui/json-ui` branch, roughly in priority order.
 - [ ] Custom blocks with their own geometry: texture mapping still wrong (flower pot shows misplaced UVs). Check
       `ui_generated/custom_blocks.json` (server definitions as received) against `BlockGeometry::ParseComponentSet`.
 - [ ] Custom entities (e.g. Hive logo sign) render with the right shape but wrong texture mapping.
-- [ ] Java shader packs on Vulkan: currently refused ("need the OpenGL or Direct3D 11 renderer"); convert to bgfx
-      shaders at load instead.
 - [ ] Snow and rain look wrong.
 - [ ] Arrows fly facing the wrong way.
 

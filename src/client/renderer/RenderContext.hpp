@@ -146,15 +146,6 @@ namespace perlin {
         virtual bool Initialize(AppPlatform& platform, const Options& options) = 0;
         virtual void Shutdown() = 0;
         virtual bool ReloadShaders() { return false; }
-        virtual bool SetJavaShaderPack(const std::string& , const std::map<std::string, std::string>& ,
-                                       std::string& error) {
-            error = "Java shader packs are not supported by this renderer";
-            return false;
-        }
-        virtual void ClearJavaShaderPack() {}
-        virtual bool JavaShaderPackActive() const { return false; }
-        virtual std::string JavaShaderPackError() const { return {}; }
-        virtual void SetJavaShaderPackDimension(const std::string& ) {}
         virtual bool PackShadowsActive() const { return false; }
         virtual void SetVsync(bool) {}
         virtual std::string RendererName() const { return {}; }

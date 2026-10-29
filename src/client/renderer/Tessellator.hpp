@@ -48,18 +48,9 @@ namespace perlin {
         return q(block) | (q(sky) << 8);
     }
 
-    struct QuadInfo {
-        float bx, by, bz;
-        uint16_t block;
-        uint8_t layer;
-    };
-
     class Tessellator {
     public:
-        static void SetCaptureQuadInfo(bool on) { capture.store(on, std::memory_order_relaxed); }
-        static bool CaptureQuadInfo() { return capture.load(std::memory_order_relaxed); }
         void SetBlock(uint16_t id, float x, float y, float z) { curBlock = id; curX = x; curY = y; curZ = z; }
-        const std::vector<QuadInfo>& Quads() const { return quads; }
 
         void Begin();
         void End();
@@ -95,10 +86,8 @@ namespace perlin {
         std::vector<MeshSection> sections;
         std::vector<SectionVis> visibility;
         std::vector<SpecialBlock> specials;
-        std::vector<QuadInfo> quads;
         uint16_t curBlock = 0;
         float curX = 0, curY = 0, curZ = 0;
-        static inline std::atomic<bool> capture{false};
         RenderLayer layer = RenderLayer::Solid;
         bool building = false;
     };

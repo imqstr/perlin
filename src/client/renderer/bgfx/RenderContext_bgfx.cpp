@@ -12,7 +12,6 @@
 #include "client/Options.hpp"
 #include "client/resources/ShaderPack.hpp"
 #include "world/level/block/BlockPalette.hpp"
-#include "client/javashaders/PackSource.hpp"
 #include "util/Paths.hpp"
 
 #include <bx/math.h>
@@ -33,81 +32,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <d3dcompiler.h>
 #endif
 
 namespace perlin {
-    namespace {
-        bool CompilePackHlsl(const std::string& hlsl, bool fragment, std::vector<uint8_t>& dxbc, std::string& error) {
-#ifdef _WIN32
-            static HMODULE module = LoadLibraryA("d3dcompiler_47.dll");
-            static pD3DCompile compile = module ? reinterpret_cast<pD3DCompile>(GetProcAddress(module, "D3DCompile")) : nullptr;
-            if (!compile) {
-                error = "d3dcompiler_47.dll is not available";
-                return false;
-            }
-            const auto run = [&](UINT flags, std::string& err) -> bool {
-                ID3DBlob* code = nullptr;
-                ID3DBlob* messages = nullptr;
-                const HRESULT hr = compile(hlsl.data(), hlsl.size(), "javapack", nullptr, nullptr, "main", fragment ? "ps_5_0" : "vs_5_0", flags, 0,
-                                           &code, &messages);
-                if (FAILED(hr) || !code) {
-                    std::string text = messages ? std::string(static_cast<const char*>(messages->GetBufferPointer()), messages->GetBufferSize()) : "D3DCompile failed";
-                    std::string errors;
-                    size_t first = 0, srcLine = 0;
-                    for (size_t at = 0; at < text.size();) {
-                        size_t end = text.find('\n', at);
-                        if (end == std::string::npos) end = text.size();
-                        const std::string line = text.substr(at, end - at);
-                        if (line.find("error") != std::string::npos) {
-                            const size_t slash = line.find_last_of("\\/");
-                            errors += (slash == std::string::npos ? line : line.substr(slash + 1)) + " | ";
-                            if (!first) {
-                                first = 1;
-                                const size_t tag = line.find("javapack(");
-                                if (tag != std::string::npos) srcLine = static_cast<size_t>(std::atoi(line.c_str() + tag + 9));
-                            }
-                        }
-                        at = end + 1;
-                    }
-                    if (errors.empty()) errors = text.substr(0, 400);
-                    if (srcLine > 0) {
-                        size_t at = 0;
-                        for (size_t n = 1; n < srcLine && at != std::string::npos; n++) {
-                            at = hlsl.find('\n', at);
-                            if (at != std::string::npos) at++;
-                        }
-                        if (at != std::string::npos) {
-                            size_t end = hlsl.find('\n', at);
-                            errors += "src: " + hlsl.substr(at, std::min<size_t>(200, (end == std::string::npos ? hlsl.size() : end) - at));
-                        }
-                    }
-                    err = errors;
-                    if (messages) messages->Release();
-                    if (code) code->Release();
-                    return false;
-                }
-                dxbc.assign(static_cast<const uint8_t*>(code->GetBufferPointer()), static_cast<const uint8_t*>(code->GetBufferPointer()) + code->GetBufferSize());
-                code->Release();
-                if (messages) messages->Release();
-                return true;
-            };
-            std::string first;
-            if (run(D3DCOMPILE_OPTIMIZATION_LEVEL1, first))
-                return true;
-            std::string second;
-            if (run(D3DCOMPILE_OPTIMIZATION_LEVEL1 | D3DCOMPILE_AVOID_FLOW_CONTROL, second))
-                return true;
-            error = first + " || retry(avoid flow control): " + second;
-            return false;
-#else
-            (void)hlsl; (void)fragment; (void)dxbc;
-            error = "HLSL compilation is only available on Windows";
-            return false;
-#endif
-        }
-    }
-
     std::string RenderContext_bgfx::GpuVendor() const {
         const bgfx::Caps* caps = bgfx::getCaps();
         return caps ? sysinfo::VendorName(caps->vendorId) : std::string();
@@ -294,7 +221,7 @@ namespace perlin {
         init.type = bgfx::RendererType::OpenGLES;
 #endif
         ShaderPack& pack = ShaderPack::Instance();
-        if (!options.shaderPack.empty() && !jshader::LooksLikeJavaPack(paths::DataDir() + "/shaderpacks/" + options.shaderPack)) {
+        if (!options.shaderPack.empty()) {
             std::string error;
             if (!pack.Open(paths::DataDir() + "/shaderpacks", options.shaderPack, error))
                 std::cout << "[shaders] " << error << " - using the built-in shaders" << std::endl;
@@ -1210,39 +1137,7 @@ namespace perlin {
     }
 
     void RenderContext_bgfx::BeginFrame(const FrameParams& paramsIn) {
-        if (PackLoaded() && !packReady) {
-            static uint32_t waitFrames = 0;
-            const int left = jpack->Pipe().WarmUp(JavaPackHost::AttribMask());
-            if (left == 0 && !jpack->Pipe().ProgramUsable("gbuffers_terrain", JavaPackHost::AttribMask())) {
-                jpackError = "the shader pack's terrain program failed to compile (see [jshader] lines above)";
-                std::cout << "[javapack] " << jpackError << std::endl;
-                jpack.reset();
-                packReady = false;
-                jpackPath.clear();
-                Tessellator::SetCaptureQuadInfo(false);
-                ClearChunkMeshes();
-            } else if (left == 0) {
-                packReady = true;
-                appliedViewOrder = 0;
-                std::cout << "[javapack] shaders ready" << std::endl;
-            } else if (++waitFrames % 120 == 1) {
-                std::cout << "[javapack] compiling shaders, " << left << " left (using the normal renderer meanwhile)" << std::endl;
-            }
-        }
-        FrameParams packParams;
-        const FrameParams* chosen = &paramsIn;
-        if (PackActive()) {
-            packParams = paramsIn;
-            packParams.renderScale = 1.0f;
-            packParams.upscaler = 0;
-            packParams.frameGen = 1;
-            packParams.motionBlur = 0.0f;
-            packParams.bloom = 0.0f;
-            packParams.menuBlur = 0.0f;
-            packParams.shadowQuality = 0;
-            chosen = &packParams;
-        }
-        const FrameParams& params = *chosen;
+        const FrameParams& params = paramsIn;
         int w = 0, h = 0;
         platform->GetFramebufferSize(w, h);
         if (forcedW > 0 && forcedH > 0) {
@@ -1365,20 +1260,6 @@ namespace perlin {
         if (plan.temporal) {
             ApplyJitter(mvp, plan.jitter[0], plan.jitter[1]);
             ApplyJitter(skyMvp, plan.jitter[0], plan.jitter[1]);
-        }
-        if (PackActive()) {
-            jpack->SetDimension(jpackDimension);
-            jpack->BuildFrame(params, jFrame, jShadow, jpack->Pipe().Config().shadowEnabled);
-            jFrame.viewWidth = width;
-            jFrame.viewHeight = height;
-            jshader::EngineTextures engine;
-            engine.blockAtlas = jpack->Atlas();
-            engine.lightmap = lightmapTex;
-            jpack->Pipe().SetEngineTextures(engine);
-            jpack->Pipe().BeginFrame(jFrame);
-            ApplyViewOrder();
-        } else if (appliedViewOrder != 0) {
-            ApplyViewOrder();
         }
     }
 
@@ -1928,7 +1809,7 @@ namespace perlin {
             exportTarget = false;
             return true;
         }
-        if (!initialized || PackActive() || PERLIN_ENV("PERLIN_EXPORT_DIRECT"))
+        if (!initialized || PERLIN_ENV("PERLIN_EXPORT_DIRECT"))
             return false;
         if (!EnsureFrameGen())
             return false;
@@ -2112,25 +1993,11 @@ namespace perlin {
         atlasTex = tex;
         atlasLayers = layers;
         tileSize = tilePx;
-        if (!jpackPath.empty() || tilePx <= 64) {
-            atlasCopy.assign(rgba, rgba + (size_t)tilePx * tilePx * 4 * (size_t)count);
-            atlasCopyTilePx = tilePx;
-            atlasCopyTiles = count;
-        } else {
-            atlasCopy.clear();
-            atlasCopyTiles = 0;
-        }
-        if (jpack && jpack->Active())
-            jpack->SetAtlas(rgba, tilePx, count);
     }
 
     void RenderContext_bgfx::UpdateAtlasRegion(int tile, const uint8_t* rgba) {
         if (!initialized || !bgfx::isValid(atlasTex) || !rgba || tile < 0 || tile >= atlasLayers)
             return;
-        if (jpack && jpack->Active() && jpack->HasAtlas())
-            jpack->UpdateTile(tile, rgba);
-        if (tile < atlasCopyTiles && atlasCopyTilePx == tileSize)
-            std::memcpy(&atlasCopy[(size_t)tile * tileSize * tileSize * 4], rgba, (size_t)tileSize * tileSize * 4);
         auto it = animatedTiles.find(rgba);
         if (it == animatedTiles.end()) {
             if (animatedTiles.size() > 4096)
@@ -2146,10 +2013,6 @@ namespace perlin {
             h = BGFX_INVALID_HANDLE;
         p.vb = bgfx::createDynamicVertexBuffer(vCap, layout, BGFX_BUFFER_NONE);
         bool ok = bgfx::isValid(p.vb);
-        if (ok && PackLoaded()) {
-            p.vbPack = bgfx::createDynamicVertexBuffer(vCap, JavaPackHost::Layout(), BGFX_BUFFER_NONE);
-            ok = bgfx::isValid(p.vbPack);
-        }
         for (int l = 0; l < kRenderLayerCount && ok; l++) {
             p.ib[l] = bgfx::createDynamicIndexBuffer(iCap[l], BGFX_BUFFER_INDEX32);
             ok = bgfx::isValid(p.ib[l]);
@@ -2157,8 +2020,6 @@ namespace perlin {
         if (!ok) {
             if (bgfx::isValid(p.vb))
                 bgfx::destroy(p.vb);
-            if (bgfx::isValid(p.vbPack))
-                bgfx::destroy(p.vbPack);
             for (auto& h : p.ib)
                 if (bgfx::isValid(h))
                     bgfx::destroy(h);
@@ -2222,9 +2083,6 @@ namespace perlin {
                 continue;
             bgfx::destroy(p.vb);
             p.vb = BGFX_INVALID_HANDLE;
-            if (bgfx::isValid(p.vbPack))
-                bgfx::destroy(p.vbPack);
-            p.vbPack = BGFX_INVALID_HANDLE;
             for (auto& h : p.ib) {
                 if (bgfx::isValid(h))
                     bgfx::destroy(h);
@@ -2250,8 +2108,6 @@ namespace perlin {
         for (Page& p : pages) {
             if (bgfx::isValid(p.vb))
                 bgfx::destroy(p.vb);
-            if (bgfx::isValid(p.vbPack))
-                bgfx::destroy(p.vbPack);
             for (auto& h : p.ib)
                 if (bgfx::isValid(h))
                     bgfx::destroy(h);
@@ -2306,12 +2162,6 @@ namespace perlin {
         Page& pg = pages[g.page];
 
         bgfx::update(pg.vb, g.vOff, bgfx::copy(verts.data(), g.vCount * (uint32_t)sizeof(Vertex)));
-        if (PackLoaded() && bgfx::isValid(pg.vbPack)) {
-            static thread_local std::vector<PackVertex> packVerts;
-            jpack->Convert(tess, packVerts);
-            if (packVerts.size() == verts.size())
-                bgfx::update(pg.vbPack, g.vOff, bgfx::copy(packVerts.data(), g.vCount * (uint32_t)sizeof(PackVertex)));
-        }
         for (int l = 0; l < kRenderLayerCount; l++) {
             const auto& list = tess.Indices(static_cast<RenderLayer>(l));
             if (list.empty())
@@ -3120,11 +2970,9 @@ namespace perlin {
     }
 
     void RenderContext_bgfx::DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) {
-        const bool packMode = PackActive();
         visible.clear();
         visibleSections.clear();
-        if (!packMode)
-            DrawSky();
+        DrawSky();
         if (PERLIN_ENV("PERLIN_STATS") || PERLIN_ENV("PERLIN_PROFILE")) {
             static uint32_t frames = 0;
             if (++frames % 240 == 0)
@@ -3135,8 +2983,6 @@ namespace perlin {
         drawnIndices = 0;
         ReleaseEmptyPages();
         if (gpuChunks.empty() && lodChunks.empty()) {
-            if (packMode)
-                DrawPackWorld(frustum, camX, camZ);
             DrawClouds();
             DrawScreenTint();
             DrawCrosshair();
@@ -3197,13 +3043,6 @@ namespace perlin {
             }
             item.secEnd = static_cast<uint32_t>(visibleSections.size());
         }
-        if (packMode) {
-            DrawPackWorld(frustum, camX, camZ);
-            DrawClouds();
-            DrawScreenTint();
-            DrawCrosshair();
-            return;
-        }
         const bgfx::TextureHandle atlas = bgfx::isValid(atlasTex) ? atlasTex : whiteTex;
         RenderShadows(frame.cameraPosition[0], frame.cameraPosition[1], frame.cameraPosition[2]);
         DrawLayer(RenderLayer::Solid, ShaderProgram::TerrainSolid, frustum, visible, atlas);
@@ -3216,231 +3055,6 @@ namespace perlin {
         DrawClouds();
         DrawScreenTint();
         DrawCrosshair();
-    }
-
-    bool RenderContext_bgfx::SetJavaShaderPack(const std::string& path, const std::map<std::string, std::string>& options, std::string& error) {
-        if (!initialized) {
-            error = "renderer is not ready";
-            return false;
-        }
-        ClearJavaShaderPack();
-        jpackPath = path;
-        jpackOptions = options;
-        jpackError.clear();
-        const bgfx::RendererType::Enum type = bgfx::getRendererType();
-        JavaPackHost::LoadConfig config;
-        config.path = path;
-        for (const auto& kv : options)
-            config.options[kv.first] = kv.second;
-        if (type == bgfx::RendererType::OpenGL) {
-            config.backend = jshader::BackendKind::OpenGL;
-        } else if (type == bgfx::RendererType::Direct3D11 || type == bgfx::RendererType::Direct3D12) {
-            config.backend = jshader::BackendKind::D3D11;
-            config.hlsl = CompilePackHlsl;
-        } else if (type == bgfx::RendererType::Vulkan) {
-            config.backend = jshader::BackendKind::Vulkan;
-        } else {
-            error = std::string("Java shader packs need the OpenGL, Direct3D 11 or Vulkan renderer (this one is ") + bgfx::getRendererName(type) + ")";
-            jpackError = error;
-            jpackPath.clear();
-            return false;
-        }
-        if (atlasCopy.empty() || atlasCopyTiles <= 0) {
-            error = "the block atlas is not loaded yet (join a world first, then enable the pack)";
-            jpackError = error;
-            jpackPath.clear();
-            return false;
-        }
-        config.originTopLeft = !bgfx::getCaps()->originBottomLeft;
-        config.width = width;
-        config.height = height;
-        config.dimension = jpackDimension;
-        config.blockName = [](uint16_t id) { return BlockPalette::Instance().Name(id); };
-        auto host = std::make_unique<JavaPackHost>();
-        if (!host->Load(config, error)) {
-            jpackError = error;
-            jpackPath.clear();
-            return false;
-        }
-        host->SetAtlas(atlasCopy.data(), atlasCopyTilePx, atlasCopyTiles);
-        jpack = std::move(host);
-        packReady = false;
-        Tessellator::SetCaptureQuadInfo(true);
-        shadowConfigDirty = true;
-        appliedViewOrder = 0;
-        ClearChunkMeshes();
-        return true;
-    }
-
-    void RenderContext_bgfx::ClearJavaShaderPack() {
-        if (!jpack && jpackPath.empty())
-            return;
-        const bool had = jpack != nullptr;
-        jpack.reset();
-        packReady = false;
-        jpackPath.clear();
-        Tessellator::SetCaptureQuadInfo(false);
-        shadowConfigDirty = true;
-        if (initialized && had) {
-            ApplyViewOrder();
-            ClearChunkMeshes();
-        }
-    }
-
-    void RenderContext_bgfx::SetJavaShaderPackDimension(const std::string& folder) {
-        if (folder == jpackDimension)
-            return;
-        jpackDimension = folder;
-        if (jpack && !jpackPath.empty()) {
-            std::string error;
-            const std::string path = jpackPath;
-            const auto options = jpackOptions;
-            if (!SetJavaShaderPack(path, options, error))
-                std::cout << "[javapack] " << error << std::endl;
-        }
-    }
-
-    void RenderContext_bgfx::ApplyViewOrder() {
-        constexpr bgfx::ViewId head[4] = {kViewShadowBuild, kViewShadowGlass, kViewShadowEntity, 0};
-        constexpr bgfx::ViewId tail[21] = {kViewEntity, kViewCopy, kViewLate, kViewBloom, kViewBloom + 1, kViewBloom + 2, kViewBloom + 3,
-                                           kViewBloom + 4, kViewBloom + 5, kViewBloom + 6, kViewBlur, kViewUp0, kViewUp1, kViewBlurOut,
-                                           kViewCopy2, kViewHand, kViewGui, kViewDoll, kViewTop, kViewPresent, kViewGen};
-        std::vector<bgfx::ViewId> order;
-        if (PackActive()) {
-            std::vector<bgfx::ViewId> packViews;
-            jpack->Pipe().AppendViewOrder(packViews);
-            const size_t total = 64 + packViews.size();
-            if (appliedViewOrder == total)
-                return;
-            order.assign(head, head + 4);
-            order.insert(order.end(), packViews.begin(), packViews.end());
-            order.insert(order.end(), tail, tail + 21);
-            for (bgfx::ViewId v = 25; v < 64; v++)
-                order.push_back(v);
-            if (total > 255) {
-                jpackError = "shader pack needs too many render passes";
-                jpack.reset();
-                return;
-            }
-            bgfx::setViewOrder(0, static_cast<uint16_t>(order.size()), order.data());
-            appliedViewOrder = static_cast<uint16_t>(total);
-            return;
-        }
-        bgfx::setViewOrder(0, 256, nullptr);
-        order.assign(head, head + 4);
-        order.insert(order.end(), tail, tail + 21);
-        bgfx::setViewOrder(0, 25, order.data());
-        appliedViewOrder = 0;
-    }
-
-    void RenderContext_bgfx::DrawPackLayer(RenderLayer layer, jshader::Slot slot, const char* program, const std::vector<VisibleChunk>& chunks,
-                                           const std::vector<const GpuSection*>& sections, const jshader::PackDrawState& draw, bool shadowPass) {
-        const size_t slotIndex = static_cast<size_t>(layer);
-        struct Run {
-            int page;
-            uint32_t start, count;
-        };
-        static thread_local std::vector<Run> runs;
-        runs.clear();
-        for (const VisibleChunk& item : chunks) {
-            const GpuChunk& g = *item.chunk;
-            if (!g.layerCount[slotIndex])
-                continue;
-            for (uint32_t i = item.secBegin; i < item.secEnd; i++) {
-                const GpuSection& sec = *sections[i];
-                const uint32_t count = sec.count[slotIndex];
-                if (!count)
-                    continue;
-                const uint32_t start = g.iOff[slotIndex] + sec.start[slotIndex];
-                if (!runs.empty() && runs.back().page == g.page && runs.back().start + runs.back().count == start)
-                    runs.back().count += count;
-                else
-                    runs.push_back({g.page, start, count});
-            }
-        }
-        if (runs.empty())
-            return;
-        const uint64_t base = shadowPass ? (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS)
-                                         : PassState(layer);
-        jshader::DrawResult dr = jpack->Pipe().Prepare(slot, program, JavaPackHost::AttribMask(), draw, base);
-        if (!dr.ok)
-            return;
-        uint64_t state = dr.state;
-        if (dr.flipWinding) {
-            const uint64_t cull = state & BGFX_STATE_CULL_MASK;
-            state &= ~BGFX_STATE_CULL_MASK;
-            if (cull == BGFX_STATE_CULL_CW)
-                state |= BGFX_STATE_CULL_CCW;
-            else if (cull == BGFX_STATE_CULL_CCW)
-                state |= BGFX_STATE_CULL_CW;
-        }
-        bgfx::setState(state);
-        constexpr uint8_t kKeep = BGFX_DISCARD_INDEX_BUFFER | BGFX_DISCARD_VERTEX_STREAMS;
-        for (const Run& r : runs) {
-            const Page& pg = pages[r.page];
-            if (!bgfx::isValid(pg.vbPack))
-                continue;
-            bgfx::setVertexBuffer(0, pg.vbPack);
-            bgfx::setIndexBuffer(pg.ib[slotIndex], r.start, r.count);
-            bgfx::submit(dr.view, dr.program, 0, kKeep);
-            drawCalls++;
-            drawnIndices += r.count;
-        }
-        bgfx::discard(BGFX_DISCARD_ALL);
-    }
-
-    void RenderContext_bgfx::DrawPackShadows(float camX, float camZ) {
-        packShadowChunks.clear();
-        packShadowSections.clear();
-        const float reach = std::max(8.0f, jShadow.distance) * 1.5f + 24.0f;
-        for (const auto* map : {&gpuChunks}) {
-            for (const auto& entry : *map) {
-                const GpuChunk& g = entry.second;
-                if (g.page < 0 || g.sections.empty())
-                    continue;
-                const float dx = g.cx * 16.0f + 8.0f - camX, dz = g.cz * 16.0f + 8.0f - camZ;
-                if (dx * dx + dz * dz > reach * reach)
-                    continue;
-                VisibleChunk item{dx * dx + dz * dz, &g, true};
-                item.secBegin = static_cast<uint32_t>(packShadowSections.size());
-                for (const GpuSection& sec : g.sections)
-                    packShadowSections.push_back(&sec);
-                item.secEnd = static_cast<uint32_t>(packShadowSections.size());
-                packShadowChunks.push_back(item);
-            }
-        }
-        if (packShadowChunks.empty())
-            return;
-        jshader::PackDrawState draw = jpack->TerrainDraw(frame, jFrame);
-        std::memcpy(draw.modelView, jShadow.drawView, sizeof(draw.modelView));
-        std::memcpy(draw.projection, jShadow.projection, sizeof(draw.projection));
-        for (int c = 0; c < 3; c++)
-            for (int r = 0; r < 3; r++)
-                draw.normalMatrix[c * 3 + r] = jShadow.drawView[c * 4 + r];
-        draw.renderStage = 0;
-        for (RenderLayer layer : {RenderLayer::Solid, RenderLayer::Cutout, RenderLayer::CutoutCull})
-            DrawPackLayer(layer, jshader::Slot::Shadow, "shadow", packShadowChunks, packShadowSections, draw, true);
-    }
-
-    void RenderContext_bgfx::DrawPackWorld(const Frustum& , float camX, float camZ) {
-        if (!PackActive())
-            return;
-        if (jpack->Pipe().Config().shadowEnabled && !gpuChunks.empty())
-            DrawPackShadows(camX, camZ);
-        const jshader::PackDrawState draw = jpack->TerrainDraw(frame, jFrame);
-        if (!visible.empty()) {
-            DrawPackLayer(RenderLayer::Solid, jshader::Slot::Terrain, "gbuffers_terrain", visible, visibleSections, draw, false);
-            DrawPackLayer(RenderLayer::Cutout, jshader::Slot::Terrain, "gbuffers_terrain", visible, visibleSections, draw, false);
-            DrawPackLayer(RenderLayer::CutoutCull, jshader::Slot::Terrain, "gbuffers_terrain", visible, visibleSections, draw, false);
-            std::sort(visible.begin(), visible.end(), [](const VisibleChunk& a, const VisibleChunk& b) { return a.distance > b.distance; });
-            DrawPackLayer(RenderLayer::Translucent, jshader::Slot::Translucent, "gbuffers_water", visible, visibleSections, draw, false);
-            DrawPackLayer(RenderLayer::TranslucentCull, jshader::Slot::Translucent, "gbuffers_water", visible, visibleSections, draw, false);
-        }
-        jpack->Pipe().RunPostPasses(BGFX_INVALID_HANDLE, width, height, jshader::Pipeline::FullscreenLayout(), true);
-        static uint32_t statFrames = 0;
-        if (++statFrames % 300 == 1)
-            std::cout << "[javapack] frame " << statFrames << ": post passes=" << jpack->Pipe().PassesRun() << " final=" << (jpack->Pipe().FinalOk() ? "ok" : "MISSING")
-                      << " chunks=" << visible.size() << " submits=" << drawCalls << std::endl;
     }
 
     void RenderContext_bgfx::ClearChunkMeshes() {
@@ -3492,7 +3106,6 @@ namespace perlin {
         gpuChunks.clear();
         lodChunks.clear();
         DestroyPages();
-        jpack.reset();
         DestroyMotionBlur();
         DestroyUpscale();
         DestroyFrameGen();

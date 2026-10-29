@@ -47,4 +47,4 @@ Limits: mining speed is recomputed from the held item (haste, enchantments and e
 
 ## Offscreen export
 
-While exporting, the game is rendered into an offscreen target (the frame-generation target is reused) and that target is what gets captured. The window shows a copy of it with the progress panel drawn on top in its own last view, so the panel stays on screen the whole time and never appears in the video. Set `PERLIN_EXPORT_DIRECT=1` to go back to capturing the window directly (the panel then hides on captured frames). The offscreen path is skipped automatically while a Java shader pack is active.
+While exporting, the game is rendered into an offscreen target (the frame-generation target is reused) and that target is what gets captured. The window shows a copy of it with the progress panel drawn on top in its own last view, so the panel stays on screen the whole time and never appears in the video. Set `PERLIN_EXPORT_DIRECT=1` to go back to capturing the window directly (the panel then hides on captured frames).
