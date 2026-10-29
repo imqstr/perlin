@@ -415,26 +415,25 @@ namespace perlin::ui {
             return nullptr;
         const int cellW = gp.width / 16, cellH = gp.height / 16;
         const int sx0 = static_cast<int>(cp & 15) * cellW, sy0 = static_cast<int>((cp >> 4) & 15) * cellH;
-        // Glyphs fill the full line like the game draws them: the cell is scaled to the 16 px atlas slot (8 gui px).
+        // Icons fill the full cell like the game draws them: the whole 16 px atlas slot (8 gui px),
+        // never trimmed to the ink like text glyphs are.
         const int cx = (dynNext % perRow) * 16, cy = dynY0 + (dynNext / perRow) * 16;
-        int ink = 0, left = 16;
+        int ink = 0;
         for (int y = 0; y < 16; y++)
             for (int x = 0; x < 16; x++) {
                 const int sx = sx0 + x * cellW / 16, sy = sy0 + y * cellH / 16;
                 const uint8_t* src = &gp.rgba[(static_cast<size_t>(sy) * static_cast<size_t>(gp.width) + static_cast<size_t>(sx)) * 4];
                 uint8_t* dst = &atlas[(static_cast<size_t>(cy + y) * static_cast<size_t>(atlasWidth) + static_cast<size_t>(cx + x)) * 4];
                 std::copy(src, src + 4, dst);
-                if (src[3] > 16) {
-                    ink = std::max(ink, x + 1);
-                    left = std::min(left, x);
-                }
+                if (src[3] > 16)
+                    ink = 1;
             }
         if (ink == 0)
             return nullptr;  // empty cell: let other sources (or the fallback) draw it
         dynNext++;
         Glyph g;
-        g.width = (ink + 1) / 2;
-        g.advance = g.width + 1;
+        g.width = 8;
+        g.advance = 8;
         g.cell = kCell;
         g.u0 = static_cast<float>(cx) / static_cast<float>(atlasWidth);
         g.v0 = static_cast<float>(cy) / static_cast<float>(atlasHeight);
