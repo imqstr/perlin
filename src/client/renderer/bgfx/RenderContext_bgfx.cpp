@@ -11,6 +11,7 @@
 #include "client/renderer/bgfx/GpuSelect.hpp"
 #include "client/Options.hpp"
 #include "client/resources/ShaderPack.hpp"
+#include "client/ui/UiAssets.hpp"
 #include "world/level/block/BlockPalette.hpp"
 #include "util/Paths.hpp"
 
@@ -2969,6 +2970,47 @@ namespace perlin {
         bgfx::submit(kViewLate, shaders.Program(ShaderProgram::Screen));
     }
 
+    void RenderContext_bgfx::DrawPortalOverlay() {
+        const float alpha = frame.portalOverlay;
+        if (alpha <= 0.001f || width <= 0 || height <= 0)
+            return;
+        if (!bgfx::isValid(portalTexture)) {
+            Texture tex;
+            if (!ui::UiAssets::Instance().Image("textures/blocks/portal.png", tex) || tex.width <= 0 || tex.pixels.empty())
+                return;
+            portalTexture = bgfx::createTexture2D(static_cast<uint16_t>(tex.width), static_cast<uint16_t>(tex.height), false, 1,
+                                                  bgfx::TextureFormat::RGBA8,
+                                                  BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC,
+                                                  bgfx::copy(tex.pixels.data(), static_cast<uint32_t>(tex.pixels.size())));
+            if (!bgfx::isValid(portalTexture))
+                return;
+        }
+        if (bgfx::getAvailTransientVertexBuffer(4, textureLayout) < 4)
+            return;
+        // Java-style nether swirl: tiled portal texture slowly rotating, alpha ramps with time inside the portal.
+        const float t = frame.timeSeconds;
+        const float ang = t * 0.6f;
+        const float c = std::cos(ang), s = std::sin(ang);
+        constexpr float kTile = 2.5f;
+        bgfx::TransientVertexBuffer tvb;
+        bgfx::allocTransientVertexBuffer(&tvb, 4, textureLayout);
+        auto* v = reinterpret_cast<TextureVertex*>(tvb.data);
+        const float corners[4][2] = {{-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}};
+        const float uvs[4][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
+        for (int i = 0; i < 4; i++) {
+            const float dx = uvs[i][0] - 0.5f, dy = uvs[i][1] - 0.5f;
+            v[i] = {corners[i][0], corners[i][1], 0.0f, 0.5f + (dx * c - dy * s) * kTile, 0.5f + (dx * s + dy * c) * kTile};
+        }
+        static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        shaders.SetMatrix(identity);
+        shaders.SetModulator(1.0f, 1.0f, 1.0f, std::min(1.0f, alpha));
+        shaders.BindSky(portalTexture, BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
+        bgfx::setVertexBuffer(0, &tvb);
+        bgfx::setIndexBuffer(quadIndices);
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | kTranslucentBlend);
+        bgfx::submit(kViewTop, shaders.Program(shaders.Has(ShaderProgram::SpriteUi) ? ShaderProgram::SpriteUi : ShaderProgram::Celestial));
+    }
+
     void RenderContext_bgfx::DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) {
         visible.clear();
         visibleSections.clear();
@@ -2985,6 +3027,7 @@ namespace perlin {
         if (gpuChunks.empty() && lodChunks.empty()) {
             DrawClouds();
             DrawScreenTint();
+            DrawPortalOverlay();
             DrawCrosshair();
             return;
         }
@@ -3054,6 +3097,7 @@ namespace perlin {
         DrawLayer(RenderLayer::TranslucentCull, ShaderProgram::TerrainTranslucent, frustum, visible, atlas);
         DrawClouds();
         DrawScreenTint();
+        DrawPortalOverlay();
         DrawCrosshair();
     }
 
@@ -3117,6 +3161,9 @@ namespace perlin {
         if (bgfx::isValid(tileFlagsTexture))
             bgfx::destroy(tileFlagsTexture);
         tileFlagsTexture = BGFX_INVALID_HANDLE;
+        if (bgfx::isValid(portalTexture))
+            bgfx::destroy(portalTexture);
+        portalTexture = BGFX_INVALID_HANDLE;
         DestroyShadows();
         DestroyUi();
         if (bgfx::isValid(atlasTex))

@@ -351,6 +351,10 @@ namespace perlin {
         if (n.rfind("minecraft:", 0) == 0)
             n.erase(0, 10);
 
+        if (n == "portal" || n == "end_portal" || n == "end_gateway") {
+            s.portal = true;
+            return info;
+        }
         if (n == "water" || n == "flowing_water" || n == "lava" || n == "flowing_lava") {
             const int depth = State(id, "liquid_depth", 0);
             s.fluid = Has(n, "lava") ? 2 : 1;

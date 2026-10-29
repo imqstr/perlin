@@ -213,6 +213,8 @@ namespace perlin {
         bgfx::IndexBufferHandle skyBoxIndices = BGFX_INVALID_HANDLE;
         bgfx::VertexBufferHandle screenBuffer = BGFX_INVALID_HANDLE;
         void DrawScreenTint();
+        void DrawPortalOverlay();
+        bgfx::TextureHandle portalTexture = BGFX_INVALID_HANDLE;
 
         struct MotionBlur {
             bgfx::TextureHandle worldColor = BGFX_INVALID_HANDLE, worldDepth = BGFX_INVALID_HANDLE;

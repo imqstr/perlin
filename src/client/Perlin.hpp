@@ -177,6 +177,9 @@ namespace perlin {
         uint64_t loadingTemplateVersion = 0;
         std::chrono::steady_clock::time_point loadingCheckAt{}, loadingReadyAt{}, loadingStartAt{};
         bool loadingReadyArmed = false;
+        int loadingChunkBase = 0;
+        int lastDimId = -1;
+        float portalTime = 0.0f;
         bool titleActive = false, titleShown = false, titleLeftDown = false;
         ui::TitleModel title;
         std::string titleSignature;

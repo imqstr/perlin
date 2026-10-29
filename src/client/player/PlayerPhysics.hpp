@@ -55,6 +55,8 @@ namespace perlin::physics {
         bool isAir = true;
         int8_t bubbleColumn = 0;
         int8_t scaffoldingStability = -1;
+        // Inside a nether/end portal column: drives the Java-style portal overlay.
+        bool portal = false;
         bool Empty() const { return boxes.empty(); }
     };
 

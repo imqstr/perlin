@@ -126,6 +126,7 @@ namespace perlin {
         bool crosshair = false;
         int guiScale = 0;
         float screenTint[4];
+        float portalOverlay = 0.0f;
         uint32_t frameIndex;
         float handProjection[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         int dynMode = 0;

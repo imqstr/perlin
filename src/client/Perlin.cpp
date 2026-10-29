@@ -429,6 +429,9 @@ namespace perlin {
         loadingDone = false;
         loadingStartAt = {};
         loadingReadyArmed = false;
+        loadingChunkBase = 0;
+        lastDimId = -1;
+        portalTime = 0.0f;
         std::string host;
         uint16_t port = 0;
         std::string serverText = options.server;
@@ -6127,8 +6130,9 @@ namespace perlin {
             if (!loadingStartAt.time_since_epoch().count())
                 loadingStartAt = now;
             const int chunks = session->ChunksReceived();
+            const int freshChunks = chunks - loadingChunkBase;
             const bool assets = levelRenderer && levelRenderer->Blocks().Complete();
-            const bool enough = chunks >= 9 && assets;
+            const bool enough = freshChunks >= 9 && assets;
             if (enough) {
                 if (!loadingReadyArmed) {
                     loadingReadyArmed = true;
@@ -6143,7 +6147,7 @@ namespace perlin {
                 show = false;
             } else {
                 t.message = tr("progressScreen.message.building", "Building terrain");
-                const float fraction = std::min(1.0f, static_cast<float>(chunks) / 49.0f);
+                const float fraction = std::min(1.0f, static_cast<float>(freshChunks) / 49.0f);
                 t.progress = std::min(0.98f, fraction);
             }
         }
@@ -7958,6 +7962,7 @@ namespace perlin {
             }
             bool underwater = false;
             bool eyeInLava = false;
+            bool inPortalNow = false;
             std::string eyeBiome = "minecraft:plains";
             if (live) {
                 const glm::vec3 e = camera.EyePosition();
@@ -7980,11 +7985,39 @@ namespace perlin {
                 }
                 if (underwater)
                     eyeBiome = levelRenderer->Tints().NameForId(live->NetLevel().GetBiome(bx, by, bz));
+                {
+                    const int fy = static_cast<int>(std::floor(camera.y - 1.62f));
+                    const int fx = static_cast<int>(std::floor(e.x)), fz = static_cast<int>(std::floor(e.z));
+                    inPortalNow = cell.portal || col.Query(fx, fy, fz).portal;
+                }
             }
             static int waterVisionTime = 0;
 
             headUnderwater = underwater;
             headInLava = eyeInLava;
+            {
+                // Java-style nether portal overlay: ramps up over ~4 s inside a portal, fades fast outside.
+                const auto nowPortal = Clock::now();
+                static auto lastPortalAt = nowPortal;
+                float dt = std::min(0.1f, std::chrono::duration<float>(nowPortal - lastPortalAt).count());
+                lastPortalAt = nowPortal;
+                if (inPortalNow && (live || previewLevel))
+                    portalTime = std::min(1.0f, portalTime + dt * 0.25f);
+                else
+                    portalTime = std::max(0.0f, portalTime - dt * 1.0f);
+            }
+            if (live && session) {
+                const int dim = live->DimensionId();
+                if (lastDimId != -1 && dim != lastDimId) {
+                    // Dimension hop (portal, end gateway): show the loading screen until the
+                    // new dimension's terrain arrives instead of popping straight in.
+                    loadingDone = false;
+                    loadingStartAt = {};
+                    loadingReadyArmed = false;
+                    loadingChunkBase = session->ChunksReceived();
+                }
+                lastDimId = dim;
+            }
             if (!underwater)
                 waterSurfaceAbove = 0.0f;
             if ((live || previewLevel) && frameStart - handLightAt > std::chrono::milliseconds(200)) {
@@ -8456,6 +8489,7 @@ namespace perlin {
             params.screenTint[1] = 0.0f;
             params.screenTint[2] = 0.0f;
             params.screenTint[3] = options.damageTint ? damage.TintAlpha() : 0.0f;
+            params.portalOverlay = portalTime;
             if (sessionReady && session) {
                 const glm::vec4 fade = session->Camera().Tint();
                 if (fade.a > 0.0f) {
