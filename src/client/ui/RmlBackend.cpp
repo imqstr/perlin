@@ -419,11 +419,10 @@ namespace perlin::ui {
             // gui pixels per atlas pixel
             const float k = static_cast<float>(f.size) / static_cast<float>(page->emPx);
             Rml::Texture texture = renderManager.LoadTexture("mcten:atlas#" + std::to_string(emPx));
-            meshes.resize(meshes.size() + 1);
-            Rml::TexturedMesh& out = meshes.back();
+            meshes.resize(meshes.size() + 2);
+            Rml::TexturedMesh& out = meshes[meshes.size() - 2];
             out.texture = texture;
-            meshes.resize(meshes.size() + 1);
-            Rml::TexturedMesh& fallback = meshes.back();
+            Rml::TexturedMesh& fallback = meshes[meshes.size() - 1];
             fallback.texture = renderManager.LoadTexture("mcfont:atlas#" + std::to_string(McFont::Instance().Version()));
 
             const Rml::ColourbPremultiplied main = Fade(colour, opacity);
