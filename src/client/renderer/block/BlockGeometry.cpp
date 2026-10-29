@@ -195,7 +195,9 @@ namespace perlin {
             if (!entry.is_regular_file())
                 continue;
             const std::string name = entry.path().filename().string();
-            if (name.size() < 10 || name.compare(name.size() - 9, 9, ".geo.json") != 0)
+            const bool isGeo = name.size() >= 9 && name.compare(name.size() - 9, 9, ".geo.json") == 0;
+            const bool isGeometry = name.size() >= 14 && name.compare(name.size() - 14, 14, ".geometry.json") == 0;
+            if (!isGeo && !isGeometry)
                 continue;
             const auto doc = json::Document::Parse(ReadAll(entry.path()), true);
             if (!doc)
@@ -255,6 +257,34 @@ namespace perlin {
                         addGeometry(m.key, m.value, true);
             }
         }
+    // Blocks that reference the builtin full cube (e.g. pillars with per-face materials) have no
+    // geometry file anywhere; synthesize a unit cube whose faces use the standard material names
+    // so per-face tiles (or the "*" fallback in Bake) resolve.
+    {
+        Geometry full;
+        full.tw = 16;
+        full.th = 16;
+        Bone bone;
+        bone.name = "body";
+        Cube cube;
+        cube.origin[0] = -8;
+        cube.origin[1] = 0;
+        cube.origin[2] = -8;
+        cube.size[0] = 16;
+        cube.size[1] = 16;
+        cube.size[2] = 16;
+        for (int f = 0; f < 6; f++) {
+            cube.faces[f].has = true;
+            cube.faces[f].uv[0] = 0;
+            cube.faces[f].uv[1] = 0;
+            cube.faces[f].size[0] = 16;
+            cube.faces[f].size[1] = 16;
+            cube.faces[f].mat = kFaceNames[f];
+        }
+        bone.cubes.push_back(std::move(cube));
+        full.bones.push_back(std::move(bone));
+        geometries["minecraft:geometry.full_block"] = std::move(full);
+    }
     }
 
     static bool ParseComponentSet(const json::View comps, const std::unordered_map<std::string, std::string>& terrain,
@@ -286,8 +316,15 @@ namespace perlin {
                 auto it = terrain.find(tex);
                 if (it != terrain.end())
                     tile = fetch(it->second, packRoot);
-                if (!tile)
-                    tile = fetch("textures/blocks/" + tex, packRoot);
+                if (!tile) {
+                    // Network material names are namespaced ("hive:small_pot"); the atlas stems
+                    // and terrain_texture.json paths are not, so retry with the bare name.
+                    std::string bare = tex;
+                    const size_t colon = bare.find(':');
+                    if (colon != std::string::npos)
+                        bare.erase(0, colon + 1);
+                    tile = fetch("textures/blocks/" + bare, packRoot);
+                }
                 tiles[key] = tile;
                 dimming[key] = m.value["face_dimming"].boolean(true);
             }
@@ -308,6 +345,35 @@ namespace perlin {
             ReadVec(tr["rotation"], rot, 3);
             ReadVec(tr["translation"], trans, 3);
             ReadVec(tr["scale"], scale, 3);
+            // Network-serialized blocks use single-letter keys (TX/TY/TZ/RX/RY/RZ/SX/SY/SZ);
+            // rotations are quarter-turns, so scale them to degrees like the array form.
+            if (!tr["rotation"].isArray() && !tr["translation"].isArray() && !tr["scale"].isArray()) {
+                auto num = [&](const char* key) -> float {
+                    const json::View v = tr[key];
+                    return v.isNumber() ? static_cast<float>(v.real()) : 0.0f;
+                };
+                auto numOr = [&](const char* key, float fallback) -> float {
+                    const json::View v = tr[key];
+                    return v.isNumber() ? static_cast<float>(v.real()) : fallback;
+                };
+                const float rx = num("RX"), ry = num("RY"), rz = num("RZ");
+                const float tx = num("TX"), ty = num("TY"), tz = num("TZ");
+                if (tr["RX"].isNumber() || tr["RY"].isNumber() || tr["RZ"].isNumber()) {
+                    rot[0] = rx * 90.0f;
+                    rot[1] = ry * 90.0f;
+                    rot[2] = rz * 90.0f;
+                }
+                if (tr["TX"].isNumber() || tr["TY"].isNumber() || tr["TZ"].isNumber()) {
+                    trans[0] = tx;
+                    trans[1] = ty;
+                    trans[2] = tz;
+                }
+                if (tr["SX"].isNumber() || tr["SY"].isNumber() || tr["SZ"].isNumber()) {
+                    scale[0] = numOr("SX", 1.0f);
+                    scale[1] = numOr("SY", 1.0f);
+                    scale[2] = numOr("SZ", 1.0f);
+                }
+            }
         }
         return hasGeometry || hasMaterials || hasTransform;
     }
