@@ -455,7 +455,7 @@ namespace rhi::vk {
             return;
         }
         std::memcpy(push.data() + offset, data, bytes);
-        pushUsed = std::max(pushUsed, offset + bytes);
+        pushUsed = (std::max)(pushUsed, offset + bytes);
         pushDirty = true;
     }
 

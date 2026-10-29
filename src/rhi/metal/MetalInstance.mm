@@ -45,8 +45,8 @@ namespace rhi::metal {
 #endif
                 if (!width || !height) {
                     const CGSize size = layer.drawableSize;
-                    width = std::max(1u, static_cast<uint32_t>(size.width));
-                    height = std::max(1u, static_cast<uint32_t>(size.height));
+                    width = (std::max)(1u, static_cast<uint32_t>(size.width));
+                    height = (std::max)(1u, static_cast<uint32_t>(size.height));
                 }
                 layer.drawableSize = CGSizeMake(width, height);
                 SetPresentMode(presentMode);

@@ -75,7 +75,7 @@ namespace rhi::vk {
                     return false;
 
                 state = std::make_shared<InstanceState>();
-                state->apiVersion = std::min(apiVersion, VK_MAKE_API_VERSION(0, 1, 3, 0));
+                state->apiVersion = (std::min)(apiVersion, VK_MAKE_API_VERSION(0, 1, 3, 0));
 
                 uint32_t extCount = 0;
                 vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
@@ -221,7 +221,7 @@ namespace rhi::vk {
                             a.sharedMemory = std::max<uint64_t>(a.sharedMemory, mem.memoryHeaps[i].size);
                     }
                     if (a.type == AdapterType::Integrated) {
-                        a.sharedMemory = std::max(a.sharedMemory, a.dedicatedVram);
+                        a.sharedMemory = (std::max)(a.sharedMemory, a.dedicatedVram);
                         a.dedicatedVram = 0;
                     }
 

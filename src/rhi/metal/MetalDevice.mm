@@ -182,8 +182,8 @@ namespace rhi::metal {
         }
         Texture t;
         t.desc = desc;
-        t.desc.mips = std::max(1u, desc.mips);
-        t.desc.samples = std::max(1u, desc.samples);
+        t.desc.mips = (std::max)(1u, desc.mips);
+        t.desc.samples = (std::max)(1u, desc.samples);
         t.name = desc.name ? desc.name : "";
 
         MTLTextureDescriptor* td = [MTLTextureDescriptor new];
@@ -192,8 +192,8 @@ namespace rhi::metal {
         td.pixelFormat = pf;
         td.width = desc.width;
         td.height = desc.height;
-        td.depth = desc.dim == TextureDim::Tex3D ? std::max(1u, desc.depthOrLayers) : 1;
-        td.arrayLength = desc.dim == TextureDim::Tex2DArray ? std::max(1u, desc.depthOrLayers) : 1;
+        td.depth = desc.dim == TextureDim::Tex3D ? (std::max)(1u, desc.depthOrLayers) : 1;
+        td.arrayLength = desc.dim == TextureDim::Tex2DArray ? (std::max)(1u, desc.depthOrLayers) : 1;
         td.mipmapLevelCount = ms ? 1 : t.desc.mips;
         td.sampleCount = t.desc.samples;
         td.storageMode = MTLStorageModePrivate;
@@ -237,7 +237,7 @@ namespace rhi::metal {
         sd.rAddressMode = ToAddress(desc.w);
         sd.maxAnisotropy = static_cast<NSUInteger>(std::clamp(desc.maxAnisotropy, 1.0f, 16.0f));
         sd.lodMinClamp = desc.minLod;
-        sd.lodMaxClamp = std::min(desc.maxLod, 1000.0f);
+        sd.lodMaxClamp = (std::min)(desc.maxLod, 1000.0f);
         if (desc.compare)
             sd.compareFunction = ToCompare(desc.compareOp);
 #if TARGET_OS_OSX
@@ -362,7 +362,7 @@ namespace rhi::metal {
                 pf = MTLPixelFormatX24_Stencil8;
 #endif
         }
-        const bool wholeMips = r.baseMip == 0 && r.mipCount == std::max(1u, t.desc.mips);
+        const bool wholeMips = r.baseMip == 0 && r.mipCount == (std::max)(1u, t.desc.mips);
         const bool wholeLayers = r.baseLayer == 0 && r.layerCount == layers;
         const bool sameType = (dim == TextureDim::Tex2D && t.desc.dim == TextureDim::Tex2D) || dim == t.desc.dim;
         if (format == Format::Unknown && !stencil && wholeMips && wholeLayers && sameType)
@@ -528,7 +528,7 @@ namespace rhi::metal {
         }
         for (uint32_t i = 0; i < desc.streamCount; i++) {
             const NSUInteger index = kVertexBufferBase - i;
-            vd.layouts[index].stride = std::max(desc.streams[i].stride, 1u);
+            vd.layouts[index].stride = (std::max)(desc.streams[i].stride, 1u);
             vd.layouts[index].stepFunction = desc.streams[i].step == VertexStep::Instance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex;
             vd.layouts[index].stepRate = 1;
         }
@@ -562,7 +562,7 @@ namespace rhi::metal {
             if (HasStencil(desc.depthFormat))
                 pd.stencilAttachmentPixelFormat = ToPixelFormat(desc.depthFormat);
         }
-        pd.rasterSampleCount = std::max(1u, desc.samples);
+        pd.rasterSampleCount = (std::max)(1u, desc.samples);
         pd.alphaToCoverageEnabled = desc.blend.alphaToCoverage;
         switch (desc.topology) {
         case Topology::LineList: pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassLine; break;
@@ -684,7 +684,7 @@ namespace rhi::metal {
 
     void Device::BeginFrame() {
         frame++;
-        const uint64_t behind = std::max(1u, options.framesInFlight);
+        const uint64_t behind = (std::max)(1u, options.framesInFlight);
         if (frame > behind)
             WaitFence(frameFence, frame - behind, 2'000'000'000ull);
     }

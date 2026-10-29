@@ -27,8 +27,8 @@ namespace rhi::d3d12 {
                 hdr = false;
 
                 DXGI_SWAP_CHAIN_DESC1 sd{};
-                sd.Width = std::max(1u, width);
-                sd.Height = std::max(1u, height);
+                sd.Width = (std::max)(1u, width);
+                sd.Height = (std::max)(1u, height);
                 sd.Format = desc.hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
                 sd.SampleDesc.Count = 1;
                 sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | (desc.allowSampling ? DXGI_USAGE_SHADER_INPUT : 0);
@@ -53,7 +53,7 @@ namespace rhi::d3d12 {
                     return false;
                 // alt+enter fullscreen switching is the game's job, not dxgi's
                 device.inst->factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
-                chain->SetMaximumFrameLatency(std::min(imageCount - 1, std::max(1u, device.options.framesInFlight)));
+                chain->SetMaximumFrameLatency(std::min(imageCount - 1, (std::max)(1u, device.options.framesInFlight)));
                 waitable.attach(chain->GetFrameLatencyWaitableObject());
 
                 if (format == DXGI_FORMAT_R16G16B16A16_FLOAT) {

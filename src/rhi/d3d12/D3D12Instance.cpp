@@ -425,6 +425,27 @@ namespace rhi::d3d12 {
         return out;
     }
 
+    // the Windows SDK (and DirectX-Headers) return the handle; mingw-w64 uses the older out-parameter form
+    static D3D12_CPU_DESCRIPTOR_HANDLE HeapCpuStart(ID3D12DescriptorHeap* h) {
+#ifdef __MINGW32__
+        D3D12_CPU_DESCRIPTOR_HANDLE r{};
+        h->GetCPUDescriptorHandleForHeapStart(&r);
+        return r;
+#else
+        return h->GetCPUDescriptorHandleForHeapStart();
+#endif
+    }
+
+    static D3D12_GPU_DESCRIPTOR_HANDLE HeapGpuStart(ID3D12DescriptorHeap* h) {
+#ifdef __MINGW32__
+        D3D12_GPU_DESCRIPTOR_HANDLE r{};
+        h->GetGPUDescriptorHandleForHeapStart(&r);
+        return r;
+#else
+        return h->GetGPUDescriptorHandleForHeapStart();
+#endif
+    }
+
     bool CpuDescriptorPool::Init(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t cap) {
         D3D12_DESCRIPTOR_HEAP_DESC hd{};
         hd.Type = type;
@@ -432,7 +453,7 @@ namespace rhi::d3d12 {
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (FAILED(device->CreateDescriptorHeap(&hd, winrt::guid_of<ID3D12DescriptorHeap>(), heap.put_void())))
             return false;
-        heap->GetCPUDescriptorHandleForHeapStart(&cpuStart);
+        cpuStart = HeapCpuStart(heap.get());
         increment = device->GetDescriptorHandleIncrementSize(type);
         capacity = cap;
         return true;
@@ -460,8 +481,8 @@ namespace rhi::d3d12 {
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FAILED(device->CreateDescriptorHeap(&hd, winrt::guid_of<ID3D12DescriptorHeap>(), heap.put_void())))
             return false;
-        heap->GetCPUDescriptorHandleForHeapStart(&cpuStart);
-        heap->GetGPUDescriptorHandleForHeapStart(&gpuStart);
+        cpuStart = HeapCpuStart(heap.get());
+        gpuStart = HeapGpuStart(heap.get());
         increment = device->GetDescriptorHandleIncrementSize(type);
         freeRanges.push_back({0, capacity});
         return true;

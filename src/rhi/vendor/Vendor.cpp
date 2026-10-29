@@ -47,16 +47,16 @@ namespace rhi::vendor {
 
     void RenderSizeFor(Quality quality, uint32_t outputWidth, uint32_t outputHeight, uint32_t& width, uint32_t& height) {
         const float s = ScaleOf(quality);
-        auto even = [](float v) { return std::max(2u, (static_cast<uint32_t>(std::ceil(v)) + 1u) & ~1u); };
+        auto even = [](float v) { return (std::max)(2u, (static_cast<uint32_t>(std::ceil(v)) + 1u) & ~1u); };
         width = even(static_cast<float>(outputWidth) * s);
         height = even(static_cast<float>(outputHeight) * s);
-        width = std::min(width, std::max(2u, (outputWidth + 1u) & ~1u));
-        height = std::min(height, std::max(2u, (outputHeight + 1u) & ~1u));
+        width = (std::min)(width, (std::max)(2u, (outputWidth + 1u) & ~1u));
+        height = (std::min)(height, (std::max)(2u, (outputHeight + 1u) & ~1u));
     }
 
     uint32_t JitterPhases(uint32_t renderWidth, uint32_t outputWidth) {
         const float ratio = static_cast<float>(outputWidth) / static_cast<float>(std::max(1u, renderWidth));
-        return std::max(8u, static_cast<uint32_t>(std::ceil(8.0f * ratio * ratio)));
+        return (std::max)(8u, static_cast<uint32_t>(std::ceil(8.0f * ratio * ratio)));
     }
 
     namespace {

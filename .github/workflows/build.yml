@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
-  EMSDK_VERSION: 3.1.50
+  EMSDK_VERSION: 4.0.10
   OPENSSL_VERSION: openssl-3.0.15
   SDL_REF: release-3.4.18
   NDK_VERSION: 27.2.12479018
@@ -216,54 +216,11 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  shaders:
-    name: essl-shaders
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Work out the shader cache key
-        id: bgfx
-        run: echo "tag=$(grep -m1 -A3 'NAME bgfx' CMakeLists.txt | grep -o 'GIT_TAG [^ ]*' | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache compiled ESSL shaders
-        id: essl-cache
-        uses: actions/cache@v4
-        with:
-          path: build-shaders/shaders/essl
-          key: essl-v1-${{ steps.bgfx.outputs.tag }}-${{ hashFiles('src/shaders/**', 'tools/gen_renderdragon_shaders.py', 'cmake/Materials.cmake') }}
-
-      - uses: actions/setup-python@v5
-        if: steps.essl-cache.outputs.cache-hit != 'true'
-        with:
-          python-version: "3.12"
-      - uses: actions/cache@v4
-        if: steps.essl-cache.outputs.cache-hit != 'true'
-        with:
-          path: .cpm-cache
-          key: cpm-shaders-${{ hashFiles('CMakeLists.txt', 'cmake/CPM.cmake') }}
-      - name: Install packages
-        if: steps.essl-cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build libgl-dev libegl-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libwayland-dev
-      - name: Compile ESSL shaders
-        if: steps.essl-cache.outputs.cache-hit != 'true'
-        run: |
-          cmake -S . -B build-shaders -G Ninja -DPERLIN_WEB_SHADERS_ONLY=ON
-          cmake --build build-shaders --target perlin_web_shaders
-      - uses: actions/upload-artifact@v4
-        with:
-          name: essl-shaders
-          path: build-shaders/shaders/essl
-          if-no-files-found: error
-
   web:
     name: web
     runs-on: ubuntu-24.04
-    needs: shaders
     env:
-      CCACHE_COMPILERCHECK: string:emsdk-3.1.50
+      CCACHE_COMPILERCHECK: string:emsdk-4.0.10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -280,10 +237,6 @@ jobs:
         with:
           key: web
           max-size: 600M
-      - uses: actions/download-artifact@v4
-        with:
-          name: essl-shaders
-          path: web-shaders/essl
       - name: Cache OpenSSL for wasm
         id: openssl-cache
         uses: actions/cache@v4
@@ -302,7 +255,6 @@ jobs:
         run: |
           emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DPERLIN_WEB_SHADER_DIR="$GITHUB_WORKSPACE/web-shaders" \
             -DOPENSSL_ROOT_DIR="$GITHUB_WORKSPACE/ossl-wasm" \
             -DOPENSSL_INCLUDE_DIR="$GITHUB_WORKSPACE/ossl-wasm/include" \
             -DOPENSSL_CRYPTO_LIBRARY="$GITHUB_WORKSPACE/ossl-wasm/lib/libcrypto.a" \
@@ -337,7 +289,6 @@ jobs:
   android:
     name: android
     runs-on: ubuntu-24.04
-    needs: shaders
     env:
       CCACHE_COMPILERCHECK: string:ndk-27.2.12479018
     steps:
@@ -377,10 +328,6 @@ jobs:
           [ -d "$ANDROID_HOME/ndk/$NDK_VERSION" ] || packages+=("ndk;${NDK_VERSION}")
           [ -d "$ANDROID_HOME/cmake/$CMAKE_VERSION" ] || packages+=("cmake;${CMAKE_VERSION}")
           "$SDKMANAGER" "${packages[@]}"
-      - uses: actions/download-artifact@v4
-        with:
-          name: essl-shaders
-          path: android-shaders/essl
       - name: Fetch SDL
         run: git clone --depth 1 -b "$SDL_REF" https://github.com/libsdl-org/SDL android/sdl
       - name: Cache OpenSSL for Android
@@ -413,7 +360,6 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease \
             -PsdlDir="$GITHUB_WORKSPACE/android/sdl" \
-            -PshaderDir="$GITHUB_WORKSPACE/android-shaders" \
             -PopensslBase="$GITHUB_WORKSPACE/ossl-android" \
             -Pccache=true \
             -PndkVersion="$NDK_VERSION" \

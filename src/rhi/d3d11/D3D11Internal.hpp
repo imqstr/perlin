@@ -310,7 +310,7 @@ namespace rhi::d3d11 {
         void BeginFrame() override;
         void EndFrame() override;
         uint64_t FrameNumber() const override { return frame; }
-        uint32_t FrameSlot() const override { return static_cast<uint32_t>(frame % std::max(1u, options.framesInFlight)); }
+        uint32_t FrameSlot() const override { return static_cast<uint32_t>(frame % (std::max)(1u, options.framesInFlight)); }
         void WaitIdle() override;
 
         MemoryBudget QueryMemoryBudget() override;

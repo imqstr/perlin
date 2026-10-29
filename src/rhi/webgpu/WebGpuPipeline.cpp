@@ -115,7 +115,7 @@ namespace rhi::webgpu {
             rd.depthStencil = &ds;
         }
 
-        rd.multisample.count = std::max(1u, desc.samples);
+        rd.multisample.count = (std::max)(1u, desc.samples);
         rd.multisample.mask = 0xFFFFFFFFu;
         rd.multisample.alphaToCoverageEnabled = desc.blend.alphaToCoverage && rd.multisample.count > 1;
 

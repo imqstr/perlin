@@ -5,7 +5,7 @@
 namespace rhi {
     uint32_t StateValidator::LayerCount(const TextureDesc& desc) {
         switch (desc.dim) {
-        case TextureDim::Tex2DArray: return std::max(1u, desc.depthOrLayers);
+        case TextureDim::Tex2DArray: return (std::max)(1u, desc.depthOrLayers);
         case TextureDim::Cube: return 6;
         default: return 1;
         }
@@ -82,11 +82,11 @@ namespace rhi {
             return;
         }
         TextureInfo& info = it->second;
-        const uint32_t mips = std::max(1u, info.desc.mips);
+        const uint32_t mips = (std::max)(1u, info.desc.mips);
         const uint32_t m0 = barrier.range.baseMip;
-        const uint32_t m1 = barrier.range.mipCount ? std::min(mips, m0 + barrier.range.mipCount) : mips;
+        const uint32_t m1 = barrier.range.mipCount ? (std::min)(mips, m0 + barrier.range.mipCount) : mips;
         const uint32_t l0 = barrier.range.baseLayer;
-        const uint32_t l1 = barrier.range.layerCount ? std::min(info.layers, l0 + barrier.range.layerCount) : info.layers;
+        const uint32_t l1 = barrier.range.layerCount ? (std::min)(info.layers, l0 + barrier.range.layerCount) : info.layers;
         for (uint32_t m = m0; m < m1; m++)
             for (uint32_t l = l0; l < l1; l++) {
                 State& state = info.states[static_cast<size_t>(l) * mips + m];
@@ -127,11 +127,11 @@ namespace rhi {
             return;
         }
         TextureInfo& info = it->second;
-        const uint32_t mips = std::max(1u, info.desc.mips);
+        const uint32_t mips = (std::max)(1u, info.desc.mips);
         const uint32_t m0 = range.baseMip;
-        const uint32_t m1 = range.mipCount ? std::min(mips, m0 + range.mipCount) : mips;
+        const uint32_t m1 = range.mipCount ? (std::min)(mips, m0 + range.mipCount) : mips;
         const uint32_t l0 = range.baseLayer;
-        const uint32_t l1 = range.layerCount ? std::min(info.layers, l0 + range.layerCount) : info.layers;
+        const uint32_t l1 = range.layerCount ? (std::min)(info.layers, l0 + range.layerCount) : info.layers;
         for (uint32_t m = m0; m < m1; m++)
             for (uint32_t l = l0; l < l1; l++) {
                 const State state = info.states[static_cast<size_t>(l) * mips + m];

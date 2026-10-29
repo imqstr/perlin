@@ -269,9 +269,9 @@ namespace rhi::vk {
                 }
             }
 
-            uint32_t imageCount = std::max(desc.imageCount, caps.minImageCount);
+            uint32_t imageCount = (std::max)(desc.imageCount, caps.minImageCount);
             if (caps.maxImageCount)
-                imageCount = std::min(imageCount, caps.maxImageCount);
+                imageCount = (std::min)(imageCount, caps.maxImageCount);
 
             VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             usage |= caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT;

@@ -138,7 +138,7 @@ namespace rhi::d3d12 {
         }
         TextureRec rec;
         rec.desc = desc;
-        rec.desc.mips = std::max(1u, desc.mips);
+        rec.desc.mips = (std::max)(1u, desc.mips);
         rec.name = desc.name ? desc.name : "";
         const FormatMap fm = MapFormat(desc.format);
         rec.resourceFormat = fm.resource;
@@ -155,7 +155,7 @@ namespace rhi::d3d12 {
         rd.DepthOrArraySize = static_cast<UINT16>(desc.dim == TextureDim::Tex3D ? DepthOf(desc) : rec.layers);
         rd.MipLevels = static_cast<UINT16>(rec.mips);
         rd.Format = fm.resource;
-        rd.SampleDesc.Count = std::max(1u, desc.samples);
+        rd.SampleDesc.Count = (std::max)(1u, desc.samples);
         rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         const bool depth = fm.dsv != DXGI_FORMAT_UNKNOWN;
         if (Has(desc.usage, TextureUsage::ColorTarget))
@@ -200,7 +200,7 @@ namespace rhi::d3d12 {
         uint64_t bytes = 0;
         for (uint32_t m = 0; m < rec.mips; m++)
             bytes += static_cast<uint64_t>(RowBytes(desc.format, MipExtent(desc.width, m))) * RowBlocks(desc.format, MipExtent(desc.height, m)) *
-                     DepthOf(desc) * rec.layers * std::max(1u, desc.samples);
+                     DepthOf(desc) * rec.layers * (std::max)(1u, desc.samples);
         textureBytes += static_cast<int64_t>(bytes);
         liveTextures++;
 
@@ -366,7 +366,7 @@ namespace rhi::d3d12 {
         BindLayoutRec rec;
         rec.entries.assign(desc.entries.begin(), desc.entries.end());
         for (const BindLayoutEntry& e : rec.entries) {
-            const uint32_t count = std::max(1u, e.count);
+            const uint32_t count = (std::max)(1u, e.count);
             switch (e.type) {
             case BindingType::UniformBufferDynamic:
                 rec.dynamicBindings.push_back(e.binding);
@@ -517,7 +517,7 @@ namespace rhi::d3d12 {
                         break;
                     case TextureDim::Tex3D:
                         uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
-                        uv.Texture3D = {r.baseMip, 0, DepthOf(t->desc) >> r.baseMip ? std::max(1u, DepthOf(t->desc) >> r.baseMip) : 1u};
+                        uv.Texture3D = {r.baseMip, 0, DepthOf(t->desc) >> r.baseMip ? (std::max)(1u, DepthOf(t->desc) >> r.baseMip) : 1u};
                         break;
                     default:
                         uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
@@ -579,7 +579,7 @@ namespace rhi::d3d12 {
             for (size_t i = 0; i < l->entries.size(); i++) {
                 const BindLayoutEntry& e = l->entries[i];
                 D3D12_DESCRIPTOR_RANGE1 r{};
-                r.NumDescriptors = std::max(1u, e.count);
+                r.NumDescriptors = (std::max)(1u, e.count);
                 r.BaseShaderRegister = e.binding;
                 r.RegisterSpace = s;
                 r.OffsetInDescriptorsFromTableStart = l->tableOffset[i];
@@ -728,7 +728,7 @@ namespace rhi::d3d12 {
             pd.RTVFormats[i] = MapFormat(desc.colorFormats[i]).view;
         if (desc.depthFormat != Format::Unknown)
             pd.DSVFormat = MapFormat(desc.depthFormat).dsv;
-        pd.SampleDesc = {std::max(1u, desc.samples), 0};
+        pd.SampleDesc = {(std::max)(1u, desc.samples), 0};
 
         // key for the on-disk library: everything that changes the compiled result, nothing pointer-valued
         uint64_t key = Fnv(vs->code.data(), vs->code.size());
@@ -738,12 +738,13 @@ namespace rhi::d3d12 {
         key = Fnv(&pd.RasterizerState, sizeof(pd.RasterizerState), key);
         key = Fnv(&pd.DepthStencilState, sizeof(pd.DepthStencilState), key);
         for (uint32_t i = 0; i < desc.attributeCount; i++) {
-            const uint32_t v[] = {elements[i].SemanticIndex, elements[i].Format, elements[i].InputSlot, elements[i].AlignedByteOffset,
-                                  elements[i].InputSlotClass};
+            const uint32_t v[] = {elements[i].SemanticIndex, static_cast<uint32_t>(elements[i].Format), elements[i].InputSlot,
+                                  elements[i].AlignedByteOffset, static_cast<uint32_t>(elements[i].InputSlotClass)};
             key = Fnv(v, sizeof(v), key);
         }
         key = Fnv(pd.RTVFormats, sizeof(pd.RTVFormats), key);
-        const uint32_t tail[] = {pd.DSVFormat, pd.PrimitiveTopologyType, pd.SampleDesc.Count, pd.NumRenderTargets};
+        const uint32_t tail[] = {static_cast<uint32_t>(pd.DSVFormat), static_cast<uint32_t>(pd.PrimitiveTopologyType), pd.SampleDesc.Count,
+                                pd.NumRenderTargets};
         key = Fnv(tail, sizeof(tail), key);
         key = Fnv(&layout->hash, sizeof(layout->hash), key);
         const std::wstring name = HashName("g", key);

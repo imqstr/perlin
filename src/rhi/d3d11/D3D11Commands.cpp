@@ -9,7 +9,7 @@ namespace rhi::d3d11 {
         // largest constant buffer a shader can address
         constexpr uint64_t kConstantWindow = 4096ull * 16;
 
-        UINT Subresource(const TextureDesc& d, uint32_t mip, uint32_t layer) { return mip + layer * std::max(1u, d.mips); }
+        UINT Subresource(const TextureDesc& d, uint32_t mip, uint32_t layer) { return mip + layer * (std::max)(1u, d.mips); }
     }
 
     CmdList::CmdList(Device& device, QueueType queue) : device(device), queue(queue) {}
@@ -77,7 +77,7 @@ namespace rhi::d3d11 {
             device.ReportError("CopyBuffer: bad handle");
             return;
         }
-        size = std::min<uint64_t>({size, d->gpuSize - std::min(dstOffset, d->gpuSize), s->gpuSize - std::min(srcOffset, s->gpuSize)});
+        size = std::min<uint64_t>({size, d->gpuSize - (std::min)(dstOffset, d->gpuSize), s->gpuSize - (std::min)(srcOffset, s->gpuSize)});
         if (!size)
             return;
         const D3D11_BOX box{static_cast<UINT>(srcOffset), 0, 0, static_cast<UINT>(srcOffset + size), 1, 1};
@@ -96,7 +96,7 @@ namespace rhi::d3d11 {
         for (const BufferTextureCopy& r : regions) {
             const uint32_t rowPitch = r.bufferRowPitch ? r.bufferRowPitch : RowBytes(t->desc.format, r.width);
             const uint32_t depthPitch = rowPitch * RowBlocks(t->desc.format, r.height);
-            const uint32_t depth = std::max(1u, r.depth);
+            const uint32_t depth = (std::max)(1u, r.depth);
             if (r.bufferOffset + static_cast<uint64_t>(depthPitch) * depth > b->shadow.size()) {
                 device.ReportError("CopyBufferToTexture: region reads past the source buffer");
                 continue;
@@ -104,7 +104,7 @@ namespace rhi::d3d11 {
             const bool volume = t->desc.dim == TextureDim::Tex3D;
             const D3D11_BOX box{r.x, r.y, r.z, r.x + r.width, r.y + r.height, r.z + depth};
             const bool whole = r.x == 0 && r.y == 0 && r.z == 0 && r.width >= MipExtent(t->desc.width, r.mip) &&
-                               r.height >= MipExtent(t->desc.height, r.mip) && (!volume || depth >= std::max(1u, DepthOf(t->desc) >> r.mip));
+                               r.height >= MipExtent(t->desc.height, r.mip) && (!volume || depth >= (std::max)(1u, DepthOf(t->desc) >> r.mip));
             ctx->UpdateSubresource(t->resource.get(), Subresource(t->desc, r.mip, volume ? 0 : r.layer), whole ? nullptr : &box,
                                    b->shadow.data() + r.bufferOffset, rowPitch, depthPitch);
         }
@@ -172,7 +172,7 @@ namespace rhi::d3d11 {
             return;
         }
         if (!size || offset + size > b->gpuSize)
-            size = b->gpuSize - std::min(offset, b->gpuSize);
+            size = b->gpuSize - (std::min)(offset, b->gpuSize);
         if (!size)
             return;
         thread_local std::vector<uint8_t> data;
@@ -209,7 +209,7 @@ namespace rhi::d3d11 {
         if (boundSrvs[kStageCompute])
             ctx->CSSetShaderResources(0, boundSrvs[kStageCompute], nullSrvs);
         if (boundUavs)
-            ctx->CSSetUnorderedAccessViews(0, std::min(boundUavs, 8u), nullUavs, nullptr);
+            ctx->CSSetUnorderedAccessViews(0, (std::min)(boundUavs, 8u), nullUavs, nullptr);
         boundSrvs = {};
         boundUavs = 0;
     }
@@ -321,8 +321,8 @@ namespace rhi::d3d11 {
             return;
         Viewport c = v;
         if (passWidth) {
-            c.width = std::min(c.width, static_cast<float>(passWidth) - c.x);
-            c.height = std::min(c.height, static_cast<float>(passHeight) - c.y);
+            c.width = (std::min)(c.width, static_cast<float>(passWidth) - c.x);
+            c.height = (std::min)(c.height, static_cast<float>(passHeight) - c.y);
         }
         const D3D11_VIEWPORT d{c.x, c.y, c.width, c.height, c.minDepth, c.maxDepth};
         ctx->RSSetViewports(1, &d);
@@ -334,8 +334,8 @@ namespace rhi::d3d11 {
         scissorSet = true;
         if (!inPass)
             return;
-        const int64_t left = std::max(r.x, 0);
-        const int64_t top = std::max(r.y, 0);
+        const int64_t left = (std::max)(r.x, 0);
+        const int64_t top = (std::max)(r.y, 0);
         int64_t right = left + r.width, bottom = top + r.height;
         if (passWidth) {
             right = std::min<int64_t>(right, passWidth);
@@ -404,7 +404,7 @@ namespace rhi::d3d11 {
                         uint64_t offset = e->buffer.offset;
                         if (slot.dynamicIndex != ~0u && slot.dynamicIndex < bs.offsetCount)
                             offset += bs.offsets[slot.dynamicIndex];
-                        const uint64_t size = e->buffer.size ? e->buffer.size : b->gpuSize - std::min(offset, b->gpuSize);
+                        const uint64_t size = e->buffer.size ? e->buffer.size : b->gpuSize - (std::min)(offset, b->gpuSize);
                         ID3D11Buffer* cb = nullptr;
                         UINT firstConstant = 0, constants = 0;
                         if (b->constant && ctx1 && (offset & 255) == 0) {
@@ -423,7 +423,7 @@ namespace rhi::d3d11 {
                                 if (FAILED(device.Dev()->CreateBuffer(&md, nullptr, mirror.put())))
                                     return false;
                             }
-                            const uint64_t n = std::min<uint64_t>({AlignUp(size, 16), kConstantWindow, b->gpuSize - std::min(offset, b->gpuSize)});
+                            const uint64_t n = std::min<uint64_t>({AlignUp(size, 16), kConstantWindow, b->gpuSize - (std::min)(offset, b->gpuSize)});
                             const D3D11_BOX box{static_cast<UINT>(offset), 0, 0, static_cast<UINT>(offset + n), 1, 1};
                             ctx->CopySubresourceRegion(mirror.get(), 0, 0, 0, 0, b->main.get(), 0, &box);
                             cb = mirror.get();
@@ -471,7 +471,7 @@ namespace rhi::d3d11 {
                                 return false;
                             }
                             ctx->CSSetUnorderedAccessViews(slot.slot, 1, &uav, nullptr);
-                            boundUavs = std::max(boundUavs, slot.slot + 1);
+                            boundUavs = (std::max)(boundUavs, slot.slot + 1);
                             break;
                         }
                         ID3D11ShaderResourceView* srv = nullptr;
@@ -492,7 +492,7 @@ namespace rhi::d3d11 {
                             ctx->PSSetShaderResources(slot.slot, 1, &srv);
                         else
                             ctx->CSSetShaderResources(slot.slot, 1, &srv);
-                        boundSrvs[stage] = std::max(boundSrvs[stage], slot.slot + 1);
+                        boundSrvs[stage] = (std::max)(boundSrvs[stage], slot.slot + 1);
                         break;
                     }
                     case ResourceKind::Sampler: {
@@ -626,7 +626,7 @@ namespace rhi::d3d11 {
         // later passes read what the shader wrote: the uav must not stay bound
         if (boundUavs) {
             static ID3D11UnorderedAccessView* const nullUavs[8] = {};
-            ctx->CSSetUnorderedAccessViews(0, std::min(boundUavs, 8u), nullUavs, nullptr);
+            ctx->CSSetUnorderedAccessViews(0, (std::min)(boundUavs, 8u), nullUavs, nullptr);
             boundUavs = 0;
             dirtySets = 0xF;
         }
@@ -650,7 +650,7 @@ namespace rhi::d3d11 {
         device.MutableStats().dispatches++;
         if (boundUavs) {
             static ID3D11UnorderedAccessView* const nullUavs[8] = {};
-            ctx->CSSetUnorderedAccessViews(0, std::min(boundUavs, 8u), nullUavs, nullptr);
+            ctx->CSSetUnorderedAccessViews(0, (std::min)(boundUavs, 8u), nullUavs, nullptr);
             boundUavs = 0;
             dirtySets = 0xF;
         }

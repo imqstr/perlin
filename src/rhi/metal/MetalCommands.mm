@@ -82,7 +82,7 @@ namespace rhi::metal {
             device.ReportError("CopyBuffer: bad handle");
             return;
         }
-        size = std::min<uint64_t>({size, d->size - std::min(dstOffset, d->size), s->size - std::min(srcOffset, s->size)});
+        size = std::min<uint64_t>({size, d->size - (std::min)(dstOffset, d->size), s->size - (std::min)(srcOffset, s->size)});
         if (!size)
             return;
         [Blit() copyFromBuffer:s->buffer sourceOffset:srcOffset toBuffer:d->buffer destinationOffset:dstOffset size:size];
@@ -98,7 +98,7 @@ namespace rhi::metal {
         for (const BufferTextureCopy& r : regions) {
             const uint32_t rowPitch = r.bufferRowPitch ? r.bufferRowPitch : RowBytes(t->desc.format, r.width);
             const uint32_t imagePitch = rowPitch * RowBlocks(t->desc.format, r.height);
-            const uint32_t depth = std::max(1u, r.depth);
+            const uint32_t depth = (std::max)(1u, r.depth);
             [Blit() copyFromBuffer:b->buffer
                       sourceOffset:r.bufferOffset
                  sourceBytesPerRow:rowPitch
@@ -125,7 +125,7 @@ namespace rhi::metal {
                         sourceSlice:SliceOf(t->desc, r.layer)
                         sourceLevel:r.mip
                        sourceOrigin:Origin(r.x, r.y, r.z)
-                         sourceSize:Size(r.width, r.height, std::max(1u, r.depth))
+                         sourceSize:Size(r.width, r.height, (std::max)(1u, r.depth))
                            toBuffer:b->buffer
                   destinationOffset:r.bufferOffset
              destinationBytesPerRow:rowPitch
@@ -160,7 +160,7 @@ namespace rhi::metal {
             return;
         }
         if (!size || offset + size > b->size)
-            size = b->size - std::min(offset, b->size);
+            size = b->size - (std::min)(offset, b->size);
         if (!size)
             return;
         const uint8_t byte = static_cast<uint8_t>(value & 0xFF);
@@ -325,8 +325,8 @@ namespace rhi::metal {
             return;
         Viewport c = v;
         if (passWidth) {
-            c.width = std::min(c.width, static_cast<float>(passWidth) - c.x);
-            c.height = std::min(c.height, static_cast<float>(passHeight) - c.y);
+            c.width = (std::min)(c.width, static_cast<float>(passWidth) - c.x);
+            c.height = (std::min)(c.height, static_cast<float>(passHeight) - c.y);
         }
         const MTLViewport d{c.x, c.y, c.width, c.height, c.minDepth, c.maxDepth};
         [render setViewport:d];
@@ -337,8 +337,8 @@ namespace rhi::metal {
         scissorSet = true;
         if (!render)
             return;
-        const int64_t left = std::max(r.x, 0);
-        const int64_t top = std::max(r.y, 0);
+        const int64_t left = (std::max)(r.x, 0);
+        const int64_t top = (std::max)(r.y, 0);
         int64_t right = left + r.width, bottom = top + r.height;
         if (passWidth) {
             right = std::min<int64_t>(right, passWidth);

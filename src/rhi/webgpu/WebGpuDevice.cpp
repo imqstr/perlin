@@ -249,8 +249,8 @@ namespace rhi::webgpu {
         }
         Texture t;
         t.desc = desc;
-        t.desc.mips = std::max(1u, desc.mips);
-        t.desc.samples = std::max(1u, desc.samples);
+        t.desc.mips = (std::max)(1u, desc.mips);
+        t.desc.samples = (std::max)(1u, desc.samples);
         t.name = desc.name ? desc.name : "";
         WGPUTextureUsage usage = 0;
         if (Has(desc.usage, TextureUsage::Sampled))
@@ -267,7 +267,7 @@ namespace rhi::webgpu {
         td.label = View(t.name);
         td.usage = usage;
         td.dimension = desc.dim == TextureDim::Tex3D ? WGPUTextureDimension_3D : WGPUTextureDimension_2D;
-        td.size = {desc.width, desc.height, desc.dim == TextureDim::Tex3D ? std::max(1u, desc.depthOrLayers) : LayerCountOf(t.desc)};
+        td.size = {desc.width, desc.height, desc.dim == TextureDim::Tex3D ? (std::max)(1u, desc.depthOrLayers) : LayerCountOf(t.desc)};
         td.format = format;
         td.mipLevelCount = t.desc.mips;
         td.sampleCount = t.desc.samples;
@@ -298,7 +298,7 @@ namespace rhi::webgpu {
         sd.minFilter = ToFilter(desc.min);
         sd.mipmapFilter = ToMipFilter(desc.mip);
         sd.lodMinClamp = desc.minLod;
-        sd.lodMaxClamp = std::min(desc.maxLod, 32.0f);
+        sd.lodMaxClamp = (std::min)(desc.maxLod, 32.0f);
         sd.compare = desc.compare ? ToCompare(desc.compareOp) : WGPUCompareFunction_Undefined;
         const bool allLinear = desc.min == Filter::Linear && desc.mag == Filter::Linear && desc.mip == Filter::Linear;
         sd.maxAnisotropy = allLinear ? static_cast<uint16_t>(std::clamp(desc.maxAnisotropy, 1.0f, 16.0f)) : 1;
@@ -496,7 +496,7 @@ namespace rhi::webgpu {
 
     void WebGpuDevice::BeginFrame() {
         frame++;
-        const uint64_t behind = std::max(1u, options.framesInFlight);
+        const uint64_t behind = (std::max)(1u, options.framesInFlight);
         if (frame > behind)
             WaitFence(frameFence, frame - behind, 2'000'000'000ull);
         else

@@ -179,7 +179,7 @@ namespace rhi {
                 NullTexture t;
                 t.desc = desc;
                 t.name = desc.name ? desc.name : "";
-                t.desc.mips = std::max(1u, desc.mips);
+                t.desc.mips = (std::max)(1u, desc.mips);
                 const uint32_t layers = LayerCountOf(t.desc);
                 t.data.resize(layers);
                 uint64_t bytes = 0;
@@ -341,7 +341,7 @@ namespace rhi {
             }
             void EndFrame() override { retire.Collect(submitted); }
             uint64_t FrameNumber() const override { return frame; }
-            uint32_t FrameSlot() const override { return static_cast<uint32_t>(frame % std::max(1u, options.framesInFlight)); }
+            uint32_t FrameSlot() const override { return static_cast<uint32_t>(frame % (std::max)(1u, options.framesInFlight)); }
             void WaitIdle() override { retire.Collect(submitted); }
 
             MemoryBudget QueryMemoryBudget() override {
@@ -653,7 +653,7 @@ namespace rhi {
         void NullCommandList::PushConstants(const void*, uint32_t bytes, uint32_t offset) {
             if (offset + bytes > kMaxPushConstantBytes)
                 Error("PushConstants exceed the limit");
-            pushBytesSet = std::max(pushBytesSet, offset + bytes);
+            pushBytesSet = (std::max)(pushBytesSet, offset + bytes);
         }
 
         void NullCommandList::SetVertexBuffer(uint32_t slot, BufferHandle buffer, uint64_t) {
@@ -806,7 +806,7 @@ namespace rhi {
                 height = desc.height;
                 if (!width || !height)
                     return;
-                for (uint32_t i = 0; i < std::max(2u, desc.imageCount); i++) {
+                for (uint32_t i = 0; i < (std::max)(2u, desc.imageCount); i++) {
                     TextureDesc td;
                     td.format = Format::BGRA8Unorm;
                     td.width = width;

@@ -101,7 +101,7 @@ namespace rhi::webgpu {
             ti.mipLevel = r.mip;
             ti.origin = {r.x, r.y, array ? r.layer : r.z};
             ti.aspect = depth ? WGPUTextureAspect_DepthOnly : WGPUTextureAspect_All;
-            const WGPUExtent3D size{r.width, r.height, array ? 1u : std::max(1u, r.depth)};
+            const WGPUExtent3D size{r.width, r.height, array ? 1u : (std::max)(1u, r.depth)};
             wgpuCommandEncoderCopyBufferToTexture(encoder.Get(), &bi, &ti, &size);
         }
     }
@@ -127,7 +127,7 @@ namespace rhi::webgpu {
             ti.mipLevel = r.mip;
             ti.origin = {r.x, r.y, array ? r.layer : r.z};
             ti.aspect = depth ? WGPUTextureAspect_DepthOnly : WGPUTextureAspect_All;
-            const WGPUExtent3D size{r.width, r.height, array ? 1u : std::max(1u, r.depth)};
+            const WGPUExtent3D size{r.width, r.height, array ? 1u : (std::max)(1u, r.depth)};
             wgpuCommandEncoderCopyTextureToBuffer(encoder.Get(), &ti, &bi, &size);
         }
     }
@@ -382,16 +382,16 @@ namespace rhi::webgpu {
         if (viewportDirty && viewportSet) {
             Viewport v = viewport;
             if (passWidth) {
-                v.width = std::min(v.width, static_cast<float>(passWidth) - v.x);
-                v.height = std::min(v.height, static_cast<float>(passHeight) - v.y);
+                v.width = (std::min)(v.width, static_cast<float>(passWidth) - v.x);
+                v.height = (std::min)(v.height, static_cast<float>(passHeight) - v.y);
             }
             wgpuRenderPassEncoderSetViewport(render.Get(), v.x, v.y, v.width, v.height, v.minDepth, v.maxDepth);
             viewportDirty = false;
         }
         if (scissorDirty && scissorSet) {
             Rect r = scissor;
-            r.x = std::max(r.x, 0);
-            r.y = std::max(r.y, 0);
+            r.x = (std::max)(r.x, 0);
+            r.y = (std::max)(r.y, 0);
             if (passWidth) {
                 r.width = static_cast<uint32_t>(std::max<int64_t>(0, std::min<int64_t>(r.width, static_cast<int64_t>(passWidth) - r.x)));
                 r.height = static_cast<uint32_t>(std::max<int64_t>(0, std::min<int64_t>(r.height, static_cast<int64_t>(passHeight) - r.y)));

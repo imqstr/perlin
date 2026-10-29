@@ -305,6 +305,21 @@
     });
   }
 
+  // the engine cannot wait on a promise from inside main(), so the device is created here and handed over
+  async function acquireWebGpu() {
+    if (!navigator.gpu) throw new Error('This browser has no WebGPU. Use a current Chrome, Edge or Safari.');
+    var adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) throw new Error('No WebGPU adapter is available on this device.');
+    var wanted = ['depth-clip-control', 'depth32float-stencil8', 'texture-compression-bc', 'indirect-first-instance',
+                  'rg11b10ufloat-renderable', 'float32-filterable', 'float32-blendable'];
+    var features = wanted.filter(function (f) { return adapter.features.has(f); });
+    var limits = {};
+    for (var key in adapter.limits) limits[key] = adapter.limits[key];
+    var device = await adapter.requestDevice({ requiredFeatures: features, requiredLimits: limits });
+    device.lost.then(function (info) { console.warn('WebGPU device lost: ' + info.message); });
+    Module.preinitializedWebGPUDevice = device;
+  }
+
   async function start() {
     if (starting || !runtimeReady) return;
     starting = true;
@@ -322,6 +337,7 @@
       persistence.then(function () {});
       setStatus('Starting...');
       setProgress(-1);
+      await acquireWebGpu();
       await new Promise(function (resolve) { setTimeout(resolve, 30); });
       firstFrame = new Promise(function (resolve) { Module.onFirstFrame = resolve; });
       firstFrame.then(function () {

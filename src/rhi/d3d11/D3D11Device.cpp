@@ -225,8 +225,8 @@ namespace rhi::d3d11 {
         }
         Texture t;
         t.desc = desc;
-        t.desc.mips = std::max(1u, desc.mips);
-        t.desc.samples = std::max(1u, desc.samples);
+        t.desc.mips = (std::max)(1u, desc.mips);
+        t.desc.samples = (std::max)(1u, desc.samples);
         t.formats = fm;
         t.name = desc.name ? desc.name : "";
 
@@ -244,7 +244,7 @@ namespace rhi::d3d11 {
             D3D11_TEXTURE3D_DESC td{};
             td.Width = desc.width;
             td.Height = desc.height;
-            td.Depth = std::max(1u, desc.depthOrLayers);
+            td.Depth = (std::max)(1u, desc.depthOrLayers);
             td.MipLevels = t.desc.mips;
             td.Format = fm.resource;
             td.Usage = D3D11_USAGE_DEFAULT;
@@ -294,7 +294,7 @@ namespace rhi::d3d11 {
         for (int i = 0; i < 4; i++)
             sd.BorderColor[i] = desc.border[i];
         sd.MinLOD = desc.minLod;
-        sd.MaxLOD = std::min(desc.maxLod, 1000.0f);
+        sd.MaxLOD = (std::min)(desc.maxLod, 1000.0f);
         if (FAILED(device->CreateSamplerState(&sd, s.state.put())))
             return {};
         return samplers.Alloc(std::move(s));
@@ -506,7 +506,7 @@ namespace rhi::d3d11 {
         d.Format = t.formats.view;
         if (t.desc.dim == TextureDim::Tex3D) {
             d.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
-            d.Texture3D = {r.baseMip, 0, std::max(1u, DepthOf(t.desc) >> r.baseMip)};
+            d.Texture3D = {r.baseMip, 0, (std::max)(1u, DepthOf(t.desc) >> r.baseMip)};
         } else if (dim == TextureDim::Tex2D && r.baseLayer == 0 && LayerCountOf(t.desc) == 1) {
             d.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
             d.Texture2D = {r.baseMip};
@@ -868,7 +868,7 @@ namespace rhi::d3d11 {
             auto& [value, query] = f.pending.front();
             if (immediate->GetData(query.get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
                 break;
-            f.value = std::max(f.value, value);
+            f.value = (std::max)(f.value, value);
             freeQueries.push_back(std::move(query));
             f.pending.pop_front();
         }
@@ -886,7 +886,7 @@ namespace rhi::d3d11 {
             D3D11_QUERY_DESC qd{D3D11_QUERY_EVENT, 0};
             if (FAILED(device->CreateQuery(&qd, q.put()))) {
                 std::lock_guard lock(fenceMutex);
-                f->value = std::max(f->value, value);
+                f->value = (std::max)(f->value, value);
                 return;
             }
         }
@@ -908,7 +908,7 @@ namespace rhi::d3d11 {
     void Device::SignalFence(FenceHandle fence, uint64_t value) {
         if (Fence* f = fences.Get(fence)) {
             std::lock_guard lock(fenceMutex);
-            f->value = std::max(f->value, value);
+            f->value = (std::max)(f->value, value);
         }
     }
 
@@ -939,7 +939,7 @@ namespace rhi::d3d11 {
 
     void Device::BeginFrame() {
         frame++;
-        const uint64_t behind = std::max(1u, options.framesInFlight);
+        const uint64_t behind = (std::max)(1u, options.framesInFlight);
         if (frame > behind)
             WaitFence(frameFence, frame - behind, 2'000'000'000ull);
     }

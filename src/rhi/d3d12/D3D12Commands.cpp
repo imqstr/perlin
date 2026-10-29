@@ -205,7 +205,7 @@ namespace rhi::d3d12 {
             out.Footprint.Format = t.viewFormat != DXGI_FORMAT_UNKNOWN ? t.viewFormat : t.resourceFormat;
             out.Footprint.Width = r.width;
             out.Footprint.Height = r.height;
-            out.Footprint.Depth = std::max(1u, r.depth);
+            out.Footprint.Depth = (std::max)(1u, r.depth);
             out.Footprint.RowPitch = pitch;
             return true;
         }
@@ -263,7 +263,7 @@ namespace rhi::d3d12 {
             s.pResource = t->resource.get();
             s.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
             s.SubresourceIndex = SubresourceIndex(r.mip, r.layer, 0, t->mips, t->layers);
-            const D3D12_BOX box{r.x, r.y, r.z, r.x + r.width, r.y + r.height, r.z + std::max(1u, r.depth)};
+            const D3D12_BOX box{r.x, r.y, r.z, r.x + r.width, r.y + r.height, r.z + (std::max)(1u, r.depth)};
             list->CopyTextureRegion(&d, 0, 0, 0, &s, &box);
         }
     }
@@ -523,7 +523,7 @@ namespace rhi::d3d12 {
             return;
         }
         std::memcpy(reinterpret_cast<uint8_t*>(push.data()) + offset, data, bytes);
-        pushUsed = std::max(pushUsed, offset + bytes);
+        pushUsed = (std::max)(pushUsed, offset + bytes);
         pushDirty = true;
     }
 

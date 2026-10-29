@@ -309,7 +309,7 @@ namespace rhi::vendor {
                     return s;
                 s.active = st.status == sl::DLSSGStatus::eOk;
                 s.maxMultiplier = st.numFramesToGenerateMax + 1;
-                s.presentedPerRenderedFrame = std::max(1u, st.numFramesActuallyPresented);
+                s.presentedPerRenderedFrame = (std::max)(1u, st.numFramesActuallyPresented);
                 s.status = s.active ? "ok" : "status " + std::to_string(static_cast<uint32_t>(st.status));
                 return s;
             }

@@ -122,7 +122,7 @@ namespace rhi::vk {
             uint32_t need = 1;
             for (const Slot& u : unique)
                 if (u.family == fam)
-                    need = std::max(need, u.index + 1);
+                    need = (std::max)(need, u.index + 1);
             VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
             qi.queueFamilyIndex = fam;
             qi.queueCount = need;
@@ -319,7 +319,7 @@ namespace rhi::vk {
         ai.physicalDevice = physical;
         ai.device = device;
         ai.instance = inst->instance;
-        ai.vulkanApiVersion = std::min(phys.props.apiVersion, inst->apiVersion);
+        ai.vulkanApiVersion = (std::min)(phys.props.apiVersion, inst->apiVersion);
         ai.pVulkanFunctions = &vf;
         if (en12.bufferDeviceAddress)
             ai.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
@@ -628,7 +628,7 @@ namespace rhi::vk {
         }
         TextureRec rec;
         rec.desc = desc;
-        rec.desc.mips = std::max(1u, desc.mips);
+        rec.desc.mips = (std::max)(1u, desc.mips);
         rec.name = desc.name ? desc.name : "";
         rec.format = FormatToVk(desc.format);
         rec.aspect = AspectOf(desc.format);
@@ -695,7 +695,7 @@ namespace rhi::vk {
         uint64_t bytes = 0;
         for (uint32_t m = 0; m < rec.desc.mips; m++)
             bytes += static_cast<uint64_t>(RowBytes(desc.format, MipExtent(desc.width, m))) * RowBlocks(desc.format, MipExtent(desc.height, m)) *
-                     DepthOf(desc) * rec.layers * std::max(1u, desc.samples);
+                     DepthOf(desc) * rec.layers * (std::max)(1u, desc.samples);
         textureBytes += static_cast<int64_t>(bytes);
         liveTextures++;
 
@@ -789,7 +789,7 @@ namespace rhi::vk {
         si.addressModeW = ToVk(desc.w);
         si.mipLodBias = desc.lodBias;
         si.anisotropyEnable = desc.maxAnisotropy > 1.0f && caps.features.samplerAnisotropy;
-        si.maxAnisotropy = std::min(desc.maxAnisotropy, caps.limits.maxAnisotropy);
+        si.maxAnisotropy = (std::min)(desc.maxAnisotropy, caps.limits.maxAnisotropy);
         si.compareEnable = desc.compare;
         si.compareOp = ToVk(desc.compareOp);
         si.minLod = desc.minLod;
@@ -837,7 +837,7 @@ namespace rhi::vk {
         for (const BindLayoutEntry& e : desc.entries) {
             VkDescriptorSetLayoutBinding b{};
             b.binding = e.binding;
-            b.descriptorCount = std::max(1u, e.count);
+            b.descriptorCount = (std::max)(1u, e.count);
             b.stageFlags = ToVk(e.stages);
             switch (e.type) {
             case BindingType::UniformBuffer: b.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; break;

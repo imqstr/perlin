@@ -3,7 +3,6 @@ plugins {
 }
 
 def sdlDir = (project.findProperty('sdlDir') ?: "${rootDir}/sdl").toString()
-def shaderDir = (project.findProperty('shaderDir') ?: '').toString()
 def opensslBase = (project.findProperty('opensslBase') ?: '').toString()
 def abiList = (project.findProperty('abis') ?: 'arm64-v8a').toString().split(',').collect { it.trim() }.findAll { !it.isEmpty() }
 def useCcache = (project.findProperty('ccache') ?: 'false').toString() == 'true'
@@ -31,7 +30,6 @@ android {
                 abiFilters(*abiList)
                 arguments '-DANDROID_PLATFORM=android-26',
                         '-DANDROID_STL=c++_static',
-                        "-DPERLIN_WEB_SHADER_DIR=${shaderDir}",
                         "-DPERLIN_ANDROID_OPENSSL_BASE=${opensslBase}",
                         "-DCPM_SDL3_SOURCE=${sdlDir}"
                 if (useCcache) {

@@ -163,16 +163,16 @@ namespace rhi {
                     Cursor c{line, b + 9};
                     if (!c.Number(binding) || !c.Eat(")"))
                         continue;
-                    first = std::min(first, b);
-                    last = std::max(last, c.at);
+                    first = (std::min)(first, b);
+                    last = (std::max)(last, c.at);
                 }
                 {
                     const size_t g = line.find("@group(");
                     Cursor c{line, g + 7};
                     if (!c.Number(group) || !c.Eat(")"))
                         continue;
-                    first = std::min(first, g);
-                    last = std::max(last, c.at);
+                    first = (std::min)(first, g);
+                    last = (std::max)(last, c.at);
                 }
                 r.binding = binding;
                 r.set = group;
