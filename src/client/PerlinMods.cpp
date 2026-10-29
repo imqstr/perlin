@@ -167,6 +167,8 @@ namespace perlin {
     }
 
     abi::Screen Perlin::CurrentScreen() const {
+        if (modHooks.customOpen)
+            return abi::Screen::Custom;
         if (deathShown)
             return abi::Screen::Death;
         if (invShown)
@@ -1008,6 +1010,7 @@ namespace perlin {
 
         SetupModActions();
         SetupModAdvanced();
+        SetupModHooks();
 
         mm.Register(Op::MousePosition, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             const float scale = static_cast<float>(modHud ? std::max(1, modHud->Scale()) : 1);
@@ -1134,7 +1137,7 @@ namespace perlin {
             if (!modLive)
                 return Status::Unavailable;
             const float eye[3] = {camera.x, camera.y, camera.z};
-            modLive->SendUseItemInAir(eye);
+            modLive->SendUseItemInAir(eye, false);
             return Status::Ok;
         }, control);
 

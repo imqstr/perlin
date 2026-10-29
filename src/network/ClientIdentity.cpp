@@ -79,6 +79,11 @@ namespace perlin {
         }
     }
 
+    ClientIdentity::ClientIdentity(EC_KEY* shared) : key(shared) {
+        if (key)
+            EC_KEY_up_ref(key);
+    }
+
     ClientIdentity::~ClientIdentity() {
         if (key)
             EC_KEY_free(key);

@@ -1,6 +1,8 @@
 #include "util/Paths.hpp"
 #include "util/Env.hpp"
 #include "client/multiplayer/BedrockSession.hpp"
+
+#include "client/mods/ModManager.hpp"
 #include "util/SimClock.hpp"
 #include "util/SystemInfo.hpp"
 #include "client/multiplayer/NbtJson.hpp"
@@ -9,6 +11,8 @@
 #include "client/multiplayer/DefaultSkinGeometry.hpp"
 
 #include "network/ClientIdentity.hpp"
+
+#include <openssl/ec.h>
 #include "network/NetherNet.hpp"
 #include "network/RakNet.hpp"
 #include "network/VarInt.hpp"
@@ -40,6 +44,45 @@
 #include <thread>
 
 namespace perlin {
+    namespace {
+        // a finished Minecraft login, reusable while its token lives: the token and chain are bound to this key pair
+        struct CachedLogin {
+            std::shared_ptr<EC_KEY> key;
+            xbox::Credentials creds;
+            int64_t expires = 0;  // unix seconds
+            std::shared_future<bool> pending;
+        };
+        std::mutex gLoginMutex;
+        std::map<std::string, CachedLogin> gLogins;
+
+        int64_t TokenExpiry(const std::string& jwt) {
+            const size_t a = jwt.find('.');
+            const size_t b = a == std::string::npos ? a : jwt.find('.', a + 1);
+            if (b == std::string::npos)
+                return 0;
+            const auto payload = json::Document::Parse(B64UrlDecode(jwt.substr(a + 1, b - a - 1)));
+            return payload ? static_cast<int64_t>(payload->root()["exp"].number(0)) : 0;
+        }
+
+        int64_t NowSeconds() {
+            return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        }
+
+        // 5 minutes of margin: a token about to lapse could expire during the join
+        bool Fresh(const CachedLogin& c) { return c.key && c.expires - NowSeconds() > 300; }
+
+        void StoreLogin(const std::string& loginKey, EC_KEY* key, const xbox::Credentials& creds) {
+            if (loginKey.empty() || !key)
+                return;
+            EC_KEY_up_ref(key);
+            std::lock_guard lock(gLoginMutex);
+            CachedLogin& c = gLogins[loginKey];
+            c.key = std::shared_ptr<EC_KEY>(key, EC_KEY_free);
+            c.creds = creds;
+            c.expires = TokenExpiry(creds.multiplayerToken);
+        }
+    }
+
 
     using proto::LevelChunkPacket;
     using proto::PlayerAuthInputPacket;
@@ -446,7 +489,7 @@ namespace perlin {
 
     void BedrockSession::SetOutdated(int who) {
         const int theirs = net ? net->Info().advertisedProtocol : 0;
-        // A plain version mismatch doesn't say which side is behind; the protocol from the ping reply does.
+        // plain version mismatch doesn't say which side is behind; the ping reply's protocol does
         if (who == 0 && theirs > 0 && theirs != kBedrockProtocol)
             who = theirs > kBedrockProtocol ? 1 : 2;
         if (who == 0)
@@ -506,23 +549,62 @@ namespace perlin {
         packsExpected = 0;
         if (transfer && identity && identity->Valid()) {
         } else {
-        identity = std::make_unique<ClientIdentity>();
+        // an early or earlier sign-in for this account skips the whole login
+        std::shared_ptr<EC_KEY> cachedKey;
+        int64_t cachedMinutes = 0;
+        // a sign-in still running in the background: connect meanwhile, take its result before the Login packet
+        std::shared_future<bool> pendingLogin;
+        if (account && !accountKey.empty()) {
+            std::lock_guard lock(gLoginMutex);
+            const CachedLogin& c = gLogins[accountKey];
+            if (c.pending.valid() && c.pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                pendingLogin = c.pending;
+            else if (Fresh(c)) {
+                cachedKey = c.key;
+                onlineCreds = c.creds;
+                cachedMinutes = (c.expires - NowSeconds()) / 60;
+            }
+        }
+        identity = cachedKey ? std::make_unique<ClientIdentity>(cachedKey.get()) : std::make_unique<ClientIdentity>();
         if (!identity->Valid()) {
             lastError = "identity keygen failed";
             state = State::Failed;
             return false;
         }
         playerUuid = RandomUuid();
-        if (account) {
+        if (cachedKey) {
+            std::cout << "[auth] reusing the sign-in from earlier (" << cachedMinutes << " min left)" << std::endl;
+            authTask = std::async(std::launch::deferred, [] { return std::make_pair(true, std::string()); });
+        } else if (pendingLogin.valid()) {
+            const std::string publicKey = identity->PublicKeyB64();
+            ClientIdentity* identityPtr = identity.get();
+            authTask = std::async(std::launch::async, [this, pendingLogin, publicKey, identityPtr] {
+                pendingLogin.wait();
+                {
+                    std::lock_guard lock(gLoginMutex);
+                    if (const CachedLogin& c = gLogins[accountKey]; Fresh(c)) {
+                        onlineCreds = c.creds;
+                        swapKey = c.key;
+                        return std::make_pair(true, std::string());
+                    }
+                }
+                std::string authError;
+                const bool ok = account->LoginMinecraft(publicKey, "1.26.60", onlineCreds, authError);
+                if (ok)
+                    StoreLogin(accountKey, identityPtr->Key(), onlineCreds);
+                return std::make_pair(ok, authError);
+            });
+        } else if (account) {
             constexpr const char* kServiceGameVersion = "1.26.60";
             ClientIdentity* identityPtr = identity.get();
             const std::string publicKey = identity->PublicKeyB64();
-            authTask = std::async(std::launch::async, [this, publicKey, kServiceGameVersion] {
+            authTask = std::async(std::launch::async, [this, publicKey, kServiceGameVersion, identityPtr] {
                 std::string authError;
                 const bool ok = account->LoginMinecraft(publicKey, kServiceGameVersion, onlineCreds, authError);
+                if (ok)
+                    StoreLogin(accountKey, identityPtr->Key(), onlineCreds);
                 return std::make_pair(ok, authError);
             });
-            (void)identityPtr;
         } else if (identity->BuildMultiplayerToken(playerName, playerUuid).empty()) {
             lastError = "multiplayer token build failed";
             state = State::Failed;
@@ -537,6 +619,10 @@ namespace perlin {
                 lastError = "online login failed: " + result.second;
                 state = State::Failed;
                 return false;
+            }
+            if (swapKey) {
+                identity = std::make_unique<ClientIdentity>(swapKey.get());
+                swapKey.reset();
             }
             identity->SetMultiplayerToken(onlineCreds.multiplayerToken);
             if (!onlineCreds.gamertag.empty())
@@ -688,8 +774,11 @@ namespace perlin {
                 if (outside(entry.first))
                     loaded.push_back(entry.first);
         }
-        for (const ChunkPos& p : loaded)
-            { netLevel.RemoveChunk(p.x, p.z); blockEntities.RemoveChunk(p.x, p.z); }
+        for (const ChunkPos& p : loaded) {
+            netLevel.RemoveChunk(p.x, p.z);
+            blockEntities.RemoveChunk(p.x, p.z);
+            NoteModChunk(false, p.x, p.z);
+        }
         std::lock_guard<std::mutex> lk(reqMutex);
         std::vector<ChunkPos> doomed = std::move(loaded);
         for (const auto& entry : columns)
@@ -1563,7 +1652,45 @@ namespace perlin {
         }
     }
 
+    void BedrockSession::PrewarmLogin(std::shared_ptr<xbox::Account> account, const std::string& loginKey) {
+        if (!account || loginKey.empty())
+            return;
+        std::lock_guard lock(gLoginMutex);
+        CachedLogin& c = gLogins[loginKey];
+        if (Fresh(c) || (c.pending.valid() && c.pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready))
+            return;
+        c.pending = std::async(std::launch::async, [account, loginKey] {
+            auto identity = std::make_unique<ClientIdentity>();
+            if (!identity->Valid())
+                return false;
+            // other startup requests to PlayFab can collide with this one ("A conflict occurred..."): try again
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                xbox::Credentials creds;
+                std::string error;
+                if (account->LoginMinecraft(identity->PublicKeyB64(), "1.26.60", creds, error)) {
+                    StoreLogin(loginKey, identity->Key(), creds);
+                    std::cout << "[auth] signed in ahead of the join" << std::endl;
+                    return true;
+                }
+                std::cout << "[auth] early sign-in attempt " << attempt << " failed: " << error << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(800 * attempt));
+            }
+            return false;
+        }).share();
+    }
+
+    void BedrockSession::NoteModChunk(bool loaded, int x, int z) const {
+        auto& mm = mods::ModManager::Instance();
+        const abi::Event event = loaded ? abi::Event::ChunkLoaded : abi::Event::ChunkUnloaded;
+        if (!mm.Wants(event))
+            return;
+        abi::Writer w;
+        w.write(abi::EventChunk{x, z, static_cast<abi::Dimension>(dimensionId.load())});
+        mm.Queue(event, std::move(w));
+    }
+
     void BedrockSession::HandleLevelChunk(const LevelChunkPacket& pkt) {
+        NoteModChunk(true, pkt.x, pkt.z);
         static int logged = 0;
         static int loggedFull = 0;
         const bool interesting = pkt.payload.size() > 0 || (int32_t)pkt.subChunkCount != 0;
@@ -2156,6 +2283,7 @@ namespace perlin {
         for (const ChunkPos& p : demote) {
             netLevel.RemoveChunk(p.x, p.z);
             blockEntities.RemoveChunk(p.x, p.z);
+            NoteModChunk(false, p.x, p.z);
         }
         if (!demote.empty()) {
             std::lock_guard<std::mutex> lk(reqMutex);

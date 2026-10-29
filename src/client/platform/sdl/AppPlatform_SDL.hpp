@@ -45,6 +45,9 @@ private:
     void SetClipboard(const std::string& text) override;
     std::string GetClipboard() override;
     double DisplayRefreshHz() override;
+    bool WindowFocused() const override;
+    void Vibrate(int milliseconds) override;
+    bool WindowMinimized() const override;
     void OpenUrl(const std::string& url) override;
     bool PickFile(const std::string& kind) override;
     bool TakeSurfaceChanged() override { return surfaceChanged.exchange(false); }
@@ -62,6 +65,7 @@ private:
     perlin::TouchControls touch;
 
     SDL_Window* window = nullptr;
+    void* metalView = nullptr;
     NativeWindowInfo native;
     std::unique_ptr<perlin::Perlin> game;
     std::atomic<int> framebufferWidth{1280};

@@ -1,11 +1,10 @@
 #include <algorithm>
 #include "client/platform/sdl/AppPlatform_SDL.hpp"
-#include "client/renderer/bgfx/RenderContext_bgfx.hpp"
+#include "client/renderer/gpu/RenderContext_rhi.hpp"
 #include "client/input/Keys.hpp"
 #include "client/input/KeyMapping.hpp"
 
 #include <SDL3/SDL.h>
-#include <bgfx/bgfx.h>
 
 #include <atomic>
 #include <chrono>
@@ -160,7 +159,7 @@ EM_JS(int, perlin_js_confirm, (const char* title, const char* message), {
 #endif
 
 std::unique_ptr<perlin::RenderContext> AppPlatform_SDL::CreateRenderContext() {
-    return std::make_unique<perlin::RenderContext_bgfx>();
+    return std::make_unique<perlin::RenderContext_rhi>();
 }
 
 NativeWindowInfo AppPlatform_SDL::GetNativeWindowInfo() {
@@ -296,6 +295,15 @@ std::string AppPlatform_SDL::GetClipboard() {
     return text;
 }
 
+void AppPlatform_SDL::Vibrate(int milliseconds) {
+    if (gamepad)
+        SDL_RumbleGamepad(gamepad, 0xFFFF, 0xFFFF, static_cast<Uint32>(milliseconds));
+}
+
+bool AppPlatform_SDL::WindowFocused() const { return window && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0; }
+
+bool AppPlatform_SDL::WindowMinimized() const { return window && (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0; }
+
 double AppPlatform_SDL::DisplayRefreshHz() {
     static double cached = 0.0;
     static auto checked = std::chrono::steady_clock::time_point{};
@@ -327,10 +335,6 @@ void AppPlatform_SDL::OpenUrl(const std::string& url) {
         },
         new std::string(url), false);
 }
-
-#ifdef SDL_PLATFORM_ANDROID
-extern "C" void* perlin_bgfx_android_window;
-#endif
 
 bool AppPlatform_SDL::PickFile(const std::string& kind) {
 #ifdef SDL_PLATFORM_ANDROID
@@ -484,6 +488,9 @@ bool AppPlatform_SDL::Initialize() {
 #ifdef SDL_PLATFORM_ANDROID
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN, true);
 #endif
+#ifdef SDL_PLATFORM_MACOS
+    SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_METAL_BOOLEAN, true);
+#endif
     window = SDL_CreateWindowWithProperties(props);
     SDL_DestroyProperties(props);
     if (!window) {
@@ -507,7 +514,9 @@ bool AppPlatform_SDL::Initialize() {
 #elif defined(SDL_PLATFORM_WIN32)
     native.window = SDL_GetPointerProperty(wp, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
 #elif defined(SDL_PLATFORM_MACOS)
-    native.window = SDL_GetPointerProperty(wp, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+    // metal and webgpu both draw into this layer
+    metalView = SDL_Metal_CreateView(window);
+    native.window = metalView ? SDL_Metal_GetLayer(static_cast<SDL_MetalView>(metalView)) : nullptr;
 #elif defined(SDL_PLATFORM_ANDROID)
     native.window = SDL_GetPointerProperty(wp, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
     lastNativeWindow = native.window;
@@ -532,10 +541,6 @@ bool AppPlatform_SDL::Initialize() {
     SDL_GetWindowSizeInPixels(window, &w, &h);
     framebufferWidth = w > 0 ? w : 1280;
     framebufferHeight = h > 0 ? h : 720;
-
-#ifndef __EMSCRIPTEN__
-    bgfx::renderFrame();
-#endif
 
     game = std::make_unique<perlin::Perlin>(args);
     if (!game->Initialize(this))
@@ -871,7 +876,7 @@ void AppPlatform_SDL::PumpFrame() {
             const bool resumed = lastNativeWindow != nullptr;
             lastNativeWindow = nw;
             if (resumed || surfaceLost) {
-                perlin_bgfx_android_window = nw;
+                native.window = nw;
                 surfaceChanged = true;
                 std::cout << "[sdl] window surface replaced, rebuilding the swap chain" << std::endl;
             }
@@ -931,24 +936,18 @@ void AppPlatform_SDL::PumpFrame() {
 }
 
 void AppPlatform_SDL::Run() {
-    while (isRunning) {
+    while (isRunning)
         PumpFrame();
-        bgfx::renderFrame(8);
-    }
 }
 
 void AppPlatform_SDL::Shutdown() {
     if (game) {
-        std::atomic<bool> done{false};
-        std::thread stopper([&] {
-            game->Shutdown();
-            done = true;
-        });
-        while (!done)
-            bgfx::renderFrame(8);
-        stopper.join();
-        bgfx::renderFrame();
+        game->Shutdown();
         game.reset();
+    }
+    if (metalView) {
+        SDL_Metal_DestroyView(static_cast<SDL_MetalView>(metalView));
+        metalView = nullptr;
     }
     if (window) {
         SDL_DestroyWindow(window);

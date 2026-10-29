@@ -280,7 +280,8 @@ namespace perlin {
             } else if (hoverId == "del") {
                 live->InvDestroyCursor();
             } else if (invHoverAddr >= 0) {
-                if (input.IsKeyDown(Key::Shift))
+                if (DispatchModSlotClick(invHoverAddr, rightEdge, input.IsKeyDown(Key::Shift))) {
+                } else if (input.IsKeyDown(Key::Shift))
                     live->InvShiftClick(invHoverAddr);
                 else if (!v.cursor.Empty() && invHoverAddr != ui::kInvAddrOutput && invDragButton == 0) {
                     invDragButton = leftEdge ? 1 : 2;

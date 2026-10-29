@@ -37,6 +37,7 @@ namespace perlin::ui {
         std::vector<FormButton> buttons;
         std::vector<FormElement> elements;
         int focus = -1;
+        int openDropdown = -1;  // element whose option list is open
     };
 
     inline constexpr const char* kFormCloseId = "close";
@@ -50,16 +51,16 @@ namespace perlin::ui {
         bool WaitReady(int timeoutMs);
         bool Build(const FormModel& form, int guiW, int guiH, float scroll, std::string& rml, float& contentHeight, float& viewHeight);
         const std::string& Problem() const { return problem; }
-        // True when a server or resource pack (not just vanilla) defines the server_form screen.
-        // The server's ui files are still being read.
+        // server ui files still loading
         bool Building() const { return state.load() == 1; }
+        // a non-vanilla pack defines server_form
         bool ServerStyled() const { return Ready() && library.RootCount() > 3 && library.DefinedBefore("server_form", library.RootCount() - 3); }
-        // True while the last built form still has an animation running.
+        // last form still animating
         bool Animating() const { return anim.animating; }
 
     private:
         UiLibrary library;
-        std::unique_ptr<Node> tree;
+        std::unique_ptr<Node> tree, modalTree;
         RmlEmitter emitter;
         UiServices services;
         AnimHost anim;
@@ -78,6 +79,8 @@ namespace perlin::ui {
     bool ParseForm(uint32_t id, const std::string& json, FormModel& out);
     std::string BuildFormRml(const FormModel& form, int guiW, int guiH, float scroll, float& contentHeight, float& viewHeight);
     bool FormClick(FormModel& form, const std::string& id, std::string& response);
+    // an open dropdown takes the next click: true when the click only closed it (dropdown_exit)
+    bool FormDismissDropdown(FormModel& form, const std::string& hoverId);
     std::string FormCustomResponse(const FormModel& form);
     bool FormEdit(FormModel& form, const InputManager::Typed& t);
 }

@@ -12,7 +12,7 @@ namespace perlin {
         std::string name;
         int protocol = 0;
         std::string version;
-        // What the server advertised in its ping reply (0 / empty if it said nothing).
+        // what the server advertised in its ping reply (0 / empty if nothing)
         int advertisedProtocol = 0;
         std::string advertisedVersion;
         std::string level;

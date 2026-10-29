@@ -57,7 +57,7 @@ namespace perlin::entity {
         uint64_t flagsExtended = 0;
         bool crawling = false;
         float scale = 1.0f;
-        // Hitbox the server reported (metadata BOUNDINGBOX_WIDTH/HEIGHT); 0 when it never sent one.
+        // hitbox the server reported (metadata BOUNDINGBOX_WIDTH/HEIGHT); 0 if never sent
         float boxWidth = 0.0f, boxHeight = 0.0f;
         int variant = 0, markVariant = 0, color = 0;
         float health = -1.0f;

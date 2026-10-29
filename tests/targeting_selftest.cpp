@@ -16,7 +16,7 @@ int main() {
     check(!targeting::EntityBeforeLimit(1.95, 2), "block occlusion has no extra allowance");
     double t; int face;
     const double p = targeting::PickRadius;
-    // A 0.6-wide player: pick radius admits a ray 0.05 outside the physical box.
+    // 0.6-wide player: pick radius admits a ray 0.05 outside the box
     check(targeting::RayBox({0.35,1.62,0}, {0,0,1}, {-0.3-p,-p,2.7-p}, {0.3+p,1.8+p,3.3+p}, 3,t,face), "native pick padding");
     check(!targeting::RayBox({0.401,1.62,0}, {0,0,1}, {-0.3-p,-p,2.7-p}, {0.3+p,1.8+p,3.3+p}, 3,t,face), "outside pick padding");
     check(targeting::RayBox({0,1.62,0}, {0,0,1}, {-0.3-p,-p,2.7-p}, {0.3+p,1.8+p,3.3+p}, 3,t,face)

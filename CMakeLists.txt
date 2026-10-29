@@ -51,19 +51,7 @@ endif()
 
 add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
-option(PERLIN_WEB_SHADERS_ONLY "Only compile the ESSL shaders used by the web build" OFF)
-set(PERLIN_WEB_SHADER_DIR "" CACHE PATH "Directory holding prebuilt essl shader headers for the web build")
-if(PERLIN_WEB_SHADERS_ONLY)
-    set(PERLIN_BUILD_APP OFF)
-else()
-    set(PERLIN_BUILD_APP ON)
-endif()
-
-if(EMSCRIPTEN OR ANDROID)
-    set(PERLIN_PREBUILT_SHADERS ON)
-else()
-    set(PERLIN_PREBUILT_SHADERS OFF)
-endif()
+set(PERLIN_BUILD_APP ON)
 
 if(EMSCRIPTEN)
     add_compile_options(-pthread -fwasm-exceptions)
@@ -262,287 +250,51 @@ CPMAddPackage(
 )
 endif()
 
-set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-if(PERLIN_PREBUILT_SHADERS)
-    set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS_SHADER OFF CACHE BOOL "" FORCE)
+# Java (OptiFine / Iris) shader packs: GLSL -> SPIR-V (glslang) -> GLSL / HLSL (SPIRV-Cross).
+CPMAddPackage(NAME glslang GITHUB_REPOSITORY KhronosGroup/glslang GIT_TAG e2bb10631198bc9d73daf752d9170608d5e2c8bd GIT_SHALLOW NO DOWNLOAD_ONLY YES)
+CPMAddPackage(NAME SPIRV-Cross GITHUB_REPOSITORY KhronosGroup/SPIRV-Cross GIT_TAG 300681bbcb8365a8d1eacdacdbdd0249bbf1d6b1 GIT_SHALLOW NO DOWNLOAD_ONLY YES)
+set(PERLIN_GLSLANG_GEN "${CMAKE_BINARY_DIR}/perlin_glslang_gen")
+file(WRITE "${PERLIN_GLSLANG_GEN}/glslang/build_info.h" "#pragma once\n#define GLSLANG_VERSION_MAJOR 16\n#define GLSLANG_VERSION_MINOR 6\n#define GLSLANG_VERSION_PATCH 0\n#define GLSLANG_VERSION_FLAVOR \"\"\n#define GLSLANG_VERSION_GREATER_THAN(major, minor, patch) ((GLSLANG_VERSION_MAJOR) > (major) || ((major) == GLSLANG_VERSION_MAJOR && ((GLSLANG_VERSION_MINOR) > (minor) || ((minor) == GLSLANG_VERSION_MINOR && (GLSLANG_VERSION_PATCH) > (patch)))))\n#define GLSLANG_VERSION_GREATER_OR_EQUAL_TO(major, minor, patch) (GLSLANG_VERSION_GREATER_THAN(major, minor, patch) || ((major) == GLSLANG_VERSION_MAJOR && (minor) == GLSLANG_VERSION_MINOR && (patch) == GLSLANG_VERSION_PATCH))\n#define GLSLANG_VERSION_LESS_THAN(major, minor, patch) (!GLSLANG_VERSION_GREATER_OR_EQUAL_TO(major, minor, patch))\n#define GLSLANG_VERSION_LESS_OR_EQUAL_TO(major, minor, patch) (!GLSLANG_VERSION_GREATER_THAN(major, minor, patch))\n")
+file(GLOB PERLIN_GLSLANG_SOURCES
+    "${glslang_SOURCE_DIR}/glslang/GenericCodeGen/*.cpp"
+    "${glslang_SOURCE_DIR}/glslang/MachineIndependent/*.cpp"
+    "${glslang_SOURCE_DIR}/glslang/MachineIndependent/preprocessor/*.cpp"
+    "${glslang_SOURCE_DIR}/glslang/ResourceLimits/*.cpp"
+    "${glslang_SOURCE_DIR}/glslang/CInterface/*.cpp"
+    "${glslang_SOURCE_DIR}/SPIRV/*.cpp")
+if(WIN32)
+    list(APPEND PERLIN_GLSLANG_SOURCES "${glslang_SOURCE_DIR}/glslang/OSDependent/Windows/ossource.cpp")
 else()
-    set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)
+    list(APPEND PERLIN_GLSLANG_SOURCES "${glslang_SOURCE_DIR}/glslang/OSDependent/Unix/ossource.cpp")
 endif()
-set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
-set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
-set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
-set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
-CPMAddPackage(
-    NAME bgfx
-    GITHUB_REPOSITORY bkaradzic/bgfx.cmake
-    GIT_TAG v1.166.9546-589
-    GIT_SUBMODULES "bgfx" "bimg" "bx"
-    GIT_SHALLOW YES
-)
-if(TARGET bgfx)
-    # Java shader packs bind more than 16 textures in one pass and carry large uniform sets.
-    target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MAX_VERTEX_BUFFERS=16384 BGFX_CONFIG_MAX_INDEX_BUFFERS=16384
-                               BGFX_CONFIG_MAX_TEXTURE_SAMPLERS=32 BGFX_CONFIG_MAX_UNIFORMS=1024)
-endif()
-
-# Direct3D 11 has 16 sampler slots; bgfx would pass the larger configured count to PSSetSamplers.
-if(TARGET bgfx AND WIN32)
-    set(PERLIN_BGFX_D3D11 "${bgfx_SOURCE_DIR}/bgfx/src/renderer_d3d11.cpp")
-    file(READ "${PERLIN_BGFX_D3D11}" perlin_d3d11_src)
-    if(NOT perlin_d3d11_src MATCHES "perlin sampler clamp")
-        string(REPLACE "Samplers(0, maxTextureSamplers," "Samplers(0, bx::min<uint32_t>(maxTextureSamplers, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT)," perlin_d3d11_src "${perlin_d3d11_src}")
-        string(APPEND perlin_d3d11_src "\n// perlin sampler clamp\n")
-        file(WRITE "${PERLIN_BGFX_D3D11}" "${perlin_d3d11_src}")
-    endif()
-endif()
-
-if(ANDROID AND TARGET bgfx)
-    set(PERLIN_BGFX_EGL "${bgfx_SOURCE_DIR}/bgfx/src/glcontext_egl.cpp")
-    file(READ "${PERLIN_BGFX_EGL}" perlin_egl_src)
-    if(NOT perlin_egl_src MATCHES "perlin_bgfx_android_window")
-        string(REPLACE "namespace bgfx { namespace gl" "extern \"C\" { void* perlin_bgfx_android_window = NULL; }\n\nnamespace bgfx { namespace gl" perlin_egl_src "${perlin_egl_src}")
-        string(REPLACE "EGLNativeWindowType nwh = (EGLNativeWindowType )m_nwh;\n\t\t\teglMakeCurrent(m_display, EGL_NO_SURFACE"
-                       "EGLNativeWindowType nwh = (EGLNativeWindowType )(NULL != perlin_bgfx_android_window ? perlin_bgfx_android_window : m_nwh);\n\t\t\teglMakeCurrent(m_display, EGL_NO_SURFACE"
-                       perlin_egl_src "${perlin_egl_src}")
-        string(REPLACE "\t\t\t\t  (ANativeWindow*)m_nwh\n\t\t\t\t, _swapChain.width"
-                       "\t\t\t\t  (ANativeWindow*)nwh\n\t\t\t\t, _swapChain.width"
-                       perlin_egl_src "${perlin_egl_src}")
-        if(NOT perlin_egl_src MATCHES "perlin_bgfx_android_window \\? perlin_bgfx_android_window")
-            message(FATAL_ERROR "Perlin: could not patch bgfx's glcontext_egl.cpp for Android resume (bgfx changed?)")
-        endif()
-        file(WRITE "${PERLIN_BGFX_EGL}" "${perlin_egl_src}")
-    endif()
-endif()
-
-if(EMSCRIPTEN AND TARGET bgfx)
-    set(PERLIN_BGFX_HTML5 "${bgfx_SOURCE_DIR}/bgfx/src/glcontext_html5.cpp")
-    file(READ "${PERLIN_BGFX_HTML5}" perlin_html5_src)
-    if(NOT perlin_html5_src MATCHES "perlin opaque canvas")
-        string(REGEX REPLACE "s_attrs\\.alpha[ \t]*=[ \t]*0 != colorBlockInfo\\.aBits;"
-               "s_attrs.alpha = false; /* perlin opaque canvas */" perlin_html5_src "${perlin_html5_src}")
-        string(REGEX REPLACE "s_attrs\\.antialias[ \t]*=[ \t]*false;"
-               "s_attrs.antialias = false; s_attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;"
-               perlin_html5_src "${perlin_html5_src}")
-        if(NOT perlin_html5_src MATCHES "perlin opaque canvas")
-            message(FATAL_ERROR "Perlin: could not patch bgfx's glcontext_html5.cpp (bgfx changed?)")
-        endif()
-        file(WRITE "${PERLIN_BGFX_HTML5}" "${perlin_html5_src}")
-    endif()
-endif()
-
-if(WIN32 AND TARGET shaderc)
-    if(MSVC)
-        target_link_options(shaderc PRIVATE "/STACK:67108864")
-    else()
-        target_link_options(shaderc PRIVATE "-Wl,--stack,67108864")
-    endif()
-endif()
-
-set(PERLIN_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
-set(PERLIN_SHADER_OUT "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-file(MAKE_DIRECTORY "${PERLIN_SHADER_OUT}")
-
-if(PERLIN_PREBUILT_SHADERS OR PERLIN_WEB_SHADERS_ONLY)
-    set(PERLIN_SHADER_PROFILES 300_es)
-    set(PERLIN_EMBED essl)
-elseif(WIN32)
-    set(PERLIN_SHADER_PROFILES spirv 430 s_5_0)
-    set(PERLIN_EMBED dxbc glsl spv)
-elseif(APPLE)
-    set(PERLIN_SHADER_PROFILES metal 430)
-    set(PERLIN_EMBED mtl glsl)
+add_library(perlin_glslang STATIC ${PERLIN_GLSLANG_SOURCES})
+target_include_directories(perlin_glslang PUBLIC "${glslang_SOURCE_DIR}" "${PERLIN_GLSLANG_GEN}")
+target_compile_definitions(perlin_glslang PRIVATE ENABLE_OPT=0)
+set_target_properties(perlin_glslang PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 17)
+if(MSVC)
+    target_compile_options(perlin_glslang PRIVATE /w /EHsc)
 else()
-    set(PERLIN_SHADER_PROFILES spirv 430)
-    set(PERLIN_EMBED spv glsl)
+    target_compile_options(perlin_glslang PRIVATE -w)
 endif()
-set(PERLIN_SHADER_DEFS)
-foreach(k DXBC DXIL ESSL GLSL SPIRV METAL WGSL PSSL NVN)
-    set(on 0)
-    string(TOLOWER "${k}" lk)
-    if(lk STREQUAL "spirv")
-        set(lk spv)
-    elseif(lk STREQUAL "metal")
-        set(lk mtl)
-    endif()
-    if(lk IN_LIST PERLIN_EMBED)
-        set(on 1)
-    endif()
-    list(APPEND PERLIN_SHADER_DEFS "BGFX_PLATFORM_SUPPORTS_${k}=${on}")
-endforeach()
-
-set(PERLIN_SHADER_INCLUDES "${bgfx_SOURCE_DIR}/bgfx/src" "${PERLIN_SHADER_DIR}" "${PERLIN_SHADER_DIR}/vv")
-set(PERLIN_SHADER_OUTPUTS)
-set(PERLIN_SHADER_NAMES
-    vs_terrain fs_terrain_solid fs_terrain_cutout fs_terrain_translucent vs_sky fs_sky vs_star fs_star
-    vs_sunrise fs_sunrise vs_celestial fs_celestial vs_cloud fs_cloud vs_screen fs_screen vs_ui fs_ui vs_post fs_post
-    vs_entity_shadow fs_entity_shadow fs_bloom fs_upscale fs_taa fs_framegen
-    fs_entity fs_entity_mask fs_entity_emissive fs_entity_glint fs_particle fs_particle_cutout fs_weather fs_cracks fs_nametag
-    vv_vs_terrain vv_fs_terrain_solid vv_fs_terrain_cutout vv_fs_terrain_translucent vv_vs_sky vv_fs_sky vv_vs_star vv_fs_star
-    vv_vs_sunrise vv_fs_sunrise vv_vs_celestial vv_fs_celestial vv_vs_cloud vv_fs_cloud vv_vs_shadow vv_fs_shadow vv_fs_shadow_cutout vv_fs_shadow_glass)
-
-function(perlin_compile_shaders type varying)
-    set(sources)
-    foreach(name IN LISTS ARGN)
-        if(EXISTS "${PERLIN_RD_SHADER_DIR}/${name}.sc")
-            list(APPEND sources "${PERLIN_RD_SHADER_DIR}/${name}.sc")
-        else()
-            list(APPEND sources "${PERLIN_SHADER_DIR}/${name}.sc")
-        endif()
-    endforeach()
-    if(EXISTS "${PERLIN_RD_SHADER_DIR}/${varying}")
-        set(varying_path "${PERLIN_RD_SHADER_DIR}/${varying}")
-    else()
-        set(varying_path "${PERLIN_SHADER_DIR}/${varying}")
-    endif()
-    bgfx_compile_shaders(
-        TYPE ${type}
-        SHADERS ${sources}
-        VARYING_DEF "${varying_path}"
-        OUTPUT_DIR "${PERLIN_SHADER_OUT}"
-        PROFILES ${PERLIN_SHADER_PROFILES}
-        INCLUDE_DIRS ${PERLIN_SHADER_INCLUDES}
-        OUT_FILES_VAR compiled
-        AS_HEADERS
-    )
-    set(PERLIN_SHADER_OUTPUTS ${PERLIN_SHADER_OUTPUTS} ${compiled} PARENT_SCOPE)
-endfunction()
-
-if(NOT PERLIN_PREBUILT_SHADERS)
-perlin_compile_shaders(VERTEX varying_terrain.def.sc vs_terrain)
-perlin_compile_shaders(FRAGMENT varying_terrain.def.sc fs_terrain_solid fs_terrain_cutout fs_terrain_translucent)
-perlin_compile_shaders(VERTEX varying_sky.def.sc vs_sky)
-perlin_compile_shaders(FRAGMENT varying_sky.def.sc fs_sky)
-perlin_compile_shaders(VERTEX varying_star.def.sc vs_star)
-perlin_compile_shaders(FRAGMENT varying_star.def.sc fs_star)
-perlin_compile_shaders(VERTEX varying_sunrise.def.sc vs_sunrise)
-perlin_compile_shaders(FRAGMENT varying_sunrise.def.sc fs_sunrise)
-perlin_compile_shaders(VERTEX varying_celestial.def.sc vs_celestial)
-perlin_compile_shaders(FRAGMENT varying_celestial.def.sc fs_celestial)
-perlin_compile_shaders(VERTEX varying_cloud.def.sc vs_cloud)
-perlin_compile_shaders(FRAGMENT varying_cloud.def.sc fs_cloud)
-perlin_compile_shaders(VERTEX varying_screen.def.sc vs_screen)
-perlin_compile_shaders(FRAGMENT varying_screen.def.sc fs_screen)
-perlin_compile_shaders(VERTEX varying_ui.def.sc vs_ui)
-perlin_compile_shaders(FRAGMENT varying_ui.def.sc fs_ui fs_entity fs_entity_mask fs_entity_emissive fs_entity_glint
-    fs_particle fs_particle_cutout fs_weather fs_cracks fs_nametag)
-perlin_compile_shaders(VERTEX varying_post.def.sc vs_post)
-perlin_compile_shaders(FRAGMENT varying_post.def.sc fs_post fs_bloom fs_upscale fs_taa fs_framegen)
-perlin_compile_shaders(VERTEX varying_entity_shadow.def.sc vs_entity_shadow)
-perlin_compile_shaders(FRAGMENT varying_entity_shadow.def.sc fs_entity_shadow)
-perlin_compile_shaders(VERTEX vv/vv_varying_terrain.def.sc vv/vv_vs_terrain)
-if("s_5_0" IN_LIST PERLIN_SHADER_PROFILES)
-    perlin_compile_shaders(FRAGMENT vv/vv_varying_terrain.def.sc vv/vv_fs_terrain_solid vv/vv_fs_terrain_cutout)
-    set(_perlin_profiles_all ${PERLIN_SHADER_PROFILES})
-    set(PERLIN_SHADER_PROFILES ${PERLIN_SHADER_PROFILES})
-    list(REMOVE_ITEM PERLIN_SHADER_PROFILES s_5_0)
-    perlin_compile_shaders(FRAGMENT vv/vv_varying_terrain.def.sc vv/vv_fs_terrain_translucent)
-    set(PERLIN_SHADER_PROFILES ${_perlin_profiles_all})
-    set(_perlin_water_src "${PERLIN_SHADER_DIR}/vv/vv_fs_terrain_translucent.sc")
-    set(_perlin_water_out "${PERLIN_SHADER_OUT}/dxbc/vv_fs_terrain_translucent.sc.bin.h")
-    string(REPLACE ";" "|" _perlin_water_inc "${PERLIN_SHADER_INCLUDES}")
-    set(_perlin_water_variants
-        "O3:full|noopt:full|O3:VV_DX_NO_SSR|O3:VV_DX_NO_CLOUDS|O3:VV_DX_NO_SSR,VV_DX_NO_CLOUDS|O3:VV_DX_NO_SSR,VV_DX_NO_CLOUDS,VV_DX_NO_LIT,VV_DX_NO_SKY|noopt:VV_DX_NO_SSR,VV_DX_NO_CLOUDS,VV_DX_NO_LIT,VV_DX_NO_SKY")
-    set(_perlin_water_script "${CMAKE_CURRENT_BINARY_DIR}/PerlinDxbcFallback.cmake")
-    file(WRITE "${_perlin_water_script}" [==[
-string(REPLACE "|" ";" include_list "${INCLUDES}")
-set(include_args)
-foreach(dir IN LISTS include_list)
-    list(APPEND include_args -i "${dir}")
-endforeach()
-string(REPLACE "|" ";" variant_list "${VARIANTS}")
-set(failed)
-foreach(variant IN LISTS variant_list)
-    string(REPLACE ":" ";" parts "${variant}")
-    list(GET parts 0 opt)
-    list(GET parts 1 defs)
-    set(extra)
-    if(opt STREQUAL "O3")
-        list(APPEND extra -O 3)
-    endif()
-    if(NOT defs STREQUAL "full")
-        string(REPLACE "," ";" define_list "${defs}")
-        list(APPEND extra --define "${define_list}")
-    endif()
-    file(REMOVE "${OUT}.tmp")
-    execute_process(
-        COMMAND "${SHADERC}" -f "${SRC}" ${include_args} -o "${OUT}.tmp" --bin2c "${NAME}"
-                --platform windows --type fragment --varyingdef "${VARYING}" --profile s_5_0 --Werror ${extra}
-        RESULT_VARIABLE rc
-        OUTPUT_VARIABLE out
-        ERROR_VARIABLE err
-        TIMEOUT 600)
-    if("${rc}" STREQUAL "0" AND EXISTS "${OUT}.tmp")
-        file(RENAME "${OUT}.tmp" "${OUT}")
-        if(failed)
-            message(WARNING "[dxbc] ${NAME}: FXC failed on [${failed}]; using [${variant}]")
-        else()
-            message(STATUS "[dxbc] ${NAME}: compiled [${variant}]")
-        endif()
-        return()
-    endif()
-    string(STRIP "${out} ${err}" log)
-    message(STATUS "[dxbc] ${NAME}: [${variant}] failed (${rc}) ${log}")
-    list(APPEND failed "${variant}")
-endforeach()
-file(REMOVE "${OUT}.tmp")
-file(WRITE "${OUT}" "// FXC could not compile this shader (tried: ${failed}).\n// The game uses its built-in shader for it on Direct3D 11.\nstatic const uint8_t ${NAME}[1] = { 0x00 };\n")
-message(WARNING "[dxbc] ${NAME}: FXC failed on every variant [${failed}]; wrote a placeholder (built-in water on Direct3D 11)")
-]==])
-    add_custom_command(
-        OUTPUT "${_perlin_water_out}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${PERLIN_SHADER_OUT}/dxbc"
-        COMMAND ${CMAKE_COMMAND} "-DSHADERC=$<TARGET_FILE:bgfx::shaderc>" "-DSRC=${_perlin_water_src}"
-                "-DOUT=${_perlin_water_out}" "-DVARYING=${PERLIN_SHADER_DIR}/vv/vv_varying_terrain.def.sc"
-                "-DNAME=vv_fs_terrain_translucent_dxbc" "-DINCLUDES=${_perlin_water_inc}"
-                "-DVARIANTS=${_perlin_water_variants}"
-                -P "${_perlin_water_script}"
-        MAIN_DEPENDENCY "${_perlin_water_src}"
-        DEPENDS "${PERLIN_SHADER_DIR}/vv/vv_varying_terrain.def.sc" "${PERLIN_SHADER_DIR}/vv/vv_common.sh"
-                "${PERLIN_SHADER_DIR}/vv/vv_terrain_common.sh" bgfx::shaderc
-        VERBATIM
-    )
-    list(APPEND PERLIN_SHADER_OUTPUTS "${_perlin_water_out}")
+add_library(perlin_spirv_cross STATIC
+    "${SPIRV-Cross_SOURCE_DIR}/spirv_cross.cpp" "${SPIRV-Cross_SOURCE_DIR}/spirv_cfg.cpp"
+    "${SPIRV-Cross_SOURCE_DIR}/spirv_cross_parsed_ir.cpp" "${SPIRV-Cross_SOURCE_DIR}/spirv_parser.cpp"
+    "${SPIRV-Cross_SOURCE_DIR}/spirv_glsl.cpp" "${SPIRV-Cross_SOURCE_DIR}/spirv_hlsl.cpp")
+target_include_directories(perlin_spirv_cross PUBLIC "${SPIRV-Cross_SOURCE_DIR}")
+set_target_properties(perlin_spirv_cross PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 17)
+if(MSVC)
+    target_compile_options(perlin_spirv_cross PRIVATE /w /EHsc)
 else()
-    perlin_compile_shaders(FRAGMENT vv/vv_varying_terrain.def.sc vv/vv_fs_terrain_solid vv/vv_fs_terrain_cutout vv/vv_fs_terrain_translucent)
-endif()
-perlin_compile_shaders(VERTEX vv/vv_varying_sky.def.sc vv/vv_vs_sky)
-perlin_compile_shaders(FRAGMENT vv/vv_varying_sky.def.sc vv/vv_fs_sky)
-perlin_compile_shaders(VERTEX vv/vv_varying_star.def.sc vv/vv_vs_star)
-perlin_compile_shaders(FRAGMENT vv/vv_varying_star.def.sc vv/vv_fs_star)
-perlin_compile_shaders(VERTEX vv/vv_varying_sunrise.def.sc vv/vv_vs_sunrise)
-perlin_compile_shaders(FRAGMENT vv/vv_varying_sunrise.def.sc vv/vv_fs_sunrise)
-perlin_compile_shaders(VERTEX vv/vv_varying_celestial.def.sc vv/vv_vs_celestial)
-perlin_compile_shaders(FRAGMENT vv/vv_varying_celestial.def.sc vv/vv_fs_celestial)
-perlin_compile_shaders(VERTEX vv/vv_varying_cloud.def.sc vv/vv_vs_cloud)
-perlin_compile_shaders(FRAGMENT vv/vv_varying_cloud.def.sc vv/vv_fs_cloud)
-perlin_compile_shaders(VERTEX vv/vv_varying_shadow.def.sc vv/vv_vs_shadow)
-perlin_compile_shaders(FRAGMENT vv/vv_varying_shadow.def.sc vv/vv_fs_shadow vv/vv_fs_shadow_cutout vv/vv_fs_shadow_glass)
+    target_compile_options(perlin_spirv_cross PRIVATE -w)
 endif()
 
-if(PERLIN_PREBUILT_SHADERS)
-    if(NOT PERLIN_WEB_SHADER_DIR OR NOT EXISTS "${PERLIN_WEB_SHADER_DIR}/essl")
-        message(FATAL_ERROR "Set PERLIN_WEB_SHADER_DIR to a directory containing the essl shaders built with PERLIN_WEB_SHADERS_ONLY")
-    endif()
-    file(COPY "${PERLIN_WEB_SHADER_DIR}/essl" DESTINATION "${PERLIN_SHADER_OUT}")
-endif()
+include(cmake/PerlinShaders.cmake)
 
-set(PERLIN_SHADER_HEADER "${PERLIN_SHADER_OUT}/perlin_shaders.h")
-set(PERLIN_SHADER_HEADER_TEXT "#pragma once\n")
-foreach(dir dxbc dxil essl glsl spirv metal)
-    foreach(name IN LISTS PERLIN_SHADER_NAMES)
-        string(APPEND PERLIN_SHADER_HEADER_TEXT
-            "#if __has_include(\"${dir}/${name}.sc.bin.h\")\n#include \"${dir}/${name}.sc.bin.h\"\n#endif\n")
-    endforeach()
-endforeach()
-file(GENERATE OUTPUT "${PERLIN_SHADER_HEADER}" CONTENT "${PERLIN_SHADER_HEADER_TEXT}")
-
-if(PERLIN_WEB_SHADERS_ONLY)
-    add_custom_target(perlin_web_shaders ALL DEPENDS ${PERLIN_SHADER_OUTPUTS})
-    return()
-endif()
+# graphics layer: rhi backends, chunk system, and the engine's gpu context on top of them
+set(PERLIN_GLM_DIR "${glm_SOURCE_DIR}" CACHE PATH "" FORCE)
+add_subdirectory(src/rhi)
+add_subdirectory(src/render)
+add_subdirectory(src/client/renderer/gpu)
 
 set(PERLIN_PROTOCOL_OUT "${CMAKE_CURRENT_BINARY_DIR}/generated/protocol")
 set(PERLIN_PROTOCOL_VERSION 2225)
@@ -598,6 +350,7 @@ file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/PerlinCurrentSineTab
     CONTENT "${PERLIN_CURRENT_SINE_WORDS}\n")
 
 file(GLOB PERLIN_RESOURCE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+list(APPEND PERLIN_RESOURCE_FILES "${PERLIN_SHADER_PACK}")
 set(PERLIN_EMBED_DIR "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 file(MAKE_DIRECTORY "${PERLIN_EMBED_DIR}")
 set(PERLIN_EMBED_NAMES_SOURCE "")
@@ -658,6 +411,12 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PERLIN_RESOURCE
 
 file(GLOB_RECURSE PERLIN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/network/Nbt\\.cpp")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/bgfx/")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/shader/")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/gpu/")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/rhi/")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/render/")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/javashaders/Pipeline\\.cpp")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/mods/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/(src|tests)/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/mods/WasmEdgeStop\\.cpp$")
@@ -673,18 +432,18 @@ else()
 endif()
 
 if(ANDROID)
-    add_library(Perlin SHARED ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE} ${PERLIN_SHADER_OUTPUTS})
+    add_library(Perlin SHARED ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE})
     set_target_properties(Perlin PROPERTIES OUTPUT_NAME main)
 elseif(WIN32)
     enable_language(RC)
     set(PERLIN_ICON_RC "${CMAKE_CURRENT_BINARY_DIR}/perlin_icon.rc")
     file(WRITE "${PERLIN_ICON_RC}" "101 ICON \"${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/perlin.ico\"\n")
     set_source_files_properties("${PERLIN_ICON_RC}" PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/perlin.ico")
-    add_executable(Perlin WIN32 ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE} ${PERLIN_SHADER_OUTPUTS} "${PERLIN_ICON_RC}")
+    add_executable(Perlin WIN32 ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE} "${PERLIN_ICON_RC}")
 elseif(APPLE)
     set(PERLIN_ICNS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Perlin.icns")
     set_source_files_properties("${PERLIN_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-    add_executable(Perlin MACOSX_BUNDLE ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE} ${PERLIN_SHADER_OUTPUTS} "${PERLIN_ICNS}")
+    add_executable(Perlin MACOSX_BUNDLE ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE} "${PERLIN_ICNS}")
     set_target_properties(Perlin PROPERTIES
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Info.plist.in"
         MACOSX_BUNDLE_BUNDLE_NAME "Perlin"
@@ -693,7 +452,7 @@ elseif(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
 else()
-    add_executable(Perlin ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE} ${PERLIN_SHADER_OUTPUTS})
+    add_executable(Perlin ${PERLIN_SOURCES} ${PERLIN_EMBED_SOURCE} ${PERLIN_EMBED_NAMES_SOURCE})
 endif()
 
 target_compile_features(Perlin PRIVATE cxx_std_23)
@@ -708,7 +467,6 @@ endif()
 target_include_directories(Perlin PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/mods/sdk"
-    "${PERLIN_SHADER_OUT}"
     "${stb_SOURCE_DIR}"
     "${concurrentqueue_SOURCE_DIR}"
     "${glm_SOURCE_DIR}"
@@ -717,7 +475,7 @@ if(NOT EMSCRIPTEN)
     target_include_directories(Perlin PRIVATE "${httplib_SOURCE_DIR}" "${libdatachannel_SOURCE_DIR}/include")
 endif()
 
-target_compile_definitions(Perlin PRIVATE PERLIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}" PERLIN_VERSION="${PROJECT_VERSION}" ${PERLIN_SHADER_DEFS}
+target_compile_definitions(Perlin PRIVATE PERLIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}" PERLIN_VERSION="${PROJECT_VERSION}"
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     OPENSSL_SUPPRESS_DEPRECATED
 )
@@ -730,6 +488,7 @@ if(WIN32)
 endif()
 
 target_link_libraries(Perlin PRIVATE
+    perlin_glslang perlin_spirv_cross
     ${PERLIN_WASM_ENGINE}
     perlin_protocol
     glaze::glaze
@@ -738,10 +497,9 @@ target_link_libraries(Perlin PRIVATE
     Threads::Threads
     SDL3::SDL3
     rmlui_core
-    bgfx
-    bimg
-    bx
+    perlin_gpu
 )
+add_dependencies(Perlin perlin_shader_pack)
 if(NOT EMSCRIPTEN)
     target_link_libraries(Perlin PRIVATE datachannel-static OpenSSL::SSL)
 endif()
@@ -895,6 +653,12 @@ endif()
 # Windows CI installs a static build with vcpkg (see .github/workflows/build.yml) and passes -DFFMPEG_ROOT=...;
 # Linux/macOS use pkg-config. If nothing is found Perlin still builds and falls back to its built-in AVI encoder.
 option(PERLIN_LIBAV "Link FFmpeg libraries into Perlin for built-in video encoding" ON)
+# Windows skips FFmpeg entirely by default (slow to build/download; video export uses the built-in AVI encoder).
+option(PERLIN_WINDOWS_FFMPEG "Link/bundle FFmpeg on Windows" OFF)
+if(WIN32 AND NOT PERLIN_WINDOWS_FFMPEG)
+    set(PERLIN_LIBAV OFF)
+    set(PERLIN_BUNDLE_FFMPEG OFF CACHE BOOL "" FORCE)
+endif()
 set(PERLIN_LIBAV_FOUND OFF)
 if(PERLIN_LIBAV AND NOT EMSCRIPTEN AND NOT ANDROID)
     set(FFMPEG_ROOT "" CACHE PATH "Prefix containing include/libavcodec and lib/ with static FFmpeg libraries")
@@ -935,8 +699,13 @@ endif()
 # AVI/MJPEG encoder as a last resort and can download the full GPL build from the export dialog.
 if(WIN32 AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT PERLIN_LIBAV_FOUND)
     option(PERLIN_BUNDLE_FFMPEG "Download an LGPL ffmpeg build and ship it next to Perlin.exe" ON)
+    # The download is kept in a fixed per-user cache so it happens once, not on every fresh build directory.
     if(PERLIN_BUNDLE_FFMPEG)
-        set(PERLIN_FFMPEG_DIR "${CMAKE_BINARY_DIR}/ffmpeg-bundle")
+        if(DEFINED ENV{LOCALAPPDATA})
+            set(PERLIN_FFMPEG_DIR "$ENV{LOCALAPPDATA}/PerlinBuildCache/ffmpeg-bundle")
+        else()
+            set(PERLIN_FFMPEG_DIR "${CMAKE_BINARY_DIR}/ffmpeg-bundle")
+        endif()
         if(NOT EXISTS "${PERLIN_FFMPEG_DIR}/ffmpeg.exe")
             set(_ff_zip "${CMAKE_BINARY_DIR}/ffmpeg-lgpl.zip")
             message(STATUS "Downloading ffmpeg (LGPL build) for bundling...")
@@ -1075,16 +844,6 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     target_include_directories(material_selftest PRIVATE src)
     target_compile_features(material_selftest PRIVATE cxx_std_23)
     add_test(NAME material_selftest COMMAND material_selftest)
-    if(TARGET shaderc)
-        set(perlin_rd_test_profiles ${PERLIN_SHADER_PROFILES} 300_es)
-        list(REMOVE_DUPLICATES perlin_rd_test_profiles)
-        add_test(NAME renderdragon_shader_selftest
-            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/renderdragon_shader_selftest.py"
-                    --source "${PERLIN_MCBE_SHADER_SOURCE_DIR}" --shaderc "$<TARGET_FILE:shaderc>"
-                    --bgfx-include "${bgfx_SOURCE_DIR}/bgfx/src" --profiles ${perlin_rd_test_profiles}
-                    --optimization "$<IF:$<CONFIG:Debug>,0,3>")
-    endif()
-
     add_executable(replay_selftest
         tests/replay_selftest.cpp
         src/client/replay/ReplayFormat.cpp

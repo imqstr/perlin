@@ -16,19 +16,18 @@
 #include <vector>
 
 namespace perlin::ui {
-    // Prefix the emitter puts on every JSON UI button that is not a form button: "jb:<to_button_id>[:<row>]".
+    // emitter prefix on non-form json ui buttons: "jb:<to_button_id>[:<row>]"
     inline constexpr const char* kJsonButtonPrefix = "jb:";
 
-    // A clicked JSON UI button, split back into the Bedrock button id and the collection row it came from.
+    // clicked json ui button: bedrock button id + collection row
     struct JsonButton {
         std::string id;  // e.g. "button.menu_continue"
         int index = -1;
     };
     bool ParseJsonButton(const std::string& hoverId, JsonButton& out);
 
-    // Data a screen hands to its JSON UI: global bindings ("#name"), collections (rows of bindings) and
-    // factory items. Any binding left unset keeps the control's own default, exactly like the game does
-    // for bindings a screen controller does not answer.
+    // screen data for json ui: global bindings ("#name"), collections, factory items;
+    // unset bindings keep the control default, as in the game
     class ScreenData : public UiData {
     public:
         using Row = std::unordered_map<std::string, Json>;
@@ -40,7 +39,7 @@ namespace perlin::ui {
         void Set(const std::string& name, double value) { globals[name] = Json(value); }
         std::vector<Row>& Collection(const std::string& name) { return collections[name]; }
         std::vector<FactoryItem>& FactoryItems(const std::string& name) { return factories[name]; }
-        // Answers bindings nothing else set (used for families like "#*_visible").
+        // fallback for unset bindings (families like "#*_visible")
         std::function<bool(const std::string& name, Json& out)> fallback;
 
         bool Global(const std::string& name, Json& out) const override;
@@ -48,7 +47,7 @@ namespace perlin::ui {
         bool CollectionValue(const std::string& collection, int index, const std::string& binding, Json& out) const override;
         std::vector<FactoryItem> Factory(const std::string& name) const override;
 
-        // Stable digest of everything above, so callers only re-emit when something changed.
+        // stable digest: re-emit only on change
         std::string Signature() const;
 
     private:
@@ -57,39 +56,36 @@ namespace perlin::ui {
         std::unordered_map<std::string, std::vector<FactoryItem>> factories;
     };
 
-    // Builds full screens ("pause.pause_screen", "start.start_screen", ...) from the active JSON UI stack:
-    // server packs first, then resource packs, then the vanilla Bedrock files. One instance serves every screen,
-    // so a server that overrides any vanilla screen gets it drawn the way it designed it.
+    // builds full screens ("pause.pause_screen", ...) from the json ui stack: server packs, resource packs, vanilla;
+    // one instance for every screen: server overrides of any vanilla screen draw as designed
     class JsonScreens {
     public:
         static JsonScreens& Instance();
         ~JsonScreens();
 
-        // Rescans the UI stack when the server pack list or resource packs changed. Cheap when nothing did.
+        // rescan on server/resource pack change; cheap otherwise
         void Warm(const std::vector<std::string>& serverPackDirs);
         bool Ready() const { return state.load() == 2; }
         bool WaitReady(int timeoutMs);
-        // Scan generation; bumps each time the stack was rescanned, so callers can drop cached documents.
-        // Changes whenever cached documents must be rebuilt: the stack was rescanned or the language changed.
+        // bumps on rescan or language change: cached documents must be rebuilt
         uint64_t Generation() const;
 
-        // Emits `reference` as an RML document. Returns false (and leaves `rml` alone) when the screen does not
-        // exist in the stack or failed to build, so callers can fall back to their built-in layout.
-        // `rootVars` are the engine variables a screen is built with (e.g. $container_title); trees are cached per set.
+        // false (rml untouched) if screen missing or failed: caller falls back to built-in layout;
+        // `rootVars`: engine vars (e.g. $container_title); trees cached per set
         bool Build(const std::string& reference, const ScreenData& data, int guiW, int guiH, float scroll, std::string& rml,
                    const Vars* rootVars = nullptr);
-        // Items drawn by inventory_item_renderer, per collection ("container_items", "inventory_items", "hotbar_items").
+        // inventory_item_renderer items per collection ("container_items", "inventory_items", "hotbar_items")
         void SetItems(std::unordered_map<std::string, std::vector<HudItem>> table) { items = std::move(table); }
-        // True when some pack in the stack (not just vanilla) defines this screen's namespace.
+        // some non-vanilla pack defines this screen's namespace
         bool Overridden(const std::string& ns) const;
         float ContentHeight() const { return emitter.ContentHeight(); }
         float ViewportHeight() const { return emitter.ViewportHeight(); }
-        // True while the last built screen has an animation still running, so callers re-evaluate it each frame.
+        // last screen still animating: re-evaluate each frame
         bool Animating() const { return anim.animating; }
         RmlEmitter& Emitter() { return emitter; }
-        // UI texture key (see UiAssets::SetHead) that paper_doll_renderer draws: the player's 3D skin.
+        // paper_doll_renderer texture key (see UiAssets::SetHead): player 3d skin
         void SetPaperDoll(std::string key) { paperDoll = std::move(key); }
-        // Where the last emitted document drew the doll (gui units); false if it drew none.
+        // doll rect in last document (gui units); false if none
         bool PaperDollRect(float& x, float& y, float& w, float& h) const {
             x = dollX; y = dollY; w = dollW; h = dollH;
             return dollW > 0;

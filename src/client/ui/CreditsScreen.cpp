@@ -30,7 +30,7 @@ namespace perlin::ui {
             return true;
         }
 
-        // Word-wraps a paragraph to about the width Java uses for the poem (274 GUI pixels).
+        // wrap to java poem width (274 gui px)
         void AppendWrapped(std::vector<Line>& lines, const std::string& text, const std::string& cls) {
             constexpr size_t kColumns = 46;
             std::string line;
@@ -46,7 +46,7 @@ namespace perlin::ui {
                 lines.push_back({line, cls});
         }
 
-        // end.txt and postcredits.txt: paragraphs separated by blank lines, §3/§2 marking the two speakers.
+        // end.txt, postcredits.txt: blank-line paragraphs, §3/§2 mark the two speakers
         bool AppendStory(std::vector<Line>& lines, const char* name, const std::string& player) {
             std::string text;
             if (!ReadText(name, text))
@@ -75,7 +75,7 @@ namespace perlin::ui {
             return true;
         }
 
-        // Mojang's Java Edition credits, copied out of the client jar with the other client assets.
+        // java edition credits, extracted from the client jar with other assets
         bool AppendJavaCredits(std::vector<Line>& lines) {
             std::string text;
             if (!ReadText("credits.json", text))
@@ -113,9 +113,9 @@ namespace perlin::ui {
             return true;
         }
 
-        // Java's order: the End poem, the credits, then the post-credits text.
+        // java order: end poem, credits, post-credits
         const std::vector<Line>& Lines(const std::string& player = "") {
-            // The jar is extracted in the background on first launch, so keep looking until the Java texts show up.
+            // jar extracted in background on first launch: retry until texts appear
             static std::vector<Line> lines;
             static std::string builtFor;
             static bool java = false;
@@ -164,7 +164,7 @@ body { position: absolute; left: 0px; top: 0px; width: {{w}}px; height: {{h}}px;
     }
 
     std::string BuildCreditsScreenRml(int guiW, int guiH, int scroll, const std::string& player) {
-        // The Java list runs to thousands of lines, so only the ones on screen go into the document.
+        // thousands of lines: emit only visible ones
         const int top = guiH - scroll;
         int y = 0, skipped = 0;
         std::string lines;

@@ -194,7 +194,7 @@ namespace perlin::entity {
     PERLIN_ENTITY_SET(SetFlagsExtended(uint64_t rid, uint64_t flags), e.flagsExtended = flags)
     PERLIN_ENTITY_SET(SetCrawling(uint64_t rid, bool crawling), e.crawling = crawling)
     PERLIN_ENTITY_SET(SetScale(uint64_t rid, float scale), e.scale = scale)
-    // The server's own hitbox for this entity, so what we draw and collide with is what it simulates.
+    // server hitbox: draw/collide with what it simulates
     PERLIN_ENTITY_SET(SetBoundingBox(uint64_t rid, float width, float height), e.boxWidth = width; e.boxHeight = height)
     PERLIN_ENTITY_SET(SetNameTag(uint64_t rid, const std::string& nameTag), e.nameTag = nameTag)
     PERLIN_ENTITY_SET(SetVariant(uint64_t rid, int variant, int markVariant, int color),

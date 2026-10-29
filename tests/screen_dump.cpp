@@ -1,11 +1,11 @@
 #include <chrono>
-// Builds any JSON UI screen offline and prints what the engine made of it.
+// builds any json ui screen offline, prints what the engine made of it
 //
 //   screen_dump <reference> <W> <H> <ui root> [<ui root> ...]
 //
-// Roots are listed highest priority first, like the client does (server packs, resource packs, vanilla).
-// Env: SCREEN_TREE=1 prints visible controls, =2 prints hidden ones too; SCREEN_RML=1 prints the emitted RML.
-// SCREEN_VARS='{"#binding": value, ...}' feeds global bindings.
+// roots highest priority first, like the client (server packs, resource packs, vanilla)
+// env: SCREEN_TREE=1 prints visible controls, =2 hidden too; SCREEN_RML=1 prints emitted rml
+// SCREEN_VARS='{"#binding": value, ...}' feeds global bindings
 #include "client/ui/HudData.hpp"
 #include "client/ui/JsonUi.hpp"
 #include "client/ui/McFont.hpp"
@@ -103,7 +103,7 @@ namespace {
         for (const auto& f : n.factoryControls) c += CountNodes(*f.second);
         return c;
     }
-    // SCREEN_HEAVY=N: lists template subtrees with at least N nodes.
+    // SCREEN_HEAVY=N: lists template subtrees with at least N nodes
     void Heavy(const Node& n, size_t min, int depth) {
         const size_t c = CountNodes(n);
         if (c < min) return;

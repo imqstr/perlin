@@ -9,6 +9,8 @@ namespace perlin::blockuse {
     bool IsReplaceableCell(bool loaded, uint16_t blockId, const std::string& blockName);
     bool IsUpperSlabPlacement(int face, float clickY);
     bool IsInteractive(const std::string& blockName);
+    // ticks a vanilla item stays in use while held (StartUsingItem, then a release); 0 for one-click items
+    int VanillaUseTicks(const std::string& itemName, bool food);
 
     struct Result {
         Use use = Use::Nothing;

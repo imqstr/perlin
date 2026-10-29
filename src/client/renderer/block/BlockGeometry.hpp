@@ -1,5 +1,6 @@
 #pragma once
 #include "client/renderer/block/BlockModels.hpp"
+#include "util/Json.hpp"
 
 #include <cstdint>
 #include <deque>
@@ -42,6 +43,7 @@ namespace perlin {
             struct Face {
                 bool has = false;
                 float uv[2] = {0, 0}, size[2] = {0, 0};
+                int rotation = 0;  // uv_rotation in quarter turns, clockwise
                 std::string mat;
             } faces[6];
             std::string mat;
@@ -50,6 +52,13 @@ namespace perlin {
             std::string name, parent;
             float pivot[3] = {0, 0, 0}, rot[3] = {0, 0, 0};
             std::vector<Cube> cubes;
+            // poly_mesh polygons; triangles repeat their last corner. UVs are in texels unless polyNormalized.
+            struct Poly {
+                float pos[4][3] = {};
+                float uv[4][2] = {};
+            };
+            std::vector<Poly> polys;
+            bool polyNormalized = true;
         };
         struct Geometry {
             float tw = 16, th = 16;
@@ -70,6 +79,7 @@ namespace perlin {
         };
 
         void LoadGeometries(const std::string& dir);
+        static void ReadPolyMesh(json::View mesh, Bone& bone);
         std::vector<ModelQuad> Bake(const Geometry& g, const Components& c) const;
 
         std::unordered_map<std::string, Geometry> geometries;

@@ -359,7 +359,9 @@ namespace perlin {
 
     void Perlin::UpdateModLayer(ui::Hud& hud) {
         auto& mm = mods::ModManager::Instance();
-        const bool want = options.showHud && !pauseShown && !invShown && !deathShown && mm.HasPlugins() && !(replayCtl.Playing() && replayUi.hideHud);
+        // hud layers show in game; "screen:..." layers and ScreenButtonAdd buttons show over open screens
+        const bool onScreen = CurrentScreen() != abi::Screen::None;
+        const bool want = options.showHud && mm.HasPlugins() && !(replayCtl.Playing() && replayUi.hideHud);
         if (!want) {
             if (modLayerShown) {
                 hud.Overlay().ClearPluginLayer();
@@ -368,14 +370,39 @@ namespace perlin {
             }
             return;
         }
+        std::string buttonKey;
+        for (const ScreenButtonView& b : modScreenButtons)
+            buttonKey += b.def.id + (b.hover ? "+" : "-") + b.def.label + "|";
         const int w = static_cast<int>(hud.GuiWidth()), h = static_cast<int>(hud.GuiHeight());
         const uint64_t version = mm.LayerVersion();
-        if (modLayerShown && version == modLayerVersion && w == modLayerW && h == modLayerH)
+        if (modLayerShown && version == modLayerVersion && w == modLayerW && h == modLayerH && onScreen == modLayerOnScreen && buttonKey == modLayerButtons)
             return;
         modLayerVersion = version;
         modLayerW = w;
         modLayerH = h;
-        const std::vector<mods::UiLayer> layers = mm.Layers();
+        modLayerOnScreen = onScreen;
+        modLayerButtons = buttonKey;
+        std::vector<mods::UiLayer> layers;
+        for (mods::UiLayer& l : mm.Layers())
+            if (l.name.rfind("screen:", 0) == 0 ? onScreen : !onScreen)
+                layers.push_back(std::move(l));
+        if (onScreen && !modScreenButtons.empty()) {
+            mods::UiLayer buttons;
+            buttons.plugin = "perlin";
+            buttons.name = "screen:buttons";
+            buttons.z = 1000;
+            abi::Writer c;
+            for (const ScreenButtonView& b : modScreenButtons) {
+                const float x = static_cast<float>(b.def.x), y = static_cast<float>(b.def.y);
+                const float bw = static_cast<float>(b.def.width), bh = static_cast<float>(b.def.height);
+                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Rect)).put(x).put(y).put(bw).put(bh).put<uint32_t>(b.hover ? 0x505050E0u : 0x303030D0u);
+                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Border)).put(x).put(y).put(bw).put(bh).put<uint32_t>(b.hover ? 0xFFFFFFFFu : 0x000000FFu).put(1.0f);
+                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Text)).put(x + bw * 0.5f).put(y + (bh - 8.0f) * 0.5f).put<uint32_t>(b.hover ? 0xFFFFA0FFu : 0xE0E0E0FFu)
+                    .put(1.0f).put<uint8_t>(1).put<uint8_t>(1).str(b.def.label);
+            }
+            buttons.commands.assign(c.Data(), c.Data() + c.Size());
+            layers.push_back(std::move(buttons));
+        }
         if (layers.empty()) {
             if (modLayerShown)
                 hud.Overlay().ClearPluginLayer();
@@ -449,12 +476,15 @@ namespace perlin {
         const std::vector<mods::PluginKey> keys = mm.Keys();
         if (!keys.empty()) {
             const bool free = input.Captured() && !input.TextMode() && !pauseShown && !chat.IsOpen() && !invShown && !deathShown;
+            const bool inScreen = !input.TextMode() && CurrentScreen() != abi::Screen::None;
             for (const mods::PluginKey& key : keys) {
                 const Binding b = Binding::Parse(key.binding);
+                const bool active = key.context == abi::KeyContext::Any ? (free || inScreen) : key.context == abi::KeyContext::InScreen ? inScreen : free;
+                const bool mods = (!key.ctrl || input.IsKeyDown(Key::Control)) && (!key.shift || input.IsKeyDown(Key::Shift)) && (!key.alt || input.IsKeyDown(Key::Alt));
                 bool down = false;
-                if (free && b.device == Binding::Device::Keyboard)
+                if (active && mods && b.device == Binding::Device::Keyboard)
                     down = input.IsKeyDown(b.code);
-                else if (free && b.device == Binding::Device::Mouse)
+                else if (active && mods && b.device == Binding::Device::Mouse)
                     down = input.IsMouseDown(b.code);
                 bool& was = modKeyDown[key.plugin + "/" + key.id];
                 if (down != was) {
@@ -601,6 +631,8 @@ namespace perlin {
                 mm.Dispatch(abi::Event::Packet, w);
             }
         }
+
+        PumpModHooks(live);
 
         if (mm.WantsEvent(abi::Event::Frame)) {
             abi::EventFrame f;

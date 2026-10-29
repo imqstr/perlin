@@ -290,6 +290,7 @@ namespace perlin {
         sequence = baseSequence;
         sequenceKeys = baseKeys;
         customRuns.clear();
+        keptDataDriven.clear();
         layoutVerified = false;
         layoutAppended = false;
         BuildLayoutLocked(false);
@@ -299,11 +300,18 @@ namespace perlin {
         std::lock_guard<std::mutex> lk(mutex);
         if (baseSequence.empty())
             return;
-        std::unordered_set<std::string> vanilla;
+        std::unordered_set<std::string> vanilla, dataDriven;
         for (const int32_t h : baseSequence)
-            if (const auto it = nameByHash.find(h); it != nameByHash.end() && !dataDrivenHashes.contains(h))
-                vanilla.insert(it->second);
-        runs.erase(std::remove_if(runs.begin(), runs.end(), [&](const CustomRun& r) { return vanilla.count(r.name) > 0; }),
+            if (const auto it = nameByHash.find(h); it != nameByHash.end())
+                (dataDrivenHashes.contains(h) ? dataDriven : vanilla).insert(it->second);
+        // A data-driven block the table already lists keeps the table's states and slots: servers often declare
+        // these blocks without their properties, which would give one state where the game has many.
+        keptDataDriven.clear();
+        for (const CustomRun& r : runs)
+            if (dataDriven.count(r.name))
+                keptDataDriven.insert(r.name);
+        runs.erase(std::remove_if(runs.begin(), runs.end(),
+                                  [&](const CustomRun& r) { return vanilla.count(r.name) > 0 || dataDriven.count(r.name) > 0; }),
                    runs.end());
         customRuns = std::move(runs);
         layoutVerified = false;
@@ -314,8 +322,11 @@ namespace perlin {
         sequence.clear();
         sequenceKeys.clear();
         for (size_t i = 0; i < baseSequence.size(); ++i) {
-            if (dataDrivenHashes.contains(baseSequence[i]))
-                continue;
+            if (dataDrivenHashes.contains(baseSequence[i])) {
+                const auto name = nameByHash.find(baseSequence[i]);
+                if (name == nameByHash.end() || !keptDataDriven.count(name->second))
+                    continue;
+            }
             sequence.push_back(baseSequence[i]);
             sequenceKeys.push_back(baseKeys[i]);
         }

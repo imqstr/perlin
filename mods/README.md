@@ -95,6 +95,35 @@ Enough is exposed to hook up Dear ImGui or any other immediate-mode library:
 
 The wire format is derived from the member list of each struct (`abi.hpp`), so adding a field to a struct the host already sends, such as an entity's attributes, exposes it to every plugin and every language with no wrapper to write. `tools/check_api.py` (run by CTest as `mod_api_check`) fails when an operation is declared without a host or without an SDK wrapper, or an event is never delivered. Every enumeration in `perlin::abi` prints by name with `std::format` without being listed anywhere. `perlin/json.hpp` is a small JSON reader for the text the game hands over (block entity tags, option dumps, HTTP bodies): `json::parse(text)` then `tag["Items"][0]["Name"].string()`; missing keys read as null, so chains never fail.
 
+## Client hooks (`perlin/hooks.hpp`)
+
+These reach into the client's own rendering, screens and systems.
+
+| Area | Calls | Events |
+| --- | --- | --- |
+| HUD | `hooks::hud_element(HudElement, visible, dx, dy)` hides or moves one vanilla element (hearts, armor, hunger, air, hotbar, XP bar, F3, chat, effects, locator bar, fire, subtitles, crosshair); `hooks::debug_lines(left, right)` adds F3 lines | |
+| Camera and world look | `hooks::fog({...})` overrides fog distance and colour, or turns it off; `hooks::screen_tint(argb, vignette)` tints the world and darkens the edges | |
+| Entities | `hooks::entity_render({...})` hides, scales (per axis), tints, retextures or renames one entity (runtime id) or a whole type; `hooks::skin(player, png, slim)` swaps a player's skin on your screen | |
+| World geometry | `hooks::world_mesh(id, triangles, texture, stage, depth_test)` draws textured or coloured triangles in the world (`texture` is a `gfx::Texture` id); `hooks::clear_world_mesh(id)` | |
+| Screens | `hooks::add_button({screen, id, label, x, y, w, h})` puts a button on a vanilla screen; `hooks::open_custom_screen(title)` opens a blank screen of your own (closes on Escape) | `ScreenRender` (every frame while a screen is open, `Screen::Custom` for yours), `ScreenButton`, `SlotClick` (cancellable) |
+| Tooltips | `hooks::tooltip(lines)` inside a `Tooltip` handler | `Tooltip` |
+| Window and frame rate | `hooks::frame_limit(fps, unfocused_fps)`, `hooks::window()` | `WindowFocus` |
+| Loading screen | `hooks::loading_overlay(hidden)` hides the connecting/loading screen | |
+| Audio | `hooks::ambient(id, sound, volume, pitch, play)` keeps a looping sound going | |
+| Network | `hooks::ping(host, port)` pings a server (needs `network`) | `ServerPing` |
+| Mods | `hooks::send(to, channel, body)` messages another mod (or all of them); a manifest `"priority"` (higher runs first) orders event handlers; `game::mods()` lists version, author, website, hooks, permissions and priority | `ModMessage`, `ModsLoaded`, `ClientStopping` |
+| Packs | `hooks::register_pack(path)` stacks a pack shipped in the mod's folder under the player's packs (needs `files`); `hooks::shader_pack(name)` switches shader pack (needs `control`) | `ResourcesReloaded` |
+| Particles | `hooks::particle(name, x, y, z, count, spread)` | |
+| Input | `hooks::bind({id, label, key, ctrl, shift, alt, context})` binds with modifiers, in game, on screens or both | `Key` |
+| Your own actions | | `Interact` (start breaking, attack, interact with an entity, use on a block, use an item; cancel to stop it) |
+| World | | `ChunkLoaded`, `ChunkUnloaded`, `BlockChanged`, `LevelLoaded`, `LevelUnloaded`, `Toast` (cancellable) |
+
+HUD layers whose name starts with `screen:` (`ctx.hud("screen:panel", ...)`) are drawn while a screen is open instead of in game, so a `ScreenRender` handler can draw onto menus and inventories.
+
+Everything a mod sets with these calls is undone when it unloads.
+
+Events 32 and up are announced through a second export, `perlin_subscriptions_hi() -> i32`, holding bits for event ids 32 to 63; the SDK provides it.
+
 ## Settings
 
 Settings are written in the mod's JSON, not in code. The game shows them on the mod's **Settings** page (Mods screen, pick the mod, **Settings**), stores them in `<data dir>/mods/<name>.settings.json`, and keeps the mod up to date while it runs.
@@ -172,7 +201,7 @@ The C++ SDK is a convenience. A plugin is any WebAssembly module (core wasm, no 
 * Export `perlin_alloc(size: i32) -> ptr`, `perlin_free(ptr)`, `perlin_event(id: i32, ptr, len: i32) -> i32` and `perlin_subscriptions() -> i32`.
 * `ptr` is `i32` in a 32-bit module and `i64` in a 64-bit (memory64) one: exactly what `void*` becomes when you compile for `wasm32` or `wasm64`. The host reads the module's declared types, so it also accepts `i64` lengths (`size_t`) in a 64-bit plugin.
 * Linear memory must be the module's own (not imported) and exported; 1 GiB at most.
-* `perlin_subscriptions` returns a bitmask with bit `1 << event_id` set for every event you want delivered (see `Event` in `mods/sdk/perlin/abi.hpp`; id 1 is Load, 7 is Connected, 3 is Tick, 4 is Frame). `perlin_event` returns bit 0 set to cancel a cancellable event.
+* `perlin_subscriptions` returns a bitmask with bit `1 << event_id` set for every event you want delivered (ids 0 to 31; export `perlin_subscriptions_hi` for ids 32 to 63, bit `1 << (id - 32)`) (see `Event` in `mods/sdk/perlin/abi.hpp`; id 1 is Load, 7 is Connected, 3 is Tick, 4 is Frame). `perlin_event` returns bit 0 set to cancel a cancellable event.
 * The host calls `perlin_event(Load = 1, ...)` once after instantiation; register everything (commands, keys, HUD) from there.
 * Payloads and arguments are little-endian packed values: integers and floats at their natural width, strings and byte blobs as a `u32` length followed by the bytes, booleans as one byte.
 * `call` returns the number of bytes written to `out` (>= 0), a negative `Status` code (`-1` unknown op, `-2` denied, `-3` bad arguments, `-4` unavailable, `-5` not found, `-6` failed), or a value below `-16` meaning the buffer was too small: call again with `out_cap` of `-rc - 16`.

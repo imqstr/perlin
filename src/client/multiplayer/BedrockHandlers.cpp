@@ -6,6 +6,7 @@
 #include "client/multiplayer/CustomBlocks.hpp"
 #include "client/i18n/Lang.hpp"
 #include "client/player/VoxelShapes.hpp"
+#include "client/mods/ModManager.hpp"
 #include "network/ClientIdentity.hpp"
 #include "network/PacketDump.hpp"
 #include "world/level/block/BlockPalette.hpp"
@@ -228,8 +229,8 @@ namespace perlin {
 
         On<PlayStatusPacket>([this](const PlayStatusPacket& p) {
             std::cout << "[bedrock] PlayStatus " << static_cast<int>(p.status) << std::endl;
-            // Status 1 means our client is outdated, 2 (named FailedSpawn in the protocol data; LoginFailedServer in
-            // Bedrock) means the server is. Either can arrive before the network settings, not only after Login.
+            // status 1: our client outdated; 2 (FailedSpawn in protocol data, LoginFailedServer in bedrock): server outdated;
+            // either can arrive before network settings, not only after Login
             if ((p.status == PlayStatusPacketStatus::FailedClient || p.status == PlayStatusPacketStatus::FailedSpawn) && state != State::InGame) {
                 const bool clientOld = p.status == PlayStatusPacketStatus::FailedClient;
                 lastError = clientOld ? "Perlin is outdated for this server" : "the server is outdated for Perlin";
@@ -542,6 +543,14 @@ namespace perlin {
         });
 
         On<ItemRegistryPacket>([this](const ItemRegistryPacket& p) {
+            // Some proxies follow the real registry with an empty one; it carries nothing, so it must not wipe the names.
+            if (p.itemstates.empty()) {
+                std::lock_guard lock(statusMutex);
+                if (!itemNames.empty()) {
+                    std::cout << "[items] ignoring an empty item registry" << std::endl;
+                    return;
+                }
+            }
             std::cout << "[items] server defines " << RegisterCustomItems(p.itemstates) << " custom items" << std::endl;
             {
                 std::lock_guard lock(statusMutex);
@@ -765,7 +774,7 @@ namespace perlin {
             case LevelEventPacketEvent::SoundPop: named("random.pop"); break;
             case LevelEventPacketEvent::SoundPortal: named("portal.portal"); break;
             case LevelEventPacketEvent::SoundOrb: {
-                // Suppress the server echo of a pickup we already predicted locally.
+                // suppress the server echo of a pickup already predicted locally
                 const auto nowMs = static_cast<uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
                 const float dx = p.position.x - lastOrbX, dy = p.position.y - lastOrbY, dz = p.position.z - lastOrbZ;
@@ -868,6 +877,16 @@ namespace perlin {
                 ConfirmPlace(p.position.x, static_cast<int32_t>(p.position.y), p.position.z, static_cast<int32_t>(p.blockRuntimeId));
             if (p.layer == 0) {
                 const uint16_t id = BlockPalette::Instance().InternRuntime(static_cast<int32_t>(p.blockRuntimeId));
+                auto& mm = mods::ModManager::Instance();
+                if (mm.Wants(abi::Event::BlockChanged)) {
+                    const uint16_t was = netLevel.GetBlock(lastBlockPos[0], lastBlockPos[1], lastBlockPos[2]);
+                    if (was != id) {
+                        abi::Writer w;
+                        w.write(abi::EventBlockChanged{lastBlockPos[0], lastBlockPos[1], lastBlockPos[2], BlockPalette::Instance().Name(was),
+                                                       BlockPalette::Instance().Name(id)});
+                        mm.Queue(abi::Event::BlockChanged, std::move(w));
+                    }
+                }
                 netLevel.SetBlock(lastBlockPos[0], lastBlockPos[1], lastBlockPos[2], id);
                 std::lock_guard lock(supportMutex);
                 const auto now = std::chrono::steady_clock::now();
@@ -1063,7 +1082,7 @@ namespace perlin {
             std::string held;
             if (const auto it = itemNames.find(p.heldItem.networkId); p.heldItem.networkId != 0 && it != itemNames.end())
                 held = it->second;
-            // AddPlayer carries the feet position, unlike the move packets which carry the eye.
+            // AddPlayer carries the feet position; move packets carry the eye
             entities.AddPlayer(p.runtimeId, p.uniqueId, UuidKey(p.uuid), p.username,
                                {p.position.x, p.position.y, p.position.z}, p.pitch, p.yaw, p.headYaw, MetaFlags(p.metadata), held);
             if (std::getenv("PERLIN_DEBUG_NAMETAGS") != nullptr) {
@@ -1135,8 +1154,7 @@ namespace perlin {
                     r.pitch = 1.4f + (static_cast<float>(taken.runtimeId % 7) * 0.05f);
                     PushSound(std::move(r));
                 } else if (taken.type == "minecraft:xp_orb") {
-                    // Vanilla predicts the orb pickup sound locally; the server echo
-                    // (SoundOrb) is suppressed below when it chases the same pickup.
+                    // vanilla predicts the orb pickup sound locally; server echo (SoundOrb) suppressed below for the same pickup
                     SoundRequest r;
                     r.kind = SoundRequest::Kind::Named;
                     r.name = "random.orb";

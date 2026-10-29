@@ -32,8 +32,8 @@ namespace perlin::ui {
         bool HasVanillaSheets() const { return !sheets.empty(); }
         bool HasUnihex() const { return !hex.empty(); }
         bool AddTtf(const std::string& path);
-        // Bedrock glyph page (font/glyph_XX.png from a resource pack): a 16x16 grid of U+XX00..U+XXFF, drawn in its own
-        // colours. Replaces any page already loaded for `page`.
+        // bedrock glyph page (font/glyph_XX.png from a resource pack): 16x16 grid of U+XX00..U+XXFF in its own colours;
+        // replaces any page already loaded for `page`
         void AddGlyphPage(uint32_t page, const std::vector<uint8_t>& rgba, int width, int height);
         void ClearGlyphPages();
         size_t TtfCount() const { return ttfs.size(); }

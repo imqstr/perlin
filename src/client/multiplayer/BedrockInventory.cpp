@@ -1,6 +1,7 @@
 #include "util/Env.hpp"
 #include "client/multiplayer/BedrockSession.hpp"
 #include "client/player/PerlinStatusEffect.hpp"
+#include "client/resources/ServerBlocks.hpp"
 
 #include <algorithm>
 #include <iterator>
@@ -51,6 +52,10 @@ namespace perlin {
                 return 2;
             if (EndsWith(n, "_boots"))
                 return 3;
+            // Server-defined armor names its slot in the item's minecraft:wearable component.
+            CustomItemDef custom;
+            if (ServerBlocks::Instance().Item(full, custom))
+                return custom.armorSlot;
             return -1;
         }
 

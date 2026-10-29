@@ -4,14 +4,14 @@
 #include <glm/glm.hpp>
 
 namespace perlin {
-    // GameMode::getPickRange, China client 0x141f87030. These are binary32 constants.
+    // GameMode::getPickRange, china client 0x141f87030; binary32 constants
     inline double PickRange(bool creative, int inputMode, bool vr = false) {
         if (vr) return creative ? 12.0f : 7.0f;
         if (inputMode == 1) return 5.7f;
         if (inputMode == 3 || inputMode == 4) return 5.6f;
         return creative ? 12.0f : 6.7f;
     }
-    // InGamePlayScreen::_pick 0x140f0a6e9..0x140f0a713, separate from block reach.
+    // InGamePlayScreen::_pick 0x140f0a6e9..0x140f0a713; separate from block reach
     inline double EntityPickRange(bool creative) { return creative ? 7.0f : 3.0f; }
 }
 
@@ -49,10 +49,10 @@ namespace perlin::targeting {
 }
 
 namespace perlin::targeting {
-    // Actor::getPickRadius 0x14105c580; _pick expands the actor AABB by this amount.
+    // Actor::getPickRadius 0x14105c580: _pick expands actor aabb by this
     constexpr float PickRadius = 0.1f;
-    // _pick 0x140f0b1e2: expanded-box hit + radius must be strictly before the
-    // nearest block/range limit. No extra allowance for targets behind a wall.
+    // _pick 0x140f0b1e2: expanded-box hit + radius strictly before nearest block/range limit;
+    // no allowance for targets behind a wall
     inline bool EntityBeforeLimit(double distance, double limit) {
         return static_cast<float>(static_cast<float>(distance) + PickRadius) < static_cast<float>(limit);
     }

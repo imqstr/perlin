@@ -15,10 +15,10 @@ namespace perlin::ui {
             ".jw-h, .jw-d { display: none; }\n"
             ".btn:hover .jw-h { display: block; }\n"
             ".btn:hover .jw-n { display: none; }\n"
-            // Disabled buttons and slider tracks use the dark sprite; a track keeps it while hovered.
+            // disabled buttons and slider tracks: dark sprite, even hovered for tracks
             ".btn.off .jw-d, .btn.track .jw-d { display: block; }\n"
             ".btn.off .jw-n, .btn.off .jw-h, .btn.track .jw-n, .btn.track .jw-h { display: none; }\n"
-            // The slider knob is a normal button that lights up with its track.
+            // slider knob: normal button, lit with its track
             ".btn.track .knob .jw-n { display: block; }\n"
             ".btn.track .knob .jw-d, .btn.track .knob .jw-h { display: none; }\n"
             ".btn.track:hover .knob .jw-h { display: block; }\n"

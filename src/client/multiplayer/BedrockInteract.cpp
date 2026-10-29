@@ -86,7 +86,7 @@ namespace perlin {
         return true;
     }
 
-    bool BedrockSession::SendUseItemInAir(const float eye[3]) {
+    bool BedrockSession::SendUseItemInAir(const float eye[3], bool held) {
         InventoryTransactionPacket p;
         p.transaction.transactionType = TransactionTransactionType::ItemUse;
         TransactionUseItem u;
@@ -96,9 +96,12 @@ namespace perlin {
             selected = std::clamp(inventory.selected, 0, 8);
             u.heldItem = inventoryRaw[selected];
         }
-        QueueInputFlag(InputFlag::StartUsingItem);
+        if (held)
+            QueueInputFlag(InputFlag::StartUsingItem);
+        // the game sends click-air with no trigger and a success prediction; player input reads as a scaffold to anticheats
         u.actionType = TransactionUseItemActionType::ClickAir;
-        u.triggerType = TransactionUseItemTriggerType::PlayerInput;
+        u.triggerType = TransactionUseItemTriggerType::Unknown;
+        u.clientPrediction = TransactionUseItemClientPrediction::Success;
         u.blockPosition = {0, 0, 0};
         u.face = 255;
         u.hotbarSlot = selected;

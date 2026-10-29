@@ -119,6 +119,11 @@ namespace perlin {
         return !impl->backends.empty();
     }
 
+    bool ShaderPack::Bundled() const {
+        std::lock_guard lock(impl->mutex);
+        return impl->bundled;
+    }
+
     bool ShaderPack::HasBackend(const std::string& backend) const {
         std::lock_guard lock(impl->mutex);
         return impl->backends.count(backend) > 0;

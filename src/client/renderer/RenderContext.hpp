@@ -147,8 +147,22 @@ namespace perlin {
         virtual bool Initialize(AppPlatform& platform, const Options& options) = 0;
         virtual void Shutdown() = 0;
         virtual bool ReloadShaders() { return false; }
+        virtual bool SetJavaShaderPack(const std::string& , const std::map<std::string, std::string>& ,
+                                       std::string& error) {
+            error = "Java shader packs are not supported by this renderer";
+            return false;
+        }
+        virtual void ClearJavaShaderPack() {}
+        virtual bool JavaShaderPackActive() const { return false; }
+        virtual std::string JavaShaderPackError() const { return {}; }
+        virtual void SetJavaShaderPackDimension(const std::string& ) {}
         virtual bool PackShadowsActive() const { return false; }
         virtual void SetVsync(bool) {}
+        // switches the graphics api while the game keeps running; applied before the next frame, false when unsupported
+        virtual bool RequestRendererSwitch(const std::string&) { return false; }
+        virtual bool RendererSwitchPending() const { return false; }
+        // api id of the running renderer ("vulkan", "d3d12", ...), empty when it has none
+        virtual std::string ActiveRendererId() const { return {}; }
         virtual std::string RendererName() const { return {}; }
         virtual std::string GpuVendor() const { return {}; }
         virtual std::string GpuDescription() const { return {}; }
@@ -191,5 +205,7 @@ namespace perlin {
         virtual void ClearChunkMeshes() = 0;
         virtual void DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) = 0;
         virtual void SetChunkCullRadius(int) {}
+        // section (16-block cube) reachable from the camera through open space, last frame
+        virtual bool SectionReached(int sx, int sy, int sz) const { return true; }
     };
 }

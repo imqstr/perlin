@@ -132,6 +132,15 @@ namespace perlin::ui {
         return rarity;
     }
 
+    namespace {
+        std::function<std::vector<std::string>(const HudItem&)>& Extender() {
+            static std::function<std::vector<std::string>(const HudItem&)> extender;
+            return extender;
+        }
+    }
+
+    void SetTooltipExtender(std::function<std::vector<std::string>(const HudItem&)> extender) { Extender() = std::move(extender); }
+
     std::vector<TooltipLine> BuildItemTooltip(const HudItem& item, bool advanced, const std::string& nameOverride) {
         std::vector<TooltipLine> lines;
         if (item.Empty())
@@ -177,6 +186,9 @@ namespace perlin::ui {
             if (item.nbtTags > 0)
                 lines.push_back({"NBT: " + std::to_string(item.nbtTags) + " tag(s)", 0x555555, false});
         }
+        if (const auto& extend = Extender())
+            for (std::string& text : extend(item))
+                lines.push_back({std::move(text), 0xAAAAAA, false});
         return lines;
     }
 

@@ -38,6 +38,8 @@ namespace perlin {
         std::string name;
         std::string icon;
         std::string displayName;
+        int armorSlot = -1;  // minecraft:wearable slot: 0 head, 1 chest, 2 legs, 3 feet
+        int useTicks = 0;    // minecraft:use_modifiers / use_duration; 0: used in one click
     };
 
     class ServerBlocks {

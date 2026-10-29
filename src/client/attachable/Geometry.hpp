@@ -27,6 +27,7 @@ namespace perlin::attachable {
         struct FaceUv {
             bool present = false;
             glm::vec2 uv{0.0f}, size{0.0f};
+            int rotation = 0;  // uv_rotation in quarter turns, clockwise
         } faces[6];
     };
 
@@ -42,6 +43,9 @@ namespace perlin::attachable {
         std::vector<Cube> cubes;
         std::vector<TextureMesh> meshes;
         std::vector<Quad> voxels;
+        // poly_mesh polygons in model space; triangles repeat their last corner. UVs are in texels unless polyNormalized.
+        std::vector<Quad> polys;
+        bool polyNormalized = true;
         std::string binding;
         std::string parentName;
         float inflate = 0;

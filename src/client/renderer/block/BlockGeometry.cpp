@@ -187,6 +187,49 @@ namespace perlin {
         }
     }
 
+    // poly_mesh: indexed polygons ([position, normal, uv] per corner), or parallel arrays grouped by "tri_list" / "quad_list".
+    void BlockGeometry::ReadPolyMesh(const json::View mesh, Bone& bone) {
+        const json::View positions = mesh["positions"], uvs = mesh["uvs"], polys = mesh["polys"];
+        if (!positions.isArray())
+            return;
+        bone.polyNormalized = mesh["normalized_uvs"].boolean(false);
+        const auto corner = [&](Bone::Poly& poly, int k, size_t pi, size_t ui) {
+            if (pi < positions.size())
+                ReadVec(positions[pi], poly.pos[k], 3);
+            if (uvs.isArray() && ui < uvs.size())
+                ReadVec(uvs[ui], poly.uv[k], 2);
+        };
+        const auto finish = [&](Bone::Poly& poly, int count) {
+            if (count < 3)
+                return;
+            for (int k = count; k < 4; k++) {
+                std::copy_n(poly.pos[count - 1], 3, poly.pos[k]);
+                std::copy_n(poly.uv[count - 1], 2, poly.uv[k]);
+            }
+            bone.polys.push_back(poly);
+        };
+        if (polys.isArray()) {
+            for (const json::View p : polys.items()) {
+                Bone::Poly poly;
+                int count = 0;
+                for (const json::View c : p.items()) {
+                    if (count == 4 || !c.isArray() || c.size() < 3)
+                        break;
+                    corner(poly, count++, static_cast<size_t>(c[0].integer(-1)), static_cast<size_t>(c[2].integer(-1)));
+                }
+                finish(poly, count);
+            }
+        } else if (polys.isString()) {
+            const size_t group = polys.str() == "quad_list" ? 4 : polys.str() == "tri_list" ? 3 : 0;
+            for (size_t i = 0; group && i + group <= positions.size(); i += group) {
+                Bone::Poly poly;
+                for (size_t k = 0; k < group; k++)
+                    corner(poly, static_cast<int>(k), i + k, i + k);
+                finish(poly, static_cast<int>(group));
+            }
+        }
+    }
+
     void BlockGeometry::LoadGeometries(const std::string& dir) {
         std::error_code ec;
         if (!fs::exists(dir, ec))
@@ -218,9 +261,12 @@ namespace perlin {
                         Cube cube;
                         ReadVec(c["origin"], cube.origin, 3);
                         ReadVec(c["size"], cube.size, 3);
-                        const bool hasPivot = c["pivot"].isArray();
-                        if (hasPivot)
+                        // Without a pivot a cube turns around its own centre.
+                        if (c["pivot"].isArray())
                             ReadVec(c["pivot"], cube.pivot, 3);
+                        else
+                            for (int a = 0; a < 3; a++)
+                                cube.pivot[a] = cube.origin[a] + cube.size[a] * 0.5f;
                         ReadVec(c["rotation"], cube.rot, 3);
                         cube.inflate = c["inflate"].real(b["inflate"].real(0));
                         cube.mirror = c["mirror"].boolean(b["mirror"].boolean(false));
@@ -236,11 +282,14 @@ namespace perlin {
                                 cube.faces[f].has = true;
                                 ReadVec(fv["uv"], cube.faces[f].uv, 2);
                                 ReadVec(fv["uv_size"], cube.faces[f].size, 2);
+                                cube.faces[f].rotation = ((static_cast<int>(std::lround(fv["uv_rotation"].real(0) / 90.0f)) % 4) + 4) % 4;
                                 cube.faces[f].mat = fv["material_instance"].str();
                             }
                         }
                         bone.cubes.push_back(cube);
                     }
+                    if (const json::View mesh = b["poly_mesh"]; mesh.isObject())
+                        ReadPolyMesh(mesh, bone);
                     geo.bones.push_back(std::move(bone));
                 }
                 geometries[id] = std::move(geo);
@@ -304,8 +353,8 @@ namespace perlin {
         const json::View mi = comps["minecraft:material_instances"];
         if (mi.isObject()) {
             hasMaterials = true;
-            // Resource packs write instances directly ({"*": {...}, "up": {...}}); the server's block definitions
-            // (network NBT) nest them under "materials", with "mappings" naming which instance a face uses.
+            // resource packs write instances directly ({"*": {...}, "up": {...}}); server block definitions (network nbt)
+            // nest them under "materials", with "mappings" naming the instance per face
             const json::View table = mi["materials"].isObject() ? mi["materials"] : mi;
             for (const auto m : table.members()) {
                 if (!m.value.isObject())
@@ -470,7 +519,8 @@ namespace perlin {
                 }
                 const bool rotated = cube.rot[0] != 0 || cube.rot[1] != 0 || cube.rot[2] != 0;
                 const Mat3 cubeRot = rotated ? BedrockRotation(cube.rot) : Identity();
-                const float w = cube.size[0], h = cube.size[1], d = cube.size[2];
+                // Box UV lays the faces out with whole-pixel sizes.
+                const float w = std::floor(cube.size[0]), h = std::floor(cube.size[1]), d = std::floor(cube.size[2]);
                 for (int f = 0; f < 6; f++) {
                     float u0, v0, u1, v1;
                     std::string mat;
@@ -510,7 +560,21 @@ namespace perlin {
                     q.light = 0;
                     auto dit = c.dimming.find(mat);
                     q.shade = (dit == c.dimming.end() || dit->second) ? 1 : 0;
-                    const float cu[4] = {u0, u0, u1, u1}, cv[4] = {v0, v1, v1, v0};
+                    float cu[4] = {u0, u0, u1, u1}, cv[4] = {v0, v1, v1, v0};
+                    // uv_rotation turns the texture clockwise: going round the face (corners 0, 3, 2, 1 here), each corner
+                    // takes the UV of the one before it.
+                    if (const int turns = cube.boxUv ? 0 : cube.faces[f].rotation) {
+                        static constexpr int kRing[4] = {0, 3, 2, 1};
+                        float ru[4], rv[4];
+                        for (int k = 0; k < 4; k++) {
+                            ru[k] = cu[kRing[k]];
+                            rv[k] = cv[kRing[k]];
+                        }
+                        for (int k = 0; k < 4; k++) {
+                            cu[kRing[k]] = ru[(k + 4 - turns) % 4];
+                            cv[kRing[k]] = rv[(k + 4 - turns) % 4];
+                        }
+                    }
                     bool flush = true;
                     for (int i = 0; i < 4; i++) {
                         float p[3];
@@ -546,6 +610,42 @@ namespace perlin {
                         q.cull = static_cast<int8_t>(q.dir);
                     out.push_back(q);
                 }
+            }
+            if (bone.polys.empty())
+                continue;
+            auto tit = c.tiles.find("*");
+            if (tit == c.tiles.end() || tit->second == 0)
+                continue;
+            for (const Bone::Poly& poly : bone.polys) {
+                ModelQuad q{};
+                q.tile = tit->second;
+                q.tex = 0xFFFF;
+                q.tint = -1;
+                q.cull = -1;
+                q.light = 0;
+                const auto dit = c.dimming.find("*");
+                q.shade = (dit == c.dimming.end() || dit->second) ? 1 : 0;
+                for (int i = 0; i < 4; i++) {
+                    float p[3] = {poly.pos[i][0], poly.pos[i][1], poly.pos[i][2]};
+                    for (const Bone* b : chain)
+                        if (b->rot[0] != 0 || b->rot[1] != 0 || b->rot[2] != 0)
+                            Apply(BedrockRotation(b->rot), b->pivot, p);
+                    place(p);
+                    std::copy_n(p, 3, q.pos[i]);
+                    // Mesh UVs count from the bottom of the texture.
+                    const float u = bone.polyNormalized ? poly.uv[i][0] : poly.uv[i][0] / g.tw;
+                    const float v = bone.polyNormalized ? poly.uv[i][1] : poly.uv[i][1] / g.th;
+                    q.uv[i][0] = u * 16.0f;
+                    q.uv[i][1] = (1.0f - v) * 16.0f;
+                }
+                const float e1[3] = {q.pos[1][0] - q.pos[0][0], q.pos[1][1] - q.pos[0][1], q.pos[1][2] - q.pos[0][2]};
+                const float e2[3] = {q.pos[2][0] - q.pos[0][0], q.pos[2][1] - q.pos[0][1], q.pos[2][2] - q.pos[0][2]};
+                const float n[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
+                if (std::fabs(n[0]) + std::fabs(n[1]) + std::fabs(n[2]) < 1e-9f)
+                    continue;
+                q.dir = static_cast<uint8_t>(NearestDir(n));
+                q.shadeDir = q.dir;
+                out.push_back(q);
             }
         }
         return out;

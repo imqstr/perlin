@@ -56,6 +56,7 @@ namespace perlin::entity {
             float cameraYaw = 0, cameraPitch = 0;
             double worldTicks = 0;
             const Frustum* frustum = nullptr;
+            std::function<bool(int, int, int)> sectionReached;
             bool outline = false;
             struct Crack {
                 int x = 0, y = 0, z = 0, stage = 0;
@@ -66,7 +67,7 @@ namespace perlin::entity {
             bool chunkBorders = false;
             bool hitboxes = false;
             bool ownNametag = false;
-            bool nametags = true;  // UpdateAdventureSettings showNameTags
+            bool nametags = true;
             bool nametagDepth = false;
             SkinParts ownParts;
             glm::vec3 ownPose{0.0f};
@@ -76,6 +77,24 @@ namespace perlin::entity {
                 float width = 1.0f;
             };
             const std::vector<ModLine>* modLines = nullptr;
+            // mod overrides per entity: hide, scale, tint, swap main texture, hide or replace name tag
+            struct ModStyle {
+                bool hidden = false;
+                glm::vec3 scale{1.0f};
+                float tint[4] = {1, 1, 1, 1};
+                std::string texture;
+                int nameTag = 0;  // 0 keep, 1 hide, 2 replace
+                std::string nameText;
+            };
+            std::function<const ModStyle*(const Entity&)> modStyle;
+            // mod world triangles; texture is a renderer texture id (0 for plain colour)
+            struct ModMesh {
+                std::vector<UiVertex> vertices;  // relative to `origin`, three per triangle
+                glm::dvec3 origin{0.0};
+                uint32_t texture = 0;
+                bool depthTest = true;
+            };
+            const std::vector<ModMesh>* modMeshes = nullptr;
             bool skins3d = false;
             const std::vector<particle::Quad>* particles = nullptr;
             const particle::DataParticles* dataParticles = nullptr;
@@ -119,7 +138,7 @@ namespace perlin::entity {
             float tint[4] = {1, 1, 1, 1};
             MaterialInfo material;
             uint32_t maskRgb = 0xFFFFFF;
-            // The entity's own model; invisibility hides these but keeps armor and attached items.
+            // entity's own model; invisibility hides it, keeps armor and attached items
             bool body = true;
         };
         bool Build(const Entity& e, View& v, const FrameIn& in, std::vector<Layer>& layers, float& scale);
@@ -128,6 +147,8 @@ namespace perlin::entity {
         void Draw(const Entity& e, const View& v, const std::vector<Layer>& layers, float scale, const FrameIn& in);
         const FpState* fp = nullptr;
         bool shadowOnlyPass = false;
+        glm::vec3 modScale{1.0f};
+        void DrawModMeshes(const FrameIn& in);
         const glm::mat4* fpModel = nullptr;
         const glm::mat4* dollModel = nullptr;
         const int* dollClip = nullptr;

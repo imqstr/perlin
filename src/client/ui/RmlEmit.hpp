@@ -18,7 +18,7 @@ namespace perlin::ui {
         float clipRatio = 1.0f;
         float r = 1, g = 1, b = 1, alpha = 1;
         bool keepRatio = false;
-        std::string id;  // element id, so the game can update this image without re-emitting the document
+        std::string id;  // lets the game update the image without re-emitting
     };
 
     struct TextStyle {
@@ -77,6 +77,12 @@ namespace perlin::ui {
         void SetScroll(float value) { scroll = value; }
         float ContentHeight() const { return contentHeight; }
         float ViewportHeight() const { return viewportHeight; }
+        // edit_box content for a collection row: typed text, placeholder, and whether the box has focus
+        void SetEditText(std::function<bool(const LNode&, std::string& text, std::string& placeholder, bool& focused)> fn) {
+            editText = std::move(fn);
+        }
+        // slider tracks of the last emit by command ("k:3"): left edge and usable width, gui pixels
+        const std::unordered_map<std::string, std::pair<float, float>>& SliderTracks() const { return sliderTracks; }
 
     private:
         void Visit(const LNode& n, RmlWriter& out);
@@ -84,6 +90,15 @@ namespace perlin::ui {
         void EmitLabel(const LNode& n, RmlWriter& out);
         void VisitButton(const LNode& n, RmlWriter& out);
         void VisitScroll(const LNode& n, RmlWriter& out);
+        void VisitToggle(const LNode& n, RmlWriter& out);
+        void VisitSlider(const LNode& n, RmlWriter& out);
+        void VisitEditBox(const LNode& n, RmlWriter& out);
+        std::function<bool(const LNode&, std::string&, std::string&, bool&)> editText;
+        std::unordered_map<std::string, std::pair<float, float>> sliderTracks;
+        // set while a slider or an edit box is being drawn: nested controls they style
+        std::string progressName, progressHoverName;
+        float progressWidth = -1, progressLeft = 0;
+        std::string editTextName, editShown;
         float scroll = 0, contentHeight = 0, viewportHeight = 0;
         std::string viewportName, contentName;
         std::function<std::string(const LNode&)> slotNamer;

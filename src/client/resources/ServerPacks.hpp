@@ -12,12 +12,12 @@ namespace perlin {
         void Clear();
         bool Mount(const std::string& zipPath, const std::string& id, const std::string& contentKey);
         std::vector<std::string> Directories() const;
-        // Packs a server sent, not counting pinned test folders (which Clear keeps).
+        // server-sent packs; excludes pinned test folders (Clear keeps them)
         bool HasServerPacks() const {
             std::lock_guard lock(mutex);
             return dirs.size() > pinned.size();
         }
-        // Dev/test: use an already extracted pack folder as if the server had sent it.
+        // dev/test: extracted pack folder as if server-sent
         void AddDirectory(const std::string& directory);
         uint32_t Generation() const { return generation; }
 

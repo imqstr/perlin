@@ -153,8 +153,8 @@ namespace perlin::ui {
     }
 
     namespace {
-        // font/glyph_XX.png pages: vanilla first, then server packs from lowest to highest priority, so the pack the
-        // server lists first wins. Servers draw logos and icons in chat, titles and sidebars with these.
+        // font/glyph_XX.png: vanilla, then server packs low to high priority (first listed wins);
+        // servers draw logos/icons in chat, titles, sidebars with these
         void LoadGlyphPages(const std::string& vanillaRoot) {
             McFont& font = McFont::Instance();
             font.ClearGlyphPages();
@@ -222,8 +222,11 @@ namespace perlin::ui {
             BuildReport crossReport;
             crosshairTree = BuildTree(library, "hud_crosshair.hud_crosshair_screen", EngineRootVariables(), crossReport);
             cursorEmitter.Register("cursor_renderer", [this](const LNode& n, RmlWriter&) {
-                cursorX = std::floor(n.ax + (n.w - 15.0f) * 0.5f);
-                cursorY = std::floor(n.ay + (n.h - 15.0f) * 0.5f);
+                float dx = 0, dy = 0;
+                if (!FilterHudElement("cursor_renderer", dx, dy))
+                    return;
+                cursorX = std::floor(n.ax + dx + (n.w - 15.0f) * 0.5f);
+                cursorY = std::floor(n.ay + dy + (n.h - 15.0f) * 0.5f);
                 cursorValid = true;
             });
             cursorValid = false;
@@ -336,7 +339,8 @@ namespace perlin::ui {
         const bool animTick = animHost.animating && now - lastAnimEval >= 1.0 / 60.0;
         const std::string& rcss = rcssCache;
         const uint64_t signature = stateChanged || resized || rebuilt ? HudSignature(state) : lastSignature;
-        if (!rebuilt && !resized && !animTick && signature == lastSignature && rcss == lastRcss && fontVersion == McFont::Instance().Version()) {
+        if (!rebuilt && !resized && !animTick && signature == lastSignature && rcss == lastRcss && fontVersion == McFont::Instance().Version() &&
+            filterVersion == HudFilterVersion()) {
             backend.Update();
             return scale;
         }
@@ -344,6 +348,7 @@ namespace perlin::ui {
         lastAnimEval = now;
         lastRcss = rcss;
         fontVersion = McFont::Instance().Version();
+        filterVersion = HudFilterVersion();
 
         auto evaluated = EvaluateTree(*tree, *data, services, guiW, guiH);
         lastRml = emitter.Emit(*evaluated, guiW, guiH, rcss, false);

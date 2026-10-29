@@ -415,8 +415,7 @@ namespace perlin::ui {
             return nullptr;
         const int cellW = gp.width / 16, cellH = gp.height / 16;
         const int sx0 = static_cast<int>(cp & 15) * cellW, sy0 = static_cast<int>((cp >> 4) & 15) * cellH;
-        // Icons fill the full cell like the game draws them: the whole 16 px atlas slot (8 gui px),
-        // never trimmed to the ink like text glyphs are.
+        // glyphs fill the full line like the game: cell scaled to the 16 px atlas slot (8 gui px)
         const int cx = (dynNext % perRow) * 16, cy = dynY0 + (dynNext / perRow) * 16;
         int ink = 0;
         for (int y = 0; y < 16; y++)

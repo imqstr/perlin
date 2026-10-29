@@ -98,8 +98,7 @@ namespace perlin {
         const int w = skin.width, s = w / 64;
         std::vector<unsigned char> square(static_cast<size_t>(w) * static_cast<size_t>(w) * 4, 0);
         std::copy(skin.pixels.begin(), skin.pixels.begin() + static_cast<std::ptrdiff_t>(w) * skin.height * 4, square.begin());
-        // Copy a face (in 64-unit skin coordinates) from the right limb to the left limb, mirrored horizontally,
-        // because the legacy format only stores the right side.
+        // copy a face (64-unit skin coords) right limb -> left limb, mirrored: legacy format only stores the right side
         const auto face = [&](int sx, int sy, int dx, int dy, int fw, int fh) {
             for (int y = 0; y < fh * s; y++)
                 for (int x = 0; x < fw * s; x++) {
@@ -109,15 +108,14 @@ namespace perlin {
                               square.begin() + static_cast<std::ptrdiff_t>(to));
                 }
         };
-        // Leg: right leg box at (0,16) -> left leg box at (16,48). Faces: top, bottom, then the four sides, where the
-        // outer and inner sides swap when mirrored.
+        // leg: right box (0,16) -> left box (16,48); faces top, bottom, then four sides; outer/inner swap when mirrored
         face(4, 16, 20, 48, 4, 4);
         face(8, 16, 24, 48, 4, 4);
         face(0, 20, 24, 52, 4, 12);
         face(4, 20, 20, 52, 4, 12);
         face(8, 20, 16, 52, 4, 12);
         face(12, 20, 28, 52, 4, 12);
-        // Arm: right arm box at (40,16) -> left arm box at (32,48).
+        // arm: right box (40,16) -> left box (32,48)
         face(44, 16, 36, 48, 4, 4);
         face(48, 16, 40, 48, 4, 4);
         face(40, 20, 40, 52, 4, 12);

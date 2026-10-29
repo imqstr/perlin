@@ -25,6 +25,9 @@ env:
   CCACHE_NOHASHDIR: "true"
   CCACHE_COMPRESS: "true"
   CCACHE_COMPRESSLEVEL: "6"
+  # FFmpeg on Windows is skipped for now (video export uses the built-in AVI encoder). Set to "true" to build/bundle it again;
+  # it is installed once and restored from the cache below, never rebuilt per run.
+  WINDOWS_FFMPEG: "false"
 
 jobs:
   native:
@@ -123,7 +126,7 @@ jobs:
           key: openssl-static-x64-v2-${{ env.OPENSSL_VERSION }}
 
       - name: Cache FFmpeg (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && env.WINDOWS_FFMPEG == 'true'
         id: ffmpeg-cache
         uses: actions/cache/restore@v4
         with:
@@ -131,14 +134,14 @@ jobs:
           key: ffmpeg-static-x64-v3
 
       - name: Install FFmpeg libraries (Windows)
-        if: runner.os == 'Windows' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: runner.os == 'Windows' && env.WINDOWS_FFMPEG == 'true' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         shell: pwsh
         continue-on-error: true
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample,gpl,x264,x265,vpx,aom,webp]:x64-windows-static" --x-install-root="$env:GITHUB_WORKSPACE/ffmpeg-install"
 
       - name: Save FFmpeg cache
-        if: runner.os == 'Windows' && steps.ffmpeg-cache.outputs.cache-hit != 'true' && hashFiles('ffmpeg-install/x64-windows-static/lib/avcodec.lib') != ''
+        if: runner.os == 'Windows' && env.WINDOWS_FFMPEG == 'true' && steps.ffmpeg-cache.outputs.cache-hit != 'true' && hashFiles('ffmpeg-install/x64-windows-static/lib/avcodec.lib') != ''
         uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}/ffmpeg-install
@@ -163,6 +166,7 @@ jobs:
           -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DOPENSSL_ROOT_DIR="$env:GITHUB_WORKSPACE/openssl-install/x64-windows-static"
+          -DPERLIN_WINDOWS_FFMPEG=${{ env.WINDOWS_FFMPEG }}
           -DFFMPEG_ROOT="$env:GITHUB_WORKSPACE/ffmpeg-install/x64-windows-static"
 
       - name: Configure (Unix)

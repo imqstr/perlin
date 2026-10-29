@@ -149,6 +149,30 @@ namespace perlin::abi {
         PacketDrop = 0x0F50,
         PacketCounters = 0x0F51,
         PacketInject = 0x0F52,
+
+        // hooks into the client's rendering, screens and systems
+        HudElementSet = 0x1000,
+        DebugLines = 0x1001,
+        FogSet = 0x1002,
+        ScreenTint = 0x1003,
+        EntityRenderOverride = 0x1010,
+        WorldMesh = 0x1011,
+        WorldMeshClear = 0x1012,
+        FrameLimit = 0x1020,
+        WindowState = 0x1021,
+        ScreenButtonAdd = 0x1030,
+        ScreenButtonRemove = 0x1031,
+        ScreenOpenCustom = 0x1032,
+        TooltipAppend = 0x1033,
+        LoadingOverlay = 0x1040,
+        SkinOverride = 0x1041,
+        AmbientSound = 0x1050,
+        ServerPing = 0x1060,
+        ModSend = 0x1070,
+        PackRegister = 0x1080,
+        ShaderPackSet = 0x1081,
+        ParticleSpawn = 0x1090,
+        KeyRegisterEx = 0x10A0,
     };
 
     enum class Event : uint32_t {
@@ -181,6 +205,23 @@ namespace perlin::abi {
         MouseWheel = 27,
         KeyRaw = 28,
         TextInput = 29,
+        ScreenRender = 30,
+        SlotClick = 31,
+        Interact = 32,
+        ChunkLoaded = 33,
+        ChunkUnloaded = 34,
+        BlockChanged = 35,
+        ResourcesReloaded = 36,
+        LevelLoaded = 37,
+        LevelUnloaded = 38,
+        ModsLoaded = 39,
+        ClientStopping = 40,
+        Toast = 41,
+        ModMessage = 42,
+        Tooltip = 43,
+        ScreenButton = 44,
+        WindowFocus = 45,
+        ServerPing = 46,
     };
 
     enum class Status : int32_t {
@@ -225,7 +266,18 @@ namespace perlin::abi {
         Workbench = 8,
         Menu = 9,
         Other = 10,
+        Custom = 11,
     };
+
+    enum class HudElement : int32_t {
+        Hearts = 0, Armor, Hunger, Air, Hotbar, Experience, Debug, Chat, Effects, Locator, Fire, Subtitles, Crosshair,
+    };
+
+    enum class InteractKind : int32_t { StartBreak = 0, Attack = 1, InteractEntity = 2, UseOnBlock = 3, UseItem = 4 };
+
+    enum class RenderStage : int32_t { AfterTerrain = 0, AfterEntities = 1, Overlay = 2 };
+
+    enum class KeyContext : int32_t { InGame = 0, InScreen = 1, Any = 2 };
 
     enum class GameMode : int32_t {
         Survival = 0,
@@ -953,6 +1005,120 @@ namespace perlin::abi {
     struct ModEntry {
         std::string name, displayName, description, version, author, state;
         bool enabled = true, self = false, hasSettings = false;
+        std::string website, arch;
+        std::vector<std::string> hooks;
+        int32_t priority = 0;
+        Permissions permissions;
+    };
+
+    struct HudElementState {
+        HudElement element = HudElement::Hearts;
+        bool visible = true;
+        float dx = 0, dy = 0;
+    };
+
+    struct DebugLinesData {
+        std::vector<std::string> left, right;
+    };
+
+    struct FogOverride {
+        bool enabled = true;
+        uint32_t color = 0;  // 0 keeps vanilla color; else 0xAARRGGBB
+        float start = -1, end = -1;  // blocks; negative keeps vanilla
+        int32_t ticks = 2;
+    };
+
+    struct ScreenTintData {
+        uint32_t color = 0;  // 0xAARRGGBB drawn over the world
+        float vignette = 0;  // 0..1 darkening at the edges
+        int32_t ticks = 2;
+    };
+
+    struct EntityOverride {
+        uint64_t entity = 0;  // runtime id, or 0 to match every entity of `type`
+        std::string type;
+        bool hidden = false;
+        float scaleX = 1, scaleY = 1, scaleZ = 1;
+        uint32_t tint = 0xFFFFFFFFu;
+        std::string texture;  // resource-pack texture path; empty keeps the vanilla one
+        int32_t nameTag = 0;  // 0 keep, 1 hide, 2 replace with nameText
+        std::string nameText;
+        int32_t ticks = 2;
+    };
+
+    struct MeshVertex {
+        double x = 0, y = 0, z = 0;
+        float u = 0, v = 0;
+        uint32_t color = 0xFFFFFFFFu;
+    };
+
+    struct WorldMeshData {
+        std::string id;
+        RenderStage stage = RenderStage::AfterEntities;
+        uint32_t texture = 0;  // gfx texture id, 0 for plain color
+        bool depthTest = true;
+        int32_t ticks = 2;
+        std::vector<MeshVertex> triangles;  // three vertices per triangle
+    };
+
+    struct FrameLimitData {
+        int32_t fps = 0;           // 0 keeps the player's setting
+        int32_t unfocusedFps = 0;  // while unfocused or minimized; 0 keeps fps
+    };
+
+    struct WindowInfo {
+        bool focused = true, minimized = false;
+        int32_t width = 0, height = 0;
+    };
+
+    struct ScreenButtonDef {
+        Screen screen = Screen::Pause;
+        std::string id, label;
+        int32_t x = 0, y = 0, width = 98, height = 20;  // GUI pixels from the screen's top left
+    };
+
+    struct LoadingOverlayData {
+        bool hidden = false;
+    };
+
+    struct SkinOverrideData {
+        std::string player;  // player name, empty for yourself
+        bool slim = false;
+        std::vector<uint8_t> png;  // empty removes the override
+    };
+
+    struct AmbientSoundData {
+        std::string id, sound;
+        float volume = 1, pitch = 1;
+        bool play = true;
+    };
+
+    struct ServerPingRequest {
+        std::string host;
+        uint16_t port = 19132;
+    };
+
+    struct ModMessageData {
+        std::string to, channel;  // empty `to` sends to every other mod
+        std::vector<uint8_t> body;
+    };
+
+    struct PackRegistration {
+        std::string path;  // folder or .zip inside the mod's area
+        bool enabled = true;
+    };
+
+    struct ParticleRequest {
+        std::string name;
+        double x = 0, y = 0, z = 0;
+        int32_t count = 1;
+        float spread = 0;
+    };
+
+    struct KeyBindEx {
+        std::string id, label, key;
+        bool ctrl = false, shift = false, alt = false;
+        KeyContext context = KeyContext::InGame;
     };
 
     struct ChatLine {
@@ -1061,6 +1227,58 @@ namespace perlin::abi {
         bool down = false, repeat = false, ctrl = false, shift = false, alt = false;
     };
 
+    struct EventScreenRender {
+        Screen screen = Screen::None;
+        int32_t guiWidth = 0, guiHeight = 0;
+        float mouseX = 0, mouseY = 0;
+    };
+    struct EventSlotClick {
+        int32_t slot = 0;  // same slot address as InventoryClick
+        bool right = false, shift = false;
+    };
+    struct EventInteract {
+        InteractKind kind = InteractKind::StartBreak;
+        int32_t x = 0, y = 0, z = 0;
+        Face face = Face::Up;
+        uint64_t entity = 0;
+    };
+    struct EventChunk {
+        int32_t x = 0, z = 0;
+        Dimension dimension = Dimension::Overworld;
+    };
+    struct EventBlockChanged {
+        int32_t x = 0, y = 0, z = 0;
+        std::string from, to;
+    };
+    struct EventLevel {
+        Dimension dimension = Dimension::Overworld;
+        std::string server;
+    };
+    struct EventToast {
+        std::string title, body;
+    };
+    struct EventModMessage {
+        std::string from, channel;
+        std::vector<uint8_t> body;
+    };
+    struct EventTooltip {
+        Item item;
+        std::vector<std::string> lines;
+    };
+    struct EventScreenButton {
+        std::string id;
+    };
+    struct EventWindow {
+        bool focused = true, minimized = false;
+    };
+    struct EventServerPing {
+        uint32_t id = 0;
+        bool ok = false;
+        std::string motd, version;
+        int32_t players = 0, maxPlayers = 0, protocol = 0;
+        float latencyMs = 0;
+    };
+
     struct GfxVertex {
         float x = 0, y = 0, u = 0, v = 0;
         uint32_t color = 0xFFFFFFFFu;
@@ -1128,7 +1346,24 @@ namespace perlin::abi {
                                      EventMouseButton,
                                      EventMouseWheel,
                                      EventKeyRaw,
-                                     EventText>;
+                                     EventText,
+                                     EventScreenRender,
+                                     EventSlotClick,
+                                     EventInteract,
+                                     EventChunk,
+                                     EventChunk,
+                                     EventBlockChanged,
+                                     EventNothing,
+                                     EventLevel,
+                                     EventNothing,
+                                     EventNothing,
+                                     EventNothing,
+                                     EventToast,
+                                     EventModMessage,
+                                     EventTooltip,
+                                     EventScreenButton,
+                                     EventWindow,
+                                     EventServerPing>;
     static_assert(std::tuple_size_v<EventPayloads> == meta::enum_count<Event>, "every Event needs a payload type");
 
     template <Event E>

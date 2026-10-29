@@ -1,0 +1,87 @@
+{
+  "s_atlas": [
+    0,
+    "2darray"
+  ],
+  "s_lightmap": [
+    1,
+    "2d"
+  ],
+  "s_shadow": [
+    2,
+    "2d",
+    "unfilterable"
+  ],
+  "s_clouds": [
+    3,
+    "2d"
+  ],
+  "s_sceneColor": [
+    4,
+    "2d"
+  ],
+  "s_sceneDepth": [
+    5,
+    "2d",
+    "unfilterable"
+  ],
+  "s_tileFlags": [
+    6,
+    "2d"
+  ],
+  "s_shadowTint": [
+    7,
+    "2d"
+  ],
+  "s_shadowB": [
+    8,
+    "2d",
+    "unfilterable"
+  ],
+  "s_shadowTintB": [
+    9,
+    "2d"
+  ],
+  "s_shadowEnt": [
+    10,
+    "2d",
+    "unfilterable"
+  ],
+  "s_sky": [
+    11,
+    "2d"
+  ],
+  "s_uiTex": [
+    12,
+    "2d"
+  ],
+  "s_uiGlint": [
+    13,
+    "2d"
+  ],
+  "s_cur": [
+    14,
+    "2d"
+  ],
+  "s_hist": [
+    15,
+    "2d"
+  ],
+  "s_bloom": [
+    16,
+    "2d"
+  ],
+  "s_depth": [
+    17,
+    "2d",
+    "unfilterable"
+  ],
+  "s_world": [
+    18,
+    "2d"
+  ],
+  "s_final": [
+    19,
+    "2d"
+  ]
+}

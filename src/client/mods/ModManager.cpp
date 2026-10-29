@@ -59,6 +59,23 @@ namespace perlin::mods {
             case abi::Event::MouseWheel: return "mouse_wheel";
             case abi::Event::KeyRaw: return "key_raw";
             case abi::Event::TextInput: return "text_input";
+            case abi::Event::ScreenRender: return "screen_render";
+            case abi::Event::SlotClick: return "slot_click";
+            case abi::Event::Interact: return "interact";
+            case abi::Event::ChunkLoaded: return "chunk_loaded";
+            case abi::Event::ChunkUnloaded: return "chunk_unloaded";
+            case abi::Event::BlockChanged: return "block_changed";
+            case abi::Event::ResourcesReloaded: return "resources_reloaded";
+            case abi::Event::LevelLoaded: return "level_loaded";
+            case abi::Event::LevelUnloaded: return "level_unloaded";
+            case abi::Event::ModsLoaded: return "mods_loaded";
+            case abi::Event::ClientStopping: return "client_stopping";
+            case abi::Event::Toast: return "toast";
+            case abi::Event::ModMessage: return "mod_message";
+            case abi::Event::Tooltip: return "tooltip";
+            case abi::Event::ScreenButton: return "screen_button";
+            case abi::Event::WindowFocus: return "window_focus";
+            case abi::Event::ServerPing: return "server_ping";
             default: return nullptr;
             }
         }
@@ -188,7 +205,7 @@ namespace perlin::mods {
         std::atomic<bool> loaded{false};
         std::atomic<bool> stuck{false};
         std::atomic<bool> revoked{false};
-        std::atomic<uint32_t> subs{0xFFFFFFFFu};
+        std::atomic<uint64_t> subs{~0ull};
         std::atomic<double> lastEventMs{0};
         uint64_t serial = 0;
 
@@ -465,6 +482,8 @@ namespace perlin::mods {
     }
 
     void ModManager::Stop() {
+        if (running && !mods.empty())
+            Dispatch(abi::Event::ClientStopping, 500.0);
         if (!running.exchange(false) && mods.empty())
             return;
         std::vector<std::unique_ptr<Plugin>> taken;
@@ -521,9 +540,9 @@ namespace perlin::mods {
             info.state = mod->needsApproval ? "approval" : !mod->enabled ? "disabled" : mod->stuck ? "unresponsive" : !mod->error.empty() ? "error" : mod->loaded ? "running" : "loading";
             info.hooks.clear();
             if (mod->loaded) {
-                const uint32_t subs = mod->subs.load();
-                for (uint32_t id = 1; id < 32; id++)
-                    if ((subs & (1u << id)) && id != static_cast<uint32_t>(abi::Event::HttpResponse))
+                const uint64_t subs = mod->subs.load();
+                for (uint32_t id = 1; id < 64; id++)
+                    if ((subs & (1ull << id)) && id != static_cast<uint32_t>(abi::Event::HttpResponse))
                         if (const char* n = EventName(id))
                             info.hooks.push_back(n);
             }
@@ -777,8 +796,14 @@ namespace perlin::mods {
         void ReadSubscriptions(ModManager::Plugin& mod) {
             uint64_t subs = 0;
             std::string ignored;
-            if (mod.instance->Call("perlin_subscriptions", {}, &subs, ignored))
-                mod.subs = static_cast<uint32_t>(subs);
+            if (!mod.instance->Call("perlin_subscriptions", {}, &subs, ignored))
+                return;
+            uint64_t mask = static_cast<uint32_t>(subs);
+            // events 32+ come from a second export; plugins built before it only see the first 32
+            uint64_t hi = 0;
+            if (mod.instance->HasExport("perlin_subscriptions_hi") && mod.instance->Call("perlin_subscriptions_hi", {}, &hi, ignored))
+                mask |= static_cast<uint64_t>(static_cast<uint32_t>(hi)) << 32;
+            mod.subs = mask;
         }
     }
 
@@ -888,7 +913,7 @@ namespace perlin::mods {
                 if (mod->loaded && !mod->stuck)
                     list.push_back(mod.get());
         }
-        const uint32_t bit = 1u << static_cast<uint32_t>(event);
+        const uint64_t bit = 1ull << static_cast<uint32_t>(event);
         for (Plugin* mod : list)
             if (mod->subs.load() & bit)
                 return true;
@@ -905,7 +930,8 @@ namespace perlin::mods {
                 if (mod->loaded && !mod->stuck)
                     list.push_back(mod.get());
         }
-        const uint32_t bit = 1u << static_cast<uint32_t>(event);
+        std::stable_sort(list.begin(), list.end(), [](const Plugin* a, const Plugin* b) { return a->meta.priority > b->meta.priority; });
+        const uint64_t bit = 1ull << static_cast<uint32_t>(event);
         bool cancelled = false;
         for (Plugin* mod : list) {
             if (!(mod->subs.load() & bit))
@@ -1005,6 +1031,8 @@ namespace perlin::mods {
                 meta.version = get("version");
                 meta.author = get("author");
                 meta.website = get("website");
+                if (const ui::Json* v = json.Find("priority"))
+                    meta.priority = static_cast<int>(std::clamp(v->NumberOr(0), -1000.0, 1000.0));
                 manifestIcon = get("icon");
                 if (const ui::Json* list = json.Find("settings"); list && list->IsArray())
                     ParseManifestSettings(*list, manifestSettings);
@@ -1071,7 +1099,7 @@ namespace perlin::mods {
             mod.error = "cannot read file";
             return;
         }
-        mod.subs = 0xFFFFFFFFu;
+        mod.subs = ~0ull;
         Spawn(mod);
         {
             std::lock_guard lock(mod.jobMutex);
@@ -1219,6 +1247,39 @@ namespace perlin::mods {
             return;
         lastScan = now;
         Scan();
+        RefreshWanted();
+        // ModsLoaded: once every enabled mod finished loading, and again when that set changes
+        size_t loaded = 0;
+        bool pending = false;
+        {
+            std::lock_guard lock(mutex);
+            for (const auto& mod : mods) {
+                if (mod->loaded)
+                    loaded++;
+                else if (mod->enabled && !mod->needsApproval && mod->error.empty())
+                    pending = true;
+            }
+        }
+        if (!pending && loaded && (!modsSettled || loaded != settledCount)) {
+            modsSettled = true;
+            settledCount = loaded;
+            Dispatch(abi::Event::ModsLoaded);
+        }
+    }
+
+    void ModManager::RefreshWanted() {
+        uint64_t mask = 0;
+        std::lock_guard lock(mutex);
+        for (const auto& mod : mods)
+            if (mod->loaded && !mod->stuck)
+                mask |= mod->subs.load();
+        wanted = mask;
+    }
+
+    void ModManager::Queue(abi::Event event, abi::Writer payload) {
+        if (!Wants(event))
+            return;
+        PostMain([this, event, payload = std::move(payload)] { Dispatch(event, payload); });
     }
 
     namespace {
@@ -1480,7 +1541,7 @@ namespace perlin::mods {
                 event.value = normal;
             }
         }
-        if (mod->loaded && (mod->subs.load() & (1u << static_cast<uint32_t>(abi::Event::SettingChanged)))) {
+        if (mod->loaded && (mod->subs.load() & (1ull << static_cast<uint32_t>(abi::Event::SettingChanged)))) {
             abi::Writer w;
             w.write(event);
             bool cancelled = false;
@@ -1569,6 +1630,18 @@ namespace perlin::mods {
                 e.enabled = info.enabled;
                 e.self = info.name == ctx.plugin;
                 e.hasSettings = info.hasSettings;
+                e.website = info.website;
+                e.arch = info.arch;
+                e.hooks = info.hooks;
+                e.priority = info.priority;
+                for (const std::string& p : info.permissions)
+                    e.permissions |= p == "network"   ? abi::Permission::Network
+                                   : p == "packets"   ? abi::Permission::Packets
+                                   : p == "control"   ? abi::Permission::Control
+                                   : p == "files"     ? abi::Permission::Files
+                                   : p == "native"    ? abi::Permission::Native
+                                   : p == "storage"   ? abi::Permission::Storage
+                                                      : abi::Permission::None;
                 out.push_back(std::move(e));
             }
             w.write(out);
@@ -1792,6 +1865,57 @@ namespace perlin::mods {
             if (mod->keys.size() >= 64)
                 return abi::Status::Failed;
             mod->keys.push_back(std::move(key));
+            return abi::Status::Ok;
+        });
+
+        Register(abi::Op::KeyRegisterEx, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
+            const abi::KeyBindEx in = r.read<abi::KeyBindEx>();
+            if (!r.Ok() || in.id.empty() || in.id.size() > 64)
+                return abi::Status::BadArguments;
+            std::lock_guard lock(mutex);
+            auto* mod = static_cast<Plugin*>(ctx.user);
+            PluginKey key{ctx.plugin, in.id, in.label, in.key, in.ctrl, in.shift, in.alt, in.context};
+            const auto saved = mod->savedKeys.find(key.id);
+            if (saved != mod->savedKeys.end())
+                key.binding = saved->second;
+            for (auto& k : mod->keys)
+                if (k.id == key.id) {
+                    k.label = key.label;
+                    k.ctrl = key.ctrl;
+                    k.shift = key.shift;
+                    k.alt = key.alt;
+                    k.context = key.context;
+                    return abi::Status::Ok;
+                }
+            if (mod->keys.size() >= 64)
+                return abi::Status::Failed;
+            mod->keys.push_back(std::move(key));
+            return abi::Status::Ok;
+        });
+
+        // mod-to-mod messages go through the main thread, after the sender's call returns
+        Register(abi::Op::ModSend, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
+            const abi::ModMessageData in = r.read<abi::ModMessageData>();
+            if (!r.Ok() || in.channel.empty() || in.channel.size() > 128 || in.body.size() > (1u << 20))
+                return abi::Status::BadArguments;
+            abi::EventModMessage e{ctx.plugin, in.channel, in.body};
+            PostMain([this, e = std::move(e), to = in.to] {
+                abi::Writer w;
+                w.write(e);
+                if (!to.empty()) {
+                    DispatchTo(to, abi::Event::ModMessage, w);
+                    return;
+                }
+                std::vector<std::string> names;
+                {
+                    std::lock_guard lock(mutex);
+                    for (const auto& mod : mods)
+                        if (mod->loaded && mod->name != e.from && (mod->subs.load() & (1ull << static_cast<uint32_t>(abi::Event::ModMessage))))
+                            names.push_back(mod->name);
+                }
+                for (const std::string& name : names)
+                    DispatchTo(name, abi::Event::ModMessage, w);
+            });
             return abi::Status::Ok;
         });
 

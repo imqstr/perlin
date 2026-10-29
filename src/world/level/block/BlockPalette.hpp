@@ -91,6 +91,7 @@ namespace perlin {
         std::vector<uint64_t> baseKeys, sequenceKeys;
         std::vector<int32_t> netByLocal;
         std::vector<CustomRun> customRuns;
+        std::unordered_set<std::string> keptDataDriven;  // data-driven table blocks the server declared
         bool layoutVerified = false;
         bool layoutAppended = false;
         void BuildLayoutLocked(bool appended);

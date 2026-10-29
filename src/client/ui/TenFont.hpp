@@ -7,31 +7,30 @@
 #include <unordered_map>
 #include <vector>
 
-// Bedrock's "MinecraftTen" heading font (font_type: "MinecraftTen" in JSON UI). The font belongs to Mojang and is not
-// shipped with Perlin: it is read at runtime from the player's own Bedrock install. Without one, labels fall back to
-// the regular bitmap font.
+// bedrock's "MinecraftTen" heading font (font_type: "MinecraftTen" in json ui); mojang's, not shipped:
+// read at runtime from the player's bedrock install; without it labels fall back to the bitmap font
 namespace perlin::ui {
     class TenFont {
     public:
-        // The em size the rest of the game measures against. Line and baseline metrics come from the
-        // font's own hhea table (ascent 0.99 em, descent 0.25 em), not the bitmap grid.
+        // em size the game measures against: at font_scale_factor 1 caps are 7 gui pixels, line 9, same box as
+        // the bitmap font: packs sized for the game's fonts fit
         static constexpr float kEm = 10.0f;
 
         static TenFont& Instance();
 
-        // Looks for minecraft-ten.ttf in known Bedrock install locations (PERLIN_TEN_FONT overrides). Safe to call
-        // repeatedly; only the first successful load counts.
+        // looks for minecraft-ten.ttf in known bedrock install locations (PERLIN_TEN_FONT overrides); safe to repeat;
+        // only the first successful load counts
         bool Load();
-        // Cheap repeated form of Load(): a single atomic read once it has been attempted.
+        // cheap repeated Load(): one atomic read once attempted
         void EnsureLoaded();
         bool Available() const { return ready; }
         const std::string& Path() const { return path; }
 
-        // Metrics in gui pixels for a label drawn at `scale` (font_scale_factor and font_size applied).
+        // metrics in gui pixels for a label at `scale` (font_scale_factor and font_size applied)
         float Em(float scale) const { return kEm * scale; }
         float Ascent(float scale) const;
         float Descent(float scale) const;
-        float LineHeight(float scale) const;
+        float LineHeight(float scale) const { return 9.0f * scale; }
         float Advance(uint32_t cp, float scale) const;
         float Width(const std::string& utf8, float scale) const;
 
@@ -39,7 +38,7 @@ namespace perlin::ui {
             float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
             int x = 0, y = 0, w = 0, h = 0;  // device pixels, y relative to the baseline
         };
-        // A glyph atlas rasterised for an em of `emPx` device pixels. Render thread only.
+        // glyph atlas rasterised for an em of `emPx` device pixels; render thread only
         struct Page {
             int emPx = 0;
             int width = 0, height = 0;
@@ -63,6 +62,6 @@ namespace perlin::ui {
         uint32_t pageVersion = 0;
     };
 
-    // Whether a label's font_type asks for MinecraftTen.
+    // label's font_type asks for MinecraftTen
     bool IsTenFontType(const std::string& fontType);
 }

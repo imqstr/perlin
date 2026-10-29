@@ -21,7 +21,7 @@ execute_process(
 set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/client/renderer/MaterialDb.cpp"
     APPEND PROPERTY INCLUDE_DIRECTORIES "${PERLIN_MATERIAL_INCLUDE_DIR}")
 
-# Compile the upstream pixel programs through bgfx after adapting Perlin's mesh
+# Adapt the upstream pixel programs to Perlin's mesh
 # and sampler interfaces. The generated programs replace the old game shaders.
 set(PERLIN_RD_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/renderdragon")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS

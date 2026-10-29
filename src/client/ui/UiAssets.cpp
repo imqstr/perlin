@@ -263,7 +263,7 @@ namespace perlin::ui {
 
     TextureSidecar UiAssets::Sidecar(const std::string& rel) {
         std::lock_guard lock(mutex);
-        // The sidecar comes from the same pack that wins for the image: server packs, then the resource pack, then vanilla.
+        // sidecar from the pack winning the image: server packs, resource pack, vanilla
         const uint64_t generation = (static_cast<uint64_t>(ServerPacks::Instance().Generation()) << 32) ^ TexturePack::Instance().Generation();
         if (generation != sidecarGeneration) {
             sidecars.clear();
@@ -286,7 +286,7 @@ namespace perlin::ui {
         if (!found && TexturePack::Instance().Active()) {
             const std::vector<std::string> layers = TexturePack::Instance().ReadTextLayers(base + ".json");
             if (!layers.empty()) {
-                text = layers.front();  // same winner ExtractPackUi uses
+                text = layers.front();  // same winner as ExtractPackUi
                 found = true;
             }
         }

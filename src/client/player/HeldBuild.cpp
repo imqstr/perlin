@@ -24,7 +24,6 @@ namespace perlin::heldbuild {
         if (Contains(name, "stairs") || Contains(name, "slab") || Contains(name, "fence") || Contains(name, "_wall") ||
             Contains(name, "glass_pane") || Contains(name, "iron_bars"))
             return true;
-        // A full cube: one box covering the whole cell.
         return shape.size() == 1 && shape[0].x0 <= 1e-6 && shape[0].y0 <= 1e-6 && shape[0].z0 <= 1e-6 && shape[0].x1 >= 1.0 - 1e-6 &&
                shape[0].y1 >= 1.0 - 1e-6 && shape[0].z1 >= 1.0 - 1e-6;
     }
@@ -50,7 +49,7 @@ namespace perlin::heldbuild {
     }
 
     bool OverlapsBody(glm::ivec3 cell, const std::vector<physics::Box>& shape, const physics::Box& body) {
-        // A hair of tolerance so standing exactly on or against the new block is allowed.
+        // hair of tolerance: standing exactly on or against the new block is allowed
         constexpr double kEpsilon = 1e-4;
         const physics::Box inner{body.x0 + kEpsilon, body.y0 + kEpsilon, body.z0 + kEpsilon,
                                  body.x1 - kEpsilon, body.y1 - kEpsilon, body.z1 - kEpsilon};
@@ -106,12 +105,12 @@ namespace perlin::heldbuild {
             return std::nullopt;
         }
 
-        // Whether the repeat may go now, and the build line (GameMode::continueBuildBlock).
+        // may the repeat go now, and the build line (GameMode::continueBuildBlock)
         const glm::ivec3 cell = canBuildOver(click.support) ? click.support : click.support + kFaceNormal[std::clamp(click.face, 0, 5)];
         const uint64_t deadline = lastBuildMs + Delay(posDelta, sneaking);
         if (deadline >= nowMs)
             return std::nullopt;
-        // While moving, a late repeat banks at most 180 ms of lost time, so the next one is not instant.
+        // moving: a late repeat banks at most 180 ms of lost time, so the next isn't instant
         nextBuildMs = glm::length(posDelta) > 0.0f ? std::max(deadline, nowMs > 180 ? nowMs - 180 : 0) : nowMs;
         if (sneaking || !lastSnappable)
             return click;

@@ -270,8 +270,7 @@ namespace perlin {
         if (SameItem(offShown, in.off))
             offShown = in.off;
 
-        // Bedrock has no attack cooldown, so the held item never dips after a swing (that is Java 1.9+); it only lowers
-        // while switching to a different item.
+        // no attack cooldown in bedrock: no dip after swing (java 1.9+ only); lowers only on item switch
         const float mainTarget = SameItem(mainShown, in.main) ? 1.0f : 0.0f;
         const float offTarget = SameItem(offShown, in.off) ? 1.0f : 0.0f;
         if (!s.equipAnimation) {
@@ -511,9 +510,8 @@ namespace perlin {
                 const int w = sprite->w, h = sprite->h;
                 model.texture = renderer->UiCreateTexture(w, h, sprite->rgba.data(), false);
                 const float sx = 16.0f / static_cast<float>(w), sy = 16.0f / static_cast<float>(h);
-                // Pixels the item shader's alpha cutoff (0.1) throws away count as empty, so the extruded sides follow
-                // what is actually drawn. Packs with soft glows around a blade otherwise get their walls on the
-                // invisible glow edge and the blade itself looks flat.
+                // pixels under shader alpha cutoff (0.1) count as empty: sides follow what's drawn;
+                // else soft-glow packs get walls on the invisible glow edge, blade looks flat
                 auto alpha = [&](int x, int y) -> int {
                     if (x < 0 || y < 0 || x >= w || y >= h) return 0;
                     const int a = sprite->rgba[(static_cast<size_t>(y) * w + x) * 4 + 3];

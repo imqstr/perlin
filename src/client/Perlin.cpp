@@ -5,6 +5,7 @@
 #include <malloc.h>
 #endif
 #include "client/CameraEffects.hpp"
+#include "rhi/Device.hpp"
 #include "client/entity/BlockEntityView.hpp"
 #include "client/ui/ItemTooltip.hpp"
 #include "client/SampleProfiler.hpp"
@@ -18,6 +19,7 @@
 #include "client/multiplayer/SkinLoader.hpp"
 #include "client/mods/ModManager.hpp"
 #include "client/resources/ShaderPack.hpp"
+#include "client/javashaders/PackSource.hpp"
 #include "client/resources/PackInfo.hpp"
 #include "client/resources/TextureLoader.hpp"
 #include "client/resources/TexturePack.hpp"
@@ -44,6 +46,7 @@
 #include "client/ui/CreativeScreen.hpp"
 #include "client/ui/DisconnectScreen.hpp"
 #include "client/ui/LoadingScreen.hpp"
+#include "client/resources/ServerBlocks.hpp"
 #include "network/Friends.hpp"
 #include "network/Http.hpp"
 #include "network/LanDiscovery.hpp"
@@ -320,7 +323,7 @@ namespace perlin {
         options = Options::Load();
         runningRenderer = options.renderer;
         i18n::Lang::Get().Configure(std::string(), paths::DataDir(), options.language);
-        // Dev/test: PERLIN_TEST_SERVER_PACKS=dir1:dir2 treats extracted pack folders as the server's packs.
+        // dev/test: PERLIN_TEST_SERVER_PACKS=dir1:dir2: extracted pack folders act as the server's packs
         if (const char* test = PERLIN_ENV("PERLIN_TEST_SERVER_PACKS")) {
             ServerPacks::Instance().SetRoot(paths::DataDir() + "/server_packs_extracted");
             std::stringstream list(test);
@@ -356,6 +359,7 @@ namespace perlin {
             onlineThisRun = true;
             options.Save();
         }
+        PrewarmSignIn();
 
         renderer = platform->CreateRenderContext();
         if (!renderer)
@@ -513,7 +517,7 @@ namespace perlin {
         account.reset();
         if (onlineThisRun) {
             account = std::make_shared<xbox::Account>(ActiveAuthPath());
-            session->SetAccount(account);
+            session->SetAccount(account, ActiveAuthPath());
         }
         connectsInFlight++;
         std::string nameAccountId;
@@ -595,7 +599,14 @@ namespace perlin {
     void Perlin::ApplyTexturePacks() {
         {
             std::string error;
-            TexturePack::Instance().OpenStack(paths::DataDir() + "/texturepacks", options.texturePacks, error);
+            // mod-shipped packs sit under the player's own, by absolute path
+            std::vector<std::string> stack = options.texturePacks;
+            {
+                std::lock_guard lock(modHooks.mutex);
+                for (const auto& pack : modHooks.packs)
+                    stack.push_back(pack.second);
+            }
+            TexturePack::Instance().OpenStack(paths::DataDir() + "/texturepacks", stack, error);
             if (!error.empty())
                 std::cout << "[textures] " << error << " (using default textures)" << std::endl;
         }
@@ -606,6 +617,13 @@ namespace perlin {
         if (hud)
             hud->Reload();
         hotTexStamp.clear();
+        mods::ModManager::Instance().Queue(abi::Event::ResourcesReloaded, {});
+    }
+
+    // same moment and length as the game's touch vibration (ClientInputCallbacks::destroyVibrate, 24 ms)
+    void Perlin::VibrateBlockBroken() {
+        if (options.padVibration && platform && input.PadConnected())
+            platform->Vibrate(24);
     }
 
     void Perlin::UnloadServerPacks() {
@@ -660,14 +678,61 @@ namespace perlin {
         pack.Close();
         gPackSettingsKey = "\x01";
         gPackPresetsKey = "\x01";
+        javaPackPending.clear();
         if (!options.shaderPack.empty()) {
-            std::string error;
-            if (!pack.Open(paths::DataDir() + "/shaderpacks", options.shaderPack, error))
-                std::cout << "[shaders] " << error << " - using the built-in shaders" << std::endl;
+            const std::string full = paths::DataDir() + "/shaderpacks/" + options.shaderPack;
+            if (jshader::LooksLikeJavaPack(full)) {
+                javaPackPending = full;
+            } else {
+                std::string error;
+                if (!pack.Open(paths::DataDir() + "/shaderpacks", options.shaderPack, error))
+                    std::cout << "[shaders] " << error << " - using the built-in shaders" << std::endl;
+            }
+        }
+        if (javaPackPending.empty() && renderer && renderer->JavaShaderPackActive()) {
+            renderer->ClearJavaShaderPack();
+            if (levelRenderer)
+                levelRenderer->RemeshAll();
         }
         if (renderer)
             renderer->ReloadShaders();
         hotShaderStamp.clear();
+    }
+
+    void Perlin::PollJavaPack(BedrockSession* live) {
+        if (!renderer)
+            return;
+        static bool startupChecked = false;
+        if (!startupChecked) {
+            startupChecked = true;
+            if (!options.shaderPack.empty()) {
+                const std::string full = paths::DataDir() + "/shaderpacks/" + options.shaderPack;
+                if (jshader::LooksLikeJavaPack(full))
+                    javaPackPending = full;
+            }
+        }
+        if (!javaPackPending.empty() && levelRenderer && levelRenderer->Blocks().Complete()) {
+            std::string error;
+            const std::string path = javaPackPending;
+            if (renderer->SetJavaShaderPack(path, jshader::ReadJavaPackOptions(path), error)) {
+                javaPackPending.clear();
+                levelRenderer->RemeshAll();
+                std::cout << "[javapack] loaded " << path << std::endl;
+            } else if (error.find("atlas is not loaded") == std::string::npos) {
+                javaPackPending.clear();
+                std::cout << "[javapack] " << error << std::endl;
+                chat.AddMessage("Shader pack failed: " + error, hudAnim.ticks);
+            }
+        }
+        if (renderer->JavaShaderPackActive() && live) {
+            const int dim = std::clamp(live->DimensionId(), 0, 2);
+            if (dim != javaPackDimension) {
+                javaPackDimension = dim;
+                renderer->SetJavaShaderPackDimension(dim == 1 ? "world-1" : dim == 2 ? "world1" : "world0");
+                if (levelRenderer)
+                    levelRenderer->RemeshAll();
+            }
+        }
     }
 
     void Perlin::PollHotReload() {
@@ -855,7 +920,7 @@ namespace perlin {
         ui::ServerLayerData data;
         if (toastText.empty()) {
             BedrockSession::ServerToast t;
-            if (live->TakeToast(t)) {
+            if (live->TakeToast(t) && !DispatchModToast(t.title, t.message)) {
                 toastText = t.title + "\n" + t.message;
                 toastAt = now;
                 data.toastTitle = t.title;
@@ -874,7 +939,7 @@ namespace perlin {
         if (data.bars.size() > 4)
             data.bars.resize(4);
         const auto sb = live->Scoreboard();
-        if (sb.visible && !pauseShown && !(hud.Ready() && hud.Overrides("scoreboard"))) {
+        if (sb.visible && !pauseShown && !(hud.Ready() && (options.bedrockMenus || hud.Overrides("scoreboard")))) {
             data.scoreboard = true;
             data.scoreboardTitle = sb.title;
             for (const auto& r : sb.rows)
@@ -909,11 +974,19 @@ namespace perlin {
             if (!chat.IsOpen())
                 input.SetTextMode(false);
         };
-        if (!live) {
+        // PERLIN_PREVIEW_FORM=<form.json>: open a captured form without a server; answers go to the log
+        const char* previewForm = live ? nullptr : PERLIN_ENV("PERLIN_PREVIEW_FORM");
+        if (!live && !previewForm) {
             if (formShown)
                 closeForm();
             return;
         }
+        const auto respond = [&](const std::string* response) {
+            if (live)
+                live->SendFormResponse(formModel.id, response, false);
+            else
+                std::cout << "[form] preview answer: " << (response ? *response : std::string("closed")) << std::endl;
+        };
         {
             static auto lastWarm = Clock::time_point{};
             if (now - lastWarm > std::chrono::seconds(2)) {
@@ -921,28 +994,48 @@ namespace perlin {
                 formUi.Warm(ServerPacks::Instance().Directories());
             }
         }
-        if (live->TakeFormClosed() && formShown)
+        if (live && live->TakeFormClosed() && formShown)
             closeForm();
-        if (formShown && !formEngine && formUi.Ready() && formUi.ServerStyled())
+        if (formShown && !formEngine && formUi.Ready() && !formEngineFailed)
             formEngine = true;
         if (!formShown) {
             if (deathShown || invShown || pauseShown || chat.IsOpen())
                 return;
             BedrockSession::ServerForm sf;
-            if (!live->TakeServerForm(sf))
+            if (live && !live->TakeServerForm(sf))
                 return;
+            if (!live) {
+                static bool previewOpened = false;
+                if (previewOpened)
+                    return;
+                previewOpened = true;
+                std::ifstream in(previewForm, std::ios::binary);
+                sf.id = 1;
+                sf.json.assign(std::istreambuf_iterator<char>(in), {});
+            }
             if (!ui::ParseForm(sf.id, sf.json, formModel)) {
                 std::cout << "[form] cannot parse form " << sf.id << std::endl;
-                live->SendFormResponse(sf.id, nullptr, false);
+                if (live)
+                    live->SendFormResponse(sf.id, nullptr, false);
                 return;
             }
+            // PERLIN_PREVIEW_FORM_CLICKS="t:3,d:6": clicks applied as if made, to check each control's states
+            if (!live)
+                if (const char* clicks = PERLIN_ENV("PERLIN_PREVIEW_FORM_CLICKS")) {
+                    std::stringstream list(clicks);
+                    std::string ignored;
+                    // "-" clicks on nothing
+                    for (std::string id; std::getline(list, id, ',');)
+                        if (!ui::FormDismissDropdown(formModel, id == "-" ? std::string() : id))
+                            ui::FormClick(formModel, id, ignored);
+                }
             std::cout << "[form] opened form " << sf.id << " '" << formModel.title << "'" << std::endl;
             {
-                // Kept for replaying a server's form layout offline.
+                // kept to replay a server's form layout offline
                 std::error_code ec;
                 std::filesystem::create_directories(paths::DataDir() + "/ui_generated", ec);
                 std::ofstream(paths::DataDir() + "/ui_generated/last_form.json", std::ios::binary | std::ios::trunc) << sf.json;
-                // Every distinct form is also kept under its title, so each server menu can be replayed later.
+                // each distinct form also kept under its title: every server menu replayable later
                 std::string name;
                 for (const char c : ui::StripFormatting(formModel.title))
                     if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_')
@@ -958,8 +1051,9 @@ namespace perlin {
             }
             formUi.Warm(ServerPacks::Instance().Directories());
             formUi.WaitReady(150);
-            // Forms use the server's JSON UI only when the server restyles them; otherwise Perlin's Java layout.
-            formEngine = formUi.Ready() && formUi.ServerStyled();
+            // forms draw with the game's own json ui; the built-in layout only if those files fail
+            formEngineFailed = false;
+            formEngine = formUi.Ready();
             formShown = true;
             formScroll = 0.0f;
             formContentH = formViewH = 0.0f;
@@ -977,23 +1071,23 @@ namespace perlin {
         }
         formScroll = std::max(0.0f, formScroll - inputManager.Scroll() * 20.0f);
         if (cancel) {
-            live->SendFormResponse(formModel.id, nullptr, false);
+            respond(nullptr);
             closeForm();
             return;
         }
-        // While the server's ui files are still loading, wait a moment for its own layout instead of flashing
-        // Perlin's built-in one first.
+        // server ui still loading: wait for its layout, don't flash ours first
         if (!formEngine && formUi.Building() && now - formOpenedAt < std::chrono::seconds(3))
             return;
         const int scale = hud.OverlayScale();
         const int guiW = static_cast<int>(std::ceil(static_cast<float>(fbW) / static_cast<float>(scale)));
         const int guiH = static_cast<int>(std::ceil(static_cast<float>(fbH) / static_cast<float>(scale)));
         formScroll = std::clamp(formScroll, 0.0f, std::max(0.0f, formContentH - formViewH));
-        const std::string signature = std::to_string(formModel.id) + "|" + std::to_string(formModel.focus) + "|" + ui::FormCustomResponse(formModel) + "|" + std::to_string(ui::FormImageVersion()) + "|" +
+        const std::string signature = std::to_string(formModel.id) + "|" + std::to_string(formModel.focus) + "|" + std::to_string(formModel.openDropdown) + "|" +
+                                      ui::FormCustomResponse(formModel) + "|" + std::to_string(ui::FormImageVersion()) + "|" +
                                       std::to_string(guiW) + "x" + std::to_string(guiH) + "|" + std::to_string(static_cast<int>(formScroll)) + "|" +
                                       (formEngine ? "e" : "b");
-        // A server pack's menu slides in and its cards fade; those animations only advance when the screen is
-        // re-evaluated, so rebuild at frame rate while the last build reported something still moving.
+        // server pack menus slide in and cards fade; animations only advance on re-evaluation:
+        // rebuild at frame rate while the last build reported motion
         static std::chrono::steady_clock::time_point lastFormAnim{};
         if (formEngine && formUi.Animating() && now - lastFormAnim >= std::chrono::milliseconds(80)) {
             formSignature.clear();
@@ -1006,6 +1100,7 @@ namespace perlin {
             if (formEngine && !formUi.Build(formModel, guiW, guiH, formScroll, formRml, contentH, viewH)) {
                 std::cout << "[form] json ui build failed: " << formUi.Problem() << ", using the built-in layout" << std::endl;
                 formEngine = false;
+                formEngineFailed = true;
             }
             if (!formEngine)
                 formRml = ui::BuildFormRml(formModel, guiW, guiH, formScroll, contentH, viewH);
@@ -1015,10 +1110,11 @@ namespace perlin {
                 std::cout << "[form] " << error << std::endl;
                 if (formEngine) {
                     formEngine = false;
+                    formEngineFailed = true;
                     formSignature.clear();
                     return;
                 }
-                live->SendFormResponse(formModel.id, nullptr, false);
+                respond(nullptr);
                 closeForm();
                 return;
             }
@@ -1041,16 +1137,23 @@ namespace perlin {
         if (!down && formLeftDown && now - formOpenedAt > std::chrono::milliseconds(200)) {
             const std::string hover = hud.Overlay().OverlayHover();
             if (hover == ui::kFormCloseId) {
-                live->SendFormResponse(formModel.id, nullptr, false);
+                respond(nullptr);
                 closeForm();
+                return;
+            }
+            if (ui::FormDismissDropdown(formModel, hover)) {
+                formLeftDown = down;
                 return;
             }
             std::string response;
             if (!hover.empty() && ui::FormClick(formModel, hover, response)) {
-                live->SendFormResponse(formModel.id, &response, false);
+                respond(&response);
                 closeForm();
                 return;
             }
+            // a click on another control leaves the text box
+            if (!hover.empty() && hover.rfind("i:", 0) != 0)
+                formModel.focus = -1;
         }
         formLeftDown = down;
     }
@@ -1101,7 +1204,7 @@ namespace perlin {
     }
 
     void Perlin::UpdateCreditsScreen(ui::Hud& hud, BedrockSession* live, int fbW, int fbH) {
-        // PERLIN_PREVIEW_CREDITS replays the credits from the top whenever they finish.
+        // PERLIN_PREVIEW_CREDITS: replay credits from the top when they finish
         const bool preview = !live && PERLIN_ENV("PERLIN_PREVIEW_CREDITS") != nullptr;
         if (!live && !preview) {
             creditsShown = false;
@@ -1119,10 +1222,10 @@ namespace perlin {
         const int guiW = static_cast<int>(std::ceil(static_cast<float>(fbW) / static_cast<float>(scale)));
         const int guiH = static_cast<int>(std::ceil(static_cast<float>(fbH) / static_cast<float>(scale)));
         const auto now = std::chrono::steady_clock::now();
-        // About one GUI pixel per tick, like the Java end poem.
+        // about one gui pixel per tick, like the java end poem
         creditsScroll += std::chrono::duration<double>(now - creditsLast).count() * 20.0;
         creditsLast = now;
-        // The document only changes when the text moves by a whole pixel.
+        // document only changes when the text moves a whole pixel
         const std::string signature = std::to_string(static_cast<int>(creditsScroll)) + "|" + std::to_string(guiW) + "x" + std::to_string(guiH);
         if (signature != creditsSignature || !hud.Overlay().HasOverlay()) {
             creditsSignature = signature;
@@ -1334,6 +1437,7 @@ namespace perlin {
         }
         s.debugLeft = cachedLeft;
         s.debugRight = cachedRight;
+        ApplyModDebugLines(s.debugLeft, s.debugRight);
     }
 
     void Perlin::UpdateAudio(BedrockSession* live, double now, float dt) {
@@ -1891,7 +1995,8 @@ namespace perlin {
                     if (n < v.recipes.size())
                         live->InvFillRecipe(v.recipes[n].index);
                 } else if (invHoverAddr >= 0) {
-                    if (input.IsKeyDown(Key::Shift))
+                    if (DispatchModSlotClick(invHoverAddr, isRight, input.IsKeyDown(Key::Shift))) {
+                    } else if (input.IsKeyDown(Key::Shift))
                         live->InvShiftClick(invHoverAddr);
                     else
                         live->InvClick(invHoverAddr, isRight);
@@ -3323,6 +3428,14 @@ namespace perlin {
                            options.maxFps = steps >= 25 ? 0 : 10 + steps * 10;
                        });
                 toggle(tr("options.vsync", "VSync"), options.vsync);
+                model.push_back({std::string("Menu Style"), options.bedrockMenus ? std::string("Bedrock") : std::string("Java"), -1.0f,
+                                 [this](float, bool click) {
+                                     if (!click)
+                                         return;
+                                     options.bedrockMenus = !options.bedrockMenus;
+                                     pauseSignature.clear();
+                                     titleSignature.clear();
+                                 }});
                 model.push_back({std::string("GUI Scale"), options.guiScale == 0 ? tr("options.guiScale.auto", "Auto") : std::to_string(options.guiScale), -1.0f,
                                  [this](float, bool click) {
                                      if (!click)
@@ -3352,13 +3465,8 @@ namespace perlin {
                 toggle("Better Grass", options.betterGrass);
                 {
                     std::vector<std::pair<std::string, std::string>> apis = {{"auto", "Auto"}};
-#if defined(_WIN32)
-                    apis.insert(apis.end(), {{"d3d11", "Direct3D 11"}, {"vulkan", "Vulkan"}, {"opengl", "OpenGL"}});
-#elif defined(__APPLE__)
-                    apis.push_back({"metal", "Metal"});
-#else
-                    apis.insert(apis.end(), {{"vulkan", "Vulkan"}, {"opengl", "OpenGL"}});
-#endif
+                    for (rhi::Api api : rhi::CompiledApis())
+                        apis.push_back({rhi::ApiId(api), rhi::ApiName(api)});
                     size_t at = 0;
                     for (size_t i = 0; i < apis.size(); i++)
                         if (apis[i].first == options.renderer)
@@ -3590,6 +3698,7 @@ namespace perlin {
                     slider("Stick Dead Zone", percent(options.padDeadzone), options.padDeadzone / 0.6f,
                            [this](float f) { options.padDeadzone = std::round(std::clamp(f, 0.0f, 1.0f) * 60.0f) / 100.0f; });
                     toggle("Invert Look Y", options.padInvertY);
+                    toggle("Vibration", options.padVibration);
                     bindsRow("Controller Binds...", 1);
                 } else {
                     slider("Look Sensitivity", percent(options.touchSensitivity), options.touchSensitivity / 2.0f,
@@ -4120,6 +4229,78 @@ namespace perlin {
             return;
         }
 
+        if (options.bedrockMenus) {
+            ui::JsonScreens& screens = ui::JsonScreens::Instance();
+            screens.Warm(ServerPacks::Instance().Directories());
+            if (screens.Ready()) {
+                ui::PauseModel pm;
+                pm.playerName = live ? live->PlayerName() : options.playerName;
+                pm.listTitle = tr("gui.playerList", "Player List");
+                pm.multiplayer = live != nullptr && !preview;
+                if (live)
+                    for (const BedrockSession::TabPlayer& p : live->PlayerList())
+                        pm.players.push_back({p.name, p.perm < 0 ? 1 : p.perm, p.name == pm.playerName});
+                // head follows the cursor, as on bedrock; only the doll image swaps while it moves
+                float headYaw = 0.0f, headPitch = 0.0f;
+                if (float dx, dy, dw, dh; screens.PaperDollRect(dx, dy, dw, dh)) {
+                    const float gx = mx / static_cast<float>(scale), gy = my / static_cast<float>(scale);
+                    headYaw = std::clamp(std::atan2(gx - (dx + dw * 0.5f), 90.0f) * 57.29578f, -55.0f, 55.0f);
+                    headPitch = std::clamp(std::atan2(gy - (dy + dh * 0.12f), 90.0f) * 57.29578f, -45.0f, 45.0f);
+                }
+                const std::string dollKey = SkinDollKey(options.skin, options.cape, options.skinParts.cape, headYaw, headPitch);
+                screens.SetPaperDoll(dollKey);
+                const ui::ScreenData data = ui::PauseScreenData(pm);
+                const std::string signature = "json:" + std::to_string(screens.Generation()) + ":" + std::to_string(guiW) + "x" +
+                                              std::to_string(guiH) + data.Signature();
+                bool shown = signature == pauseSignature && hud.Overlay().HasOverlay();
+                if (!shown) {
+                    std::string rml, error;
+                    if (screens.Build("pause.pause_screen", data, guiW, guiH, 0.0f, rml) && hud.Overlay().SetOverlay(rml, error)) {
+                        pauseSignature = signature;
+                        shown = true;
+                    } else if (!error.empty()) {
+                        std::cout << "[screens] pause.pause_screen: " << error << std::endl;
+                    }
+                }
+                if (shown) {
+                    hud.Overlay().SetOverlayAttribute("paper_doll", "src", "mchead:" + dollKey);
+                    hud.Overlay().MouseMove(mx / static_cast<float>(scale), my / static_cast<float>(scale));
+                    hud.UpdateOverlay(fbW, fbH, options.guiScale);
+                    ui::JsonButton button;
+                    const std::string hover = hud.Overlay().OverlayHover();
+                    if (!down && pauseLeftDown && clickReady && (hover == "close" || ui::ParseJsonButton(hover, button))) {
+                        const std::string& id = hover == "close" ? std::string("button.menu_continue") : button.id;
+                        if (id == "button.menu_continue") {
+                            hud.Overlay().ClearOverlay();
+                            pauseShown = false;
+                            input.SetTextMode(false);
+                        } else if (id == "button.menu_quit" && !preview) {
+                            LeaveToServerList(hud);
+                        } else if (id == "button.menu_settings") {
+                            pauseView = 1;
+                            optionsPage = 0;
+                            optionsSub = 0;
+                            optionsSignature.clear();
+                            hud.Overlay().ClearOverlay();
+                        } else if (id == "button.to_profile_or_skins_screen") {
+                            pauseView = 5;
+                            optionsSignature.clear();
+                            hud.Overlay().ClearOverlay();
+                        } else if (id == "button.menu_store") {
+                            pauseView = 4;  // our mods screen stands in for the marketplace
+                            optionsSignature.clear();
+                            hud.Overlay().ClearOverlay();
+                        } else if (id == "button.feedback") {
+                            platform->OpenUrl("https://github.com/theselauraproject/perlin/issues");
+                        } else {
+                            std::cout << "[screens] pause: no handler for " << id << std::endl;
+                        }
+                    }
+                    pauseLeftDown = down;
+                    return;
+                }
+            }
+        }
 
         ui::PauseScreenText t;
         t.title = i18n::Tr("menu.game");
@@ -4212,12 +4393,12 @@ namespace perlin {
     }
 
     namespace {
-        // Sample data for PERLIN_SHOW_SCREEN, so screens can be checked without joining a world.
+        // sample data for PERLIN_SHOW_SCREEN: check screens without joining a world
         ui::ScreenData ForcedScreenData(const std::string& reference, const std::string& playerName) {
             if (reference == "server_form.third_party_server_screen") {
-                // A long form shaped like CubeCraft's game selector (title flag + many buttons).
+                // long form shaped like a game selector: title flag + many buttons
                 ui::ScreenData d;
-                // PERLIN_TEST_FORM=<file>: replay a captured form (ui_generated/last_form.json) instead of the sample.
+                // PERLIN_TEST_FORM=<file>: replay a captured form (ui_generated/last_form.json) instead of the sample
                 if (const char* file = PERLIN_ENV("PERLIN_TEST_FORM")) {
                     std::ifstream in(file, std::ios::binary);
                     std::stringstream ss;
@@ -4256,7 +4437,7 @@ namespace perlin {
                 return d;
             }
             if (reference == "hud.hud_screen") {
-                // Sidebar sample shaped like a CubeCraft lobby board, including private-use glyphs.
+                // sidebar sample shaped like a lobby board, private-use glyphs included
                 ui::ScreenData d;
                 d.Set("#hud_visible", true);
                 d.Set("#scoreboard_sidebar_visible", true);
@@ -4326,10 +4507,10 @@ namespace perlin {
     }
 
     namespace {
-        // Renders the player's skin as Bedrock's paper doll (3D, facing slightly left) into a UI texture once per
-        // skin/cape, and returns its key for the JSON UI paper_doll_renderer.
+        // renders the skin as bedrock's paper doll (3d, facing slightly left) into a ui texture once per skin/cape;
+        // returns its key for the json ui paper_doll_renderer
         std::string SkinDollKey(const std::string& skinPath, const std::string& capePath, bool showCape, float headYaw, float headPitch) {
-            // Angles snap to 3 degree steps so a moving cursor reuses renders; only the latest one is kept.
+            // angles snap to 3 degree steps: a moving cursor reuses renders; only the latest kept
             const int qy = static_cast<int>(std::lround(headYaw / 3.0f)) * 3, qp = static_cast<int>(std::lround(headPitch / 3.0f)) * 3;
             const std::string key = "doll:" + std::to_string(std::hash<std::string>{}(skinPath + "|" + capePath + (showCape ? "c" : "n"))) + ":" +
                                     std::to_string(qy) + ":" + std::to_string(qp);
@@ -4469,6 +4650,16 @@ namespace perlin {
             accounts.SetSkin(a->id, options.skin, options.cape);
         }
         options.Save();
+        PrewarmSignIn();
+    }
+
+    // the Xbox Live / PlayFab / Minecraft token round trips take seconds: do them while the player is in the menus
+    void Perlin::PrewarmSignIn() {
+        if (!onlineThisRun || PERLIN_ENV("PERLIN_PREVIEW"))
+            return;
+        auto account = std::make_shared<xbox::Account>(ActiveAuthPath());
+        if (account->HasSavedLogin())
+            BedrockSession::PrewarmLogin(std::move(account), ActiveAuthPath());
     }
 
     std::string Perlin::ActiveAuthPath() const {
@@ -5610,7 +5801,7 @@ namespace perlin {
         else
             title.accountUser = options.playerName;
         title.accountLabel = "Logged in as " + title.accountUser;
-        title.oreUi = false;
+        title.oreUi = options.bedrockMenus;
         title.playerName = title.accountUser;
         if (title.oreUi && title.page == ui::TitlePage::Main) {
             const std::string doll = SkinDollKey(options.skin, options.cape, options.skinParts.cape);
@@ -5793,7 +5984,7 @@ namespace perlin {
             if (title.Shown().empty())
                 signature += "|" + std::to_string(title.spinner & 3);
         }
-        // Dev hook: PERLIN_SHOW_SCREEN=pause.pause_screen draws any JSON UI screen here, for checking layouts.
+        // dev hook: PERLIN_SHOW_SCREEN=pause.pause_screen draws any json ui screen here, to check layouts
         const char* forcedScreen = PERLIN_ENV("PERLIN_SHOW_SCREEN");
         ui::ScreenData forcedData;
         if (forcedScreen) {
@@ -6122,7 +6313,17 @@ namespace perlin {
         const int guiH = static_cast<int>(std::ceil(static_cast<float>(fbH) / static_cast<float>(scale)));
         const double time = std::chrono::duration<double>(now.time_since_epoch()).count();
         const std::string signature = std::to_string(guiW) + "x" + std::to_string(guiH) + "|" + t.title + "|" + t.message + "|" + t.detail + "|" + t.cancel;
-        if (signature != loadingSignature || !hud.Overlay().HasOverlay()) {
+        bool modHidden = false;
+        {
+            std::lock_guard lock(modHooks.mutex);
+            modHidden = !modHooks.loadingHidden.empty();
+        }
+        // a mod hid the loading screen: connection carries on underneath, nothing drawn over it
+        if (modHidden) {
+            if (hud.Overlay().HasOverlay())
+                hud.Overlay().ClearOverlay();
+            loadingSignature.clear();
+        } else if (signature != loadingSignature || !hud.Overlay().HasOverlay()) {
             loadingSignature = signature;
             std::string error;
             if (!hud.Overlay().SetOverlay(ui::BuildLoadingScreenRml(loadingTemplate, t, guiW, guiH, time), error)) {
@@ -6321,7 +6522,7 @@ namespace perlin {
     }
 
     void Perlin::FillHudState(ui::HudState& s, BedrockSession* live, bool preview) {
-        // A screen over the world (server form, container, inventory) hides the HUD, as #hud_visible does in the game.
+        // a screen over the world (server form, container, inventory) hides the hud, like #hud_visible in the game
         s.visible = options.showHud && (live || preview) && !(replayCtl.Playing() && replayUi.hideHud) && !formShown && !invShown;
         s.tick = preview ? static_cast<uint64_t>(std::chrono::duration<double>(Clock::now().time_since_epoch()).count() * 20.0)
                          : hudAnim.ticks;
@@ -6368,7 +6569,7 @@ namespace perlin {
             }
             s.burning = PERLIN_ENV("PERLIN_PREVIEW_FIRE") != nullptr;
             s.fireFrame = static_cast<int>(s.tick % 32);
-            // PERLIN_PREVIEW_SCREENANIM=totem or an effect id (28 bad omen, 29 hero of the village): loops every 2.5 s.
+            // PERLIN_PREVIEW_SCREENANIM=totem or an effect id (28 bad omen, 29 hero of the village): loops every 2.5 s
             if (const char* anim = PERLIN_ENV("PERLIN_PREVIEW_SCREENANIM")) {
                 const double t = std::fmod(std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(), 2.5) / 2.0;
                 if (t < 1.0) {
@@ -6468,7 +6669,7 @@ namespace perlin {
         if (auto next = live->TakeScreenAnimation(); next.effect >= 0)
             screenAnimation = next;
         if (screenAnimation.effect >= 0) {
-            // Vanilla plays the item activation for 40 ticks.
+            // vanilla plays the item activation for 40 ticks
             const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - screenAnimation.started).count() / 2.0f;
             if (t >= 1.0f) {
                 screenAnimation = {};
@@ -6778,7 +6979,11 @@ namespace perlin {
                 previewEntities.SetSkin("preview" + std::to_string(i), skin);
             } else {
                 const uint64_t flags = variant.find("baby") != std::string::npos ? entity::flag::Baby : 0;
-                previewEntities.AddEntity(rid, static_cast<int64_t>(rid), "minecraft:" + type, p, PERLIN_ENV("PERLIN_PREVIEW_ENTITY_PITCH") ? static_cast<float>(std::atof(PERLIN_ENV("PERLIN_PREVIEW_ENTITY_PITCH"))) : 0.0f, yaw, yaw, flags, 1.0f, 0, 0, 0);
+                // "namespace/name" previews a server pack's entity; anything else is a vanilla one.
+                std::string id = "minecraft:" + type;
+                if (const size_t slash = type.find('/'); slash != std::string::npos)
+                    id = type.substr(0, slash) + ":" + type.substr(slash + 1);
+                previewEntities.AddEntity(rid, static_cast<int64_t>(rid), id, p, PERLIN_ENV("PERLIN_PREVIEW_ENTITY_PITCH") ? static_cast<float>(std::atof(PERLIN_ENV("PERLIN_PREVIEW_ENTITY_PITCH"))) : 0.0f, yaw, yaw, flags, 1.0f, 0, 0, 0);
             }
             if (type == "fishing_hook")
                 previewEntities.SetOwner(rid, 1000);
@@ -6911,7 +7116,7 @@ namespace perlin {
             auto frameStart = Clock::now();
             if ((frames & 15) == 0)
                 i18n::Lang::Get().Configure(ui::UiAssets::Instance().VanillaRoot(), paths::DataDir(), options.language);
-            // PERLIN_SHOT=<file.bmp>@<seconds>: capture Perlin's own framebuffer on any screen, then quit.
+            // PERLIN_SHOT=<file.bmp>@<seconds>: capture our own framebuffer on any screen, then quit
             if (static const char* anyShot = PERLIN_ENV("PERLIN_SHOT"); anyShot) {
                 static bool anyShotDone = false;
                 static int anyShotFrames = 0;
@@ -7143,9 +7348,9 @@ namespace perlin {
                         entity::Entity target;
                         aimInteracts = !live->Entities().Find(gAim.entity, target) || IsInteractable(target.type);
                     }
-                    if (use && eating && !aimInteracts && inputManager.Pressed(Action::Use)) {
+                    if (use && eating && !aimInteracts && inputManager.Pressed(Action::Use) && !DispatchModInteract(abi::InteractKind::UseItem, 0, 0, 0, 0, 0)) {
                         const float eye[3] = {static_cast<float>(camera.x), static_cast<float>(camera.y), static_cast<float>(camera.z)};
-                        earlyItemUse = live->SendUseItemInAir(eye);
+                        earlyItemUse = live->SendUseItemInAir(eye, true);
                         usingItem = earlyItemUse;
                     }
                     if (!use && usingItem) {
@@ -7176,11 +7381,20 @@ namespace perlin {
             if (const char* g = PERLIN_ENV("PERLIN_GLASS"))
                 options.glass = g;
             {
-                if (options.renderer != runningRenderer && optionsDrag < 0) {
+                if (options.renderer != runningRenderer && optionsDrag < 0 && renderer) {
                     runningRenderer = options.renderer;
                     options.Save();
-                    if (perlin::RelaunchSelf(true))
-                        std::_Exit(0);
+                    if (!renderer->RequestRendererSwitch(options.renderer))
+                        chat.AddMessage("Renderer cannot be changed right now", hudAnim.ticks);
+                }
+                if (renderer && !renderer->RendererSwitchPending()) {
+                    // a switch that fell back to the old api must not leave the options claiming the new one
+                    const std::string active = renderer->ActiveRendererId();
+                    if (!active.empty() && options.renderer != "auto" && options.renderer != active && options.renderer == runningRenderer) {
+                        chat.AddMessage("Could not switch renderer; staying on " + renderer->RendererName(), hudAnim.ticks);
+                        options.renderer = runningRenderer = active;
+                        options.Save();
+                    }
                 }
             }
             {
@@ -7194,6 +7408,7 @@ namespace perlin {
             levelRenderer->SetBetterGrass(options.betterGrass ? 1 : 0);
             levelRenderer->SetGlassMode(options.glass == "connected" ? 1 : options.glass == "connectedClear" ? 2 : options.glass == "clear" ? 3 : 0);
             levelRenderer->ReloadAssetsIfNeeded();
+            PollJavaPack(live);
 
             if (live)
                 for (const std::string& line : live->TakeChat())
@@ -7431,17 +7646,16 @@ namespace perlin {
                                 live->QueueInputFlag(InputFlag::MissedSwing);
                             entity::Entity attacked;
                             const bool mobBlocked = live->Adventure().noPvm && live->Entities().Find(gAim.entity, attacked) && !attacked.isPlayer;
-                            if (gAim.kind == AimHit::Kind::Entity && !mobBlocked) {
-                                // The click position is where the ray meets the target's hitbox, relative to the target's base
-                                // coordinate, not a world position.
+                            if (gAim.kind == AimHit::Kind::Entity && !mobBlocked &&
+                                !DispatchModInteract(abi::InteractKind::Attack, 0, 0, 0, 0, gAim.entity)) {
+                                // click position: where the ray meets the target's hitbox, relative to its base coordinate, not world
                                 const glm::dvec3 feet((gAim.boxLo.x + gAim.boxHi.x) * 0.5, gAim.boxLo.y, (gAim.boxLo.z + gAim.boxHi.z) * 0.5);
                                 const glm::vec3 offset = EntityClickOffset({camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), feet,
                                                                            (gAim.boxHi.x - gAim.boxLo.x) * 0.5, gAim.boxHi.y - gAim.boxLo.y,
                                                                            (gAim.boxLo + gAim.boxHi) * 0.5);
                                 float click[3] = {offset.x, offset.y, offset.z};
                                 live->SendAttackEntity(gAim.entity, eyeF, click);
-                                // Vanilla predicts the crit burst locally: falling attack, airborne,
-                                // out of fluids and not flying.
+                                // vanilla predicts the crit burst locally: falling, airborne, out of fluids, not flying
                                 const physics::State& cst = player.State();
                                 if (!cst.onGround && cst.vy < 0.0 && !cst.inWater && !cst.inLava && !player.Flying()) {
                                     const glm::dvec3 centre((gAim.boxLo.x + gAim.boxHi.x) * 0.5,
@@ -7458,6 +7672,7 @@ namespace perlin {
                         (!creative || MsNow() >= creativeBreakReadyAt) && gAim.kind == AimHit::Kind::Block) {
                         const bool newTarget = !breaking || gAim.bx != bkx || gAim.by != bky || gAim.bz != bkz;
                         if (newTarget && breakDelayTicks > 0 && !breaking) {
+                        } else if (newTarget && DispatchModInteract(abi::InteractKind::StartBreak, gAim.bx, gAim.by, gAim.bz, gAim.face, 0)) {
                         } else if (newTarget) {
                             stopBreaking();
                             static const int faceDx[6] = {0, 0, 0, 0, -1, 1};
@@ -7472,6 +7687,7 @@ namespace perlin {
                                 live->SendPlayerAuthInputBlockAction(1, gAim.bx, gAim.by, gAim.bz, gAim.face);
                                 live->NetLevel().SetBlock(fx, fy, fz, 0);
                                 sounds.PlayBlockEvent(fireName, "break", glm::dvec3(fx + 0.5, fy + 0.5, fz + 0.5));
+                                VibrateBlockBroken();
                                 breakDelayTicks = 5;
                                 if (creative) creativeBreakReadyAt = MsNow() + 250;
                             } else {
@@ -7528,6 +7744,7 @@ namespace perlin {
                                     live->SendPlayerAuthInputBlockAction(2  , bkx, bky, bkz, bkFace);
                                 if (!blockName.empty())
                                     sounds.PlayBlockEvent(blockName, "break", glm::dvec3(bkx + 0.5, bky + 0.5, bkz + 0.5));
+                                VibrateBlockBroken();
                                 {
                                     bool loadedHere = false;
                                     const uint16_t oldId = live->NetLevel().GetBlock(bkx, bky, bkz, loadedHere);
@@ -7577,9 +7794,8 @@ namespace perlin {
                         breakDelayTicks--;
                     }
 
-                    // Keep the attack/pick ray unchanged. With Bedrock Bridging, looking at air beside your footing
-                    // places against the block you stand on (reach-around), and a held use keeps building from the last
-                    // placed block (heldbuild::HeldBuild). A real crosshair hit always comes first.
+                    // attack/pick ray unchanged; with bedrock bridging, air beside your footing places against the block under you
+                    // (reach-around), held use keeps building from the last placed block (heldbuild::HeldBuild); a real crosshair hit wins
                     AimHit useAim = gAim;
                     const bool bedrockBuild = options.bedrockBridging && !held.Empty() && held.blockRuntimeId != 0;
                     const glm::vec3 buildEye(camera.x, camera.y, camera.z);
@@ -7687,23 +7903,24 @@ namespace perlin {
                     static uint64_t lastBuildAt = 0;
                     static glm::ivec3 lastBuildCell{0, -1000, 0};
                     const bool tooSoon = Clock::now() - lastUseSent < std::chrono::milliseconds(60);
-                    // Held building repeats only when the build rules allow it this tick; other held use keeps the 200 ms repeat.
+                    // held building repeats only when build rules allow it this tick; other held use keeps the 200 ms repeat
                     const bool repeatReady = bedrockBuild && use == blockuse::Use::Place ? heldRepeat : useClock >= 0.2 && !tooSoon;
-                    // Never place a block into the player's own body.
+                    // never place a block into the player's own body
                     if (use == blockuse::Use::Place && holdsBlock) {
                         const auto& placed = LevelCollision::ShapeOf(BlockPalette::Instance().InternRuntime(static_cast<int32_t>(held.blockRuntimeId)));
                         const std::vector<physics::Box> shape(placed.boxes.begin(), placed.boxes.end());
                         if (heldbuild::OverlapsBody(destination, shape, physics::BoundingBox(player.State(), player.Sneaking())))
                             use = blockuse::Use::Nothing;
                     }
-                    // Fresh clicks also start item use immediately, including food.
+                    // fresh clicks start item use immediately, food included
                     if (usePressed || (useHeld && repeatReady)) {
                         lastUseSent = Clock::now();
                         useClock = 0;
                         bool interactedEntity = false;
                         if (usePressed && live && useAim.kind == AimHit::Kind::Entity) {
                             entity::Entity target;
-                            if (live->Entities().Find(useAim.entity, target) && IsInteractable(target.type) && !(live->InputLocks() & 128u)) {
+                            if (live->Entities().Find(useAim.entity, target) && IsInteractable(target.type) && !(live->InputLocks() & 128u) &&
+                                !DispatchModInteract(abi::InteractKind::InteractEntity, 0, 0, 0, 0, useAim.entity)) {
                                 const glm::vec3 offset = EntityClickOffset({camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), target.pos,
                                                                            (useAim.boxHi.x - useAim.boxLo.x) * 0.5, useAim.boxHi.y - useAim.boxLo.y,
                                                                            (useAim.boxLo + useAim.boxHi) * 0.5);
@@ -7716,7 +7933,8 @@ namespace perlin {
                         }
                         const bool allowed = usePressed || (use == blockuse::Use::Place);
                         const bool consumableInAir = holdsItem && !holdsBlock && use == blockuse::Use::Nothing && HandRenderer::IsFood(held.name);
-                        if (useAim.kind == AimHit::Kind::Block && allowed && !consumableInAir) {
+                        if (useAim.kind == AimHit::Kind::Block && allowed && !consumableInAir &&
+                            !DispatchModInteract(abi::InteractKind::UseOnBlock, useAim.bx, useAim.by, useAim.bz, useAim.face, 0)) {
                             bool sent = !live;
                             if (live) {
                                 float click[3];
@@ -7740,8 +7958,7 @@ namespace perlin {
                             }
                             if (sent && use == blockuse::Use::Place && holdsBlock) {
                                 if (live && bedrockBuild) {
-                                    // Bridge placements are checked against the actual body; the extra airborne padding
-                                    // below would hold back jump bridging.
+                                    // bridge placements checked against the actual body: the airborne padding below would block jump bridging
                                     float click[3];
                                     clickOf(useAim, click);
                                     live->PredictBridgePlace(dest[0], dest[1], dest[2], static_cast<int32_t>(held.blockRuntimeId), useAim.face, click);
@@ -7761,9 +7978,14 @@ namespace perlin {
                                 sounds.PlayBlockEvent(held.name, "place", glm::dvec3(dest[0] + 0.5, dest[1] + 0.5, dest[2] + 0.5));
                             }
                         }
-                        if (usePressed && !earlyItemUse && !blockedFoodUse && live && holdsItem && use == blockuse::Use::Nothing && !interactedEntity) {
-                            live->SendUseItemInAir(eyeF);
-                            usingItem = true;
+                        if (usePressed && !earlyItemUse && !blockedFoodUse && live && holdsItem && use == blockuse::Use::Nothing && !interactedEntity &&
+                            !DispatchModInteract(abi::InteractKind::UseItem, 0, 0, 0, 0, 0)) {
+                            CustomItemDef custom;
+                            const bool heldUse = ServerBlocks::Instance().Item(held.name, custom)
+                                                     ? custom.useTicks > 0
+                                                     : blockuse::VanillaUseTicks(held.name, HandRenderer::IsFood(held.name)) > 0;
+                            live->SendUseItemInAir(eyeF, heldUse);
+                            usingItem = heldUse;
                         }
                     }
                     if (!useHeld && live)
@@ -7959,15 +8181,15 @@ namespace perlin {
                 dbgBlock = handBlock;
             }
             if (hud)
-                hud->SetJavaStyle(true);
+                hud->SetJavaStyle(!options.bedrockMenus);
             FillHudState(hudState, live, preview);
             hudState.sidebarVisible = false;
             hudState.sidebar.clear();
             if (live) {
-                // The sidebar is part of the JSON UI HUD, so server packs that restyle scoreboards.json apply.
+                // sidebar is part of the json ui hud: server packs restyling scoreboards.json apply
                 const auto sb = live->Scoreboard();
-                // The JSON UI sidebar is used when the server restyles it; otherwise the Java one is drawn.
-                hudState.sidebarVisible = sb.visible && !pauseShown && hud && hud->Overrides("scoreboard");
+                // json ui sidebar when the server restyles it (or bedrock menus are on); else the java one
+                hudState.sidebarVisible = sb.visible && !pauseShown && hud && (options.bedrockMenus || hud->Overrides("scoreboard"));
                 hudState.sidebarTitle = sb.title;
                 for (const auto& r : sb.rows)
                     hudState.sidebar.push_back({r.name, r.score});
@@ -8279,6 +8501,7 @@ namespace perlin {
                 }
             }
 
+            ApplyModFog(fog);
             if (preview) {
                 static int once = 0;
                 if (once++ == 20)
@@ -8523,6 +8746,7 @@ namespace perlin {
                     SpawnPreviewEntities();
                 }
                 std::vector<entity::Entity> entities = frameEntities;
+                ApplyModSkins(entities);
                 if (player.Gliding()) {
                     const glm::dvec3 here(camera.x, camera.y, camera.z);
                     entities.erase(std::remove_if(entities.begin(), entities.end(),
@@ -8653,7 +8877,6 @@ namespace perlin {
                     ein.selfShadow = packShadows;
                 }
                 ein.ownNametag = options.thirdPersonNametag;
-                ein.nametags = !live || live->Adventure().showNameTags;
                 ein.nametagDepth = fgActive > 1;
                 ein.ownParts = options.skinParts;
                 ein.skins3d = options.skins3d;
@@ -8664,6 +8887,7 @@ namespace perlin {
                     if (!modAdv.frameLines.empty() && !(replayCtl.Playing() && replayUi.hideHud))
                         ein.modLines = &modAdv.frameLines;
                 }
+                PrepareModRender(ein);
                 ein.capePhysics = options.capePhysics == "shoulder" ? 2 : options.capePhysics == "off" ? 0 : 1;
                 if (live) {
                     int fast = -1, slow = -1;
@@ -8676,6 +8900,7 @@ namespace perlin {
                     ein.ownSwingTicks = fast >= 0 ? 6.0f - static_cast<float>(1 + fast) : slow >= 0 ? 6.0f + static_cast<float>((1 + slow) * 2) : 6.0f;
                 }
                 ein.frustum = &frustum;
+                ein.sectionReached = [this](int sx, int sy, int sz) { return renderer->SectionReached(sx, sy, sz); };
                 ein.cameraYaw = camera.yaw - 90.0f;
                 ein.cameraPitch = -camera.pitch;
                 if (camera.mode == PerspectiveMode::ThirdPersonFront) {
@@ -9139,6 +9364,7 @@ namespace perlin {
                         }
                         uiClickWasDown = pressed;
                     }
+                    DrawModTint(fbW, fbH);
                     hud->Render();
                     DrawModGfx(fbW, fbH);
                     const bool creativeUi = hudState.mode == ui::GameMode::Creative || PERLIN_ENV("PERLIN_PREVIEW_CREATIVE");
@@ -9327,8 +9553,9 @@ namespace perlin {
                         std::this_thread::sleep_until(target);
                 }
             }
-            if (options.maxFps > 0 && !exportJob.active)
-                FrameGenPacer::SleepUntil(frameStart + std::chrono::microseconds(1000000LL * std::max(1, fgActive) / options.maxFps));
+            const int fpsCap = ModFrameLimit(options.maxFps);
+            if (fpsCap > 0 && !exportJob.active)
+                FrameGenPacer::SleepUntil(frameStart + std::chrono::microseconds(1000000LL * std::max(1, fgActive) / fpsCap));
 #endif
         };
 

@@ -68,6 +68,10 @@ namespace perlin::attachable {
         Entry* Load(const std::string& identifier);
         void LoadSupport(Entry& entry);
         bool ReadFile(const std::string& rel, std::string& out) const;
+        // Server packs name attachable files freely, so they are indexed by the identifier inside each file.
+        void RefreshServerIndex();
+        std::string serverKey;
+        std::unordered_map<std::string, std::string> serverFiles;
         void LoadRenderControllers(const std::string& text);
         const Texture* TextureFor(const std::string& path);
 

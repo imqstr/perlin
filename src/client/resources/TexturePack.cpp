@@ -317,7 +317,7 @@ namespace perlin {
 
     bool TexturePack::Load(const std::string& rel, Texture& out) const {
         std::lock_guard lock(impl->mutex);
-        // Packs may ship the default player skins in the legacy 2:1 layout; everything downstream expects square skins.
+        // packs may ship default skins in legacy 2:1 layout; everything downstream expects square
         const auto finish = [&]() {
             if (rel.find("entity/steve") != std::string::npos || rel.find("entity/alex") != std::string::npos ||
                 rel.find("entity/player/") != std::string::npos)

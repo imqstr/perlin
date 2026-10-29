@@ -23,6 +23,7 @@
 #include "client/replay/Timeline.hpp"
 #include "client/particle/ParticleSystem.hpp"
 #include "client/particle/DataParticles.hpp"
+#include "client/renderer/Fog.hpp"
 #include "client/renderer/FogDefs.hpp"
 #include "client/player/LocalPlayer.hpp"
 #include "client/renderer/LevelRenderer.hpp"
@@ -46,6 +47,7 @@
 #include "client/resources/PackInfo.hpp"
 #include <memory>
 #include <map>
+#include <set>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -113,6 +115,7 @@ namespace perlin {
         ui::FormUi formUi;
         ui::ChestUi chestUi;
         bool formEngine = false;
+        bool formEngineFailed = false;  // the json ui could not draw this form: stay on the built-in layout
         std::string formSignature, serverLayerSignature;
         float formScroll = 0.0f, formContentH = 0.0f, formViewH = 0.0f;
         std::chrono::steady_clock::time_point formOpenedAt{};
@@ -200,6 +203,7 @@ namespace perlin {
         AccountList accounts;
         void ApplyActiveAccount();
         std::string ActiveAuthPath() const;
+        void PrewarmSignIn();
         void StartAccountSignIn();
         void CancelAccountSignIn();
         std::mutex signInMutex;
@@ -291,6 +295,9 @@ namespace perlin {
         std::vector<std::string> packPending;
         bool packPendingInit = false;
         void ApplyShaderPack();
+        void PollJavaPack(BedrockSession* live);
+        std::string javaPackPending;
+        int javaPackDimension = 0;
         struct HotStamps {
             std::string tex, shader;
         };
@@ -352,6 +359,69 @@ namespace perlin {
         } modAdv;
         void SetupModAdvanced();
         void ApplyModCamera(float& fov, glm::mat4& viewEffect);
+        // mod hooks (PerlinModsHooks.cpp): keyed by plugin, dropped on unload
+        struct ModHooks {
+            using TimePoint = std::chrono::steady_clock::time_point;
+            std::mutex mutex;
+            std::map<std::string, std::map<abi::HudElement, abi::HudElementState>> hud;
+            std::map<std::string, abi::DebugLinesData> debug;
+            std::pair<TimePoint, abi::FogOverride> fog{};
+            std::pair<TimePoint, abi::ScreenTintData> tint{};
+            struct EntityRule {
+                TimePoint until{};
+                abi::EntityOverride rule;
+            };
+            std::map<std::string, std::map<std::string, EntityRule>> entities;  // plugin -> "id:N" / "type:X"
+            struct Mesh {
+                TimePoint until{};
+                abi::WorldMeshData data;
+            };
+            std::map<std::string, Mesh> meshes;  // "plugin/id"
+            std::map<std::string, abi::FrameLimitData> frame;
+            struct Button {
+                std::string plugin;
+                abi::ScreenButtonDef def;
+            };
+            std::vector<Button> buttons;
+            std::string customOwner, customTitle;
+            bool customOpen = false;
+            std::vector<std::string> tooltipLines;
+            std::set<std::string> loadingHidden;
+            std::map<std::string, abi::SkinOverrideData> skins;
+            uint64_t skinSerial = 0;
+            std::map<std::string, abi::AmbientSoundData> ambient;  // "plugin/id"
+            std::vector<std::pair<std::string, abi::EventServerPing>> pings;
+            std::atomic<uint32_t> nextPing{1};
+            std::vector<std::pair<std::string, std::string>> packs;  // plugin, absolute path
+            std::vector<abi::ParticleRequest> particles;
+            bool windowFocused = true, windowMinimized = false;
+        } modHooks;
+        void SetupModHooks();
+        void DropModHooks(const std::string& plugin);
+        bool ModHudHidden(abi::HudElement element, float& dx, float& dy);
+        void ApplyModDebugLines(std::vector<std::string>& left, std::vector<std::string>& right);
+        void ApplyModFog(FogState& fog);
+        void DrawModTint(int fbW, int fbH);
+        int ModFrameLimit(int fps) const;
+        void PumpModHooks(BedrockSession* live);
+        void ApplyModSkins(std::vector<entity::Entity>& entities);
+        void PrepareModRender(entity::EntityRenderer::FrameIn& in);
+        std::vector<entity::EntityRenderer::FrameIn::ModMesh> modFrameMeshes;
+        struct ScreenButtonView {
+            abi::ScreenButtonDef def;
+            bool hover = false;
+        };
+        std::vector<ScreenButtonView> modScreenButtons;
+        bool modLayerOnScreen = false;
+        std::string modLayerButtons;
+        std::unordered_map<uint64_t, entity::EntityRenderer::FrameIn::ModStyle> modFrameStyles;
+        std::unordered_map<std::string, entity::EntityRenderer::FrameIn::ModStyle> modFrameTypeStyles;
+        std::map<std::string, std::shared_ptr<const entity::SkinData>> modSkinCache;
+        uint64_t modSkinCacheSerial = 0;
+        bool DispatchModInteract(abi::InteractKind kind, int x, int y, int z, int face, uint64_t entity);  // true: a mod cancelled
+        bool DispatchModSlotClick(int slot, bool right, bool shift);
+        bool DispatchModToast(const std::string& title, const std::string& body);
+        std::vector<std::string> ModTooltipLines(const ui::HudItem& item);
         std::vector<std::pair<std::string, abi::EventHttp>> modHttp;
         std::atomic<int> modHttpActive{0};
         std::vector<abi::EventSound> modSounds;
@@ -398,6 +468,7 @@ namespace perlin {
 
         LaunchArgs args;
         AppPlatform* platform = nullptr;
+        void VibrateBlockBroken();
         Options options;
         std::string runningRenderer;
         Input input;

@@ -317,7 +317,7 @@ namespace perlin::javapack {
         } else if (const std::string n2 = after("textures/items/"); !n2.empty()) {
             AddBlockOrItem(out, "item", n2);
         } else if (const std::string n3 = after("textures/ui/"); !n3.empty()) {
-            // Title panorama: both editions number the six cube faces the same way.
+            // title panorama: both editions number the six cube faces the same
             if (StartsWith(n3, "panorama_"))
                 Add(out, "textures/gui/title/background/" + n3 + ".png");
             else

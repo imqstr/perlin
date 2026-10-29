@@ -1,4 +1,5 @@
 #pragma once
+#include "client/ui/HudRenderers.hpp"
 #include "client/ui/HudData.hpp"
 #include "client/ui/HudState.hpp"
 #include "client/ui/JsonUi.hpp"
@@ -30,7 +31,8 @@ namespace perlin::ui {
         void Render();
 
         bool Cursor(float& x, float& y, float& w, float& hgt) const {
-            if (!cursorValid)
+            float dx = 0, dy = 0;
+            if (!cursorValid || !FilterHudElement("cursor_renderer", dx, dy))
                 return false;
             x = cursorX * scale; y = cursorY * scale; w = hgt = 15.0f * scale;
             return true;
@@ -46,9 +48,9 @@ namespace perlin::ui {
         const std::string& LastDocument() const { return lastRml; }
         size_t Rebuilds() const { return rebuilds; }
         void Reload() { reloadRequested = true; }
-        // Java style lays Perlin's Java-like overrides over the Bedrock HUD; Bedrock style draws the HUD as the packs define it.
+        // java style: java-like overrides over the bedrock hud; bedrock style: hud as packs define it
         void SetJavaStyle(bool java);
-        // True when a server or resource pack (not just vanilla/Perlin defaults) defines namespace `ns`.
+        // true when a server or resource pack (not just vanilla/our defaults) defines namespace `ns`
         bool Overrides(const std::string& ns) const { return tree && library.RootCount() > 3 && library.DefinedBefore(ns, library.RootCount() - 3); }
 
     private:
@@ -88,7 +90,8 @@ namespace perlin::ui {
         double templateCheck = 0;
         uint64_t hudTemplateVersion = 0, chatTemplateVersion = 0;
         bool dumped = false;
-        bool javaStyle = true;
+        bool javaStyle = false;
         uint64_t fontVersion = 0;
+        uint64_t filterVersion = 0;
     };
 }

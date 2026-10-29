@@ -1,14 +1,17 @@
-"""Adapt pinned RenderDragon GLSL to Perlin's bgfx vertex and texture interfaces.
+"""Adapt pinned RenderDragon GLSL to Perlin's vertex and texture interfaces, as slang programs.
 
 Upstream pixel programs are read verbatim, with interface declarations removed,
 texture/uniform bindings renamed, and scalar constructors made portable. The
 small vertex bridges unpack Perlin's meshes, which use different vertex formats
-and CPU skinning from Bedrock. All output lives in the build directory.
+and CPU skinning from Bedrock. Each vertex/fragment pair is then turned into one
+slang program by bgfx_to_slang. All output lives in the build directory.
 """
 import argparse
 import json
 import re
 from pathlib import Path
+
+import bgfx_to_slang
 
 DEFINES = '''#define INSTANCING__OFF 1
 #define RENDER_AS_BILLBOARDS__OFF 1
@@ -24,13 +27,7 @@ DEFINES = '''#define INSTANCING__OFF 1
 #define FLIP_OCCLUSION__OFF 1
 '''
 
-COMMON = '''#include "common.sh"
-float rdFog(vec3 relative)
-{
-    return max(linearFog(length(relative), u_fogEnv.x, u_fogEnv.y),
-               linearFog(max(length(relative.xz), abs(relative.y)), u_fogEnv.z, u_fogEnv.w)) * u_fogColor.a;
-}
-'''
+COMMON = '#include "rd_common.slang"\n'
 
 TERRAIN_VARYING = '''vec3 a_position : POSITION;
 vec4 a_color0 : COLOR0;
@@ -72,22 +69,7 @@ vec4 v_layerUv : TEXCOORD1;
 '''
 UI_IO = 'v_color0, v_texcoord0, v_fog, v_light, v_layerUv'
 UI_ARGS = 'vec4 v_color0, vec2 v_texcoord0, vec4 v_fog, vec4 v_light, vec4 v_layerUv'
-UI_UNIFORMS = '''SAMPLER2D(s_uiTex, 0);
-SAMPLER2D(s_uiGlint, 1);
-uniform vec4 u_uiParams;
-uniform vec4 u_uiOverlay;
-uniform vec4 u_uiGlintA;
-uniform vec4 u_uiGlintB;
-uniform vec4 u_rdMaterial;
-#define OverlayColor u_uiOverlay
-#define DiscardValue u_uiParams
-#define MatColor1 vec4(v_color0.rgb, 1.0)
-#define TileLightColor vec4_splat(1.0)
-#define GlintColor (vec4(0.38, 0.19, 0.608, 1.0) * sqrt(max(u_uiParams.z, 0.0)))
-#define TintColor vec4_splat(1.0)
-#define HudOpacity vec4_splat(1.0)
-#define OcclusionHeightOffset vec4_splat(0.0)
-'''
+UI_UNIFORMS = '#include "rd_ui.slang"\n'
 
 
 def portable(text):
@@ -121,14 +103,36 @@ def upstream(root, family, render_pass, args, name, samples=None, replacements=N
     return '// Upstream: ' + path.relative_to(root).as_posix() + '\n' + portable(text)
 
 
+# program -> (vertex, fragment, varying definition)
+PROGRAMS = {
+    'terrain_solid': ('vs_terrain', 'fs_terrain_solid', 'varying_terrain'),
+    'terrain_cutout': ('vs_terrain', 'fs_terrain_cutout', 'varying_terrain'),
+    'terrain_translucent': ('vs_terrain', 'fs_terrain_translucent', 'varying_terrain'),
+    'sky': ('vs_sky', 'fs_sky', 'varying_sky'),
+    'star': ('vs_star', 'fs_star', 'varying_star'),
+    'sunrise': ('vs_sunrise', 'fs_sunrise', 'varying_sunrise'),
+    'celestial': ('vs_celestial', 'fs_celestial', 'varying_celestial'),
+    'cloud': ('vs_cloud', 'fs_cloud', 'varying_cloud'),
+    'screen': ('vs_screen', 'fs_screen', 'varying_screen'),
+    'ui': ('vs_ui', 'fs_ui', 'varying_ui'),
+    'entity': ('vs_ui', 'fs_entity', 'varying_ui'),
+    'entity_mask': ('vs_ui', 'fs_entity_mask', 'varying_ui'),
+    'entity_emissive': ('vs_ui', 'fs_entity_emissive', 'varying_ui'),
+    'entity_glint': ('vs_ui', 'fs_entity_glint', 'varying_ui'),
+    'particle': ('vs_ui', 'fs_particle', 'varying_ui'),
+    'particle_cutout': ('vs_ui', 'fs_particle_cutout', 'varying_ui'),
+    'weather': ('vs_ui', 'fs_weather', 'varying_ui'),
+    'cracks': ('vs_ui', 'fs_cracks', 'varying_ui'),
+    'nametag': ('vs_ui', 'fs_nametag', 'varying_ui'),
+}
+
+
 def generate(root, out):
     out.mkdir(parents=True, exist_ok=True)
     manifest = {}
+    sources = {}
     def write(name, text, source=None):
-        target = out / name
-        content = text if name.endswith('.json') else '// Generated RenderDragon adapter; do not edit.\n' + text
-        if not target.exists() or target.read_text() != content:
-            target.write_text(content, encoding='utf-8')
+        sources[name] = text
         if source:
             manifest[name] = source
     def fragment(name, family, render_pass, io, args, prefix, call_args, suffix='', samples=None, replacements=None):
@@ -143,7 +147,7 @@ def generate(root, out):
         body = upstream(root, 'RenderChunk', render_pass, TERRAIN_ARGS, 'rdMain',
                         {'s_LightMapTexture': 'rdLightmap'}, {'FogColor': 'u_fogColor'})
         body = re.sub(r'texture2D\(s_MatTexture,\s*v_texcoord0\)', 'sampleBlock(v_texcoord0, v_layer)', body)
-        prefix = '#include "block_sampling.sh"\nvec4 rdLightmap(vec2 uv) { return texture2D(s_lightmap, uv); }\n'
+        prefix = '#include "rd_block_sampling.slang"\nvec4 rdLightmap(vec2 uv) { return texture2D(s_lightmap, uv); }\n'
         write(name + '.sc', '$input ' + TERRAIN_IO + '\n' + COMMON + DEFINES + prefix + body +
               '\nvoid main() { gl_FragColor = rdMain(' + TERRAIN_IO + '); }\n', 'RenderChunk.' + render_pass)
 
@@ -166,9 +170,7 @@ void main()
 }
 ''')
     samples = {'s_MatTexture0': 'rdBase', 's_MatTexture1': 'rdGlint', 's_GlyphTexture': 'rdBase', 's_ParticleTexture': 'rdBase', 's_CracksTexture': 'rdBase'}
-    functions = '''vec4 rdBase(vec2 uv) { return texture2D(s_uiTex, uv); }
-vec4 rdGlint(vec2 uv) { return texture2D(s_uiGlint, uv); }
-'''
+    functions = ''
     fragment('fs_ui', 'UIText', 'Transparent', UI_IO, UI_ARGS, UI_UNIFORMS + functions,
              UI_IO, 'if (u_uiParams.x > 0.0 && color.a < u_uiParams.x) discard;', samples)
     for name, render_pass in [('fs_entity', 'AlphaTest'), ('fs_entity_mask', 'AlphaTestColorMask'), ('fs_entity_emissive', 'Emissive')]:
@@ -202,8 +204,7 @@ vec2 v_texcoord0 : TEXCOORD0;
 '''
     sky_io = 'v_color0, v_texcoord0'
     sky_args = 'vec4 v_color0, vec2 v_texcoord0'
-    sky_uniforms = '''SAMPLER2D(s_sky, 2);
-#define SunMoonColor u_modulator
+    sky_uniforms = '''#define SunMoonColor u_modulator
 #define StarsColor u_modulator
 '''
     for base, family, render_pass, inputs, color, position, texcoord in [
@@ -224,7 +225,16 @@ vec2 v_texcoord0 : TEXCOORD0;
         write('vs_' + base + '.sc', '$input ' + inputs + '\n$output ' + sky_io + '\n' + COMMON +
               '\nvoid main() { gl_Position = mul(u_mvp, vec4(a_position, 1.0)); v_color0 = ' + color + '; v_texcoord0 = vec2_splat(0.0); }\n')
         fragment('fs_' + base, 'Sky', 'Opaque', sky_io, sky_args, sky_uniforms, sky_io)
-    write('manifest.json', json.dumps(manifest, indent=2) + '\n')
+    programs = {}
+    for program, (vs, fs, varying) in PROGRAMS.items():
+        text = bgfx_to_slang.convert(sources[vs + '.sc'], sources[fs + '.sc'], sources[varying + '.def.sc'], [],
+                                     header='// Generated RenderDragon adapter; do not edit.\n',
+                                     resources='rd_resources.slang', inline=False, shared=set())
+        target = out / (program + '.slang')
+        if not target.exists() or target.read_text() != text:
+            target.write_text(text, encoding='utf-8')
+        programs[program] = {'file': target.name, 'upstream': manifest.get(fs + '.sc')}
+    (out / 'manifest.json').write_text(json.dumps(programs, indent=2) + '\n', encoding='utf-8')
 
 
 if __name__ == '__main__':

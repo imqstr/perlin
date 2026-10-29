@@ -29,8 +29,7 @@ namespace perlin::i18n {
                           std::unordered_map<std::string, std::string>& out) {
             size_t files = 0;
             std::string text;
-            // Perlin's own strings first, so Bedrock's texts win wherever both define a key: menus read the way
-            // they do in the game.
+            // our strings first so bedrock's win on shared keys: menus read like the game
             if (code == "en_US") {
                 Lang::Parse(BuiltinEnglish(), out);
                 files++;

@@ -374,8 +374,7 @@ mcimg { display: block; position: absolute; }
             return d;
         }
 
-        // OreUI main menu: logo over a column of actions led by Play, the player's character card beside it, and a
-        // utility bar along the bottom.
+        // oreui main menu: logo over actions (Play first), character card beside, utility bar at bottom
         std::string OreMain(const TitleModel& m, int w, int h) {
             using namespace ore;
             std::string d;
@@ -388,7 +387,7 @@ mcimg { display: block; position: absolute; }
                     d += "<mcimg src=\"textures/ui/panorama_" + N(i % 4) + "\" style=\"left:" + N(i * face) + "px;top:0px;width:" + N(face) + "px;height:" + N(face) + "px;\"></mcimg>\n";
                 d += "</div></div>\n";
             }
-            // Soft dark wash so the panorama reads as a background, as on the game's menus.
+            // dark wash: panorama reads as background, as in game menus
             d += "<div style=\"left:0px;top:0px;width:" + N(w) + "px;height:" + N(h) + "px;background-color:#00000040;z-index:1;\"></div>\n";
 
             const int colW = 160, cardW = 104, gap = 8;
@@ -417,7 +416,7 @@ mcimg { display: block; position: absolute; }
             y += rowH + rowGap;
             const int columnBottom = y - rowGap;
 
-            // Character card, as tall as the action column.
+            // character card: action column height
             const int cardX = bx + colW + gap, cardH = columnBottom - by;
             d += Card(cardX, by, cardW, cardH);
             const int nameY = by + 6;
@@ -431,7 +430,6 @@ mcimg { display: block; position: absolute; }
             }
             d += Button(kTitleWardrobe, cardX + 6, by + cardH - dressH - 5, cardW - 12, dressH, "Dressing Room", Kind::Neutral);
 
-            // Utility bar: account on the left, quit on the right.
             const int barY = std::min(h - 40, columnBottom + 14);
             if (!m.accountUser.empty()) {
                 const int textW = TextWidth(m.accountUser);

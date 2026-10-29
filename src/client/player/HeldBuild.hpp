@@ -9,27 +9,27 @@
 #include <string>
 #include <vector>
 
-// Placement while the use button stays held, following the game's own rules (ClientInstance::_tickBuildAction and
+// placement while use stays held, per the game's rules (ClientInstance::_tickBuildAction,
 // GameMode::startBuildBlock / continueBuildBlock / stopBuildBlock):
-//  - A fresh press always places at the crosshair (Start + Built).
-//  - While held, each attempt waits for the repeat delay: 300 ms when sneaking, after an interactive block, or with a
-//    snappable block before a build line exists; otherwise min(900 / speed, 180) ms (speed in blocks per second,
-//    3D, from this tick's movement), 200 ms when standing still.
-//  - Snappable blocks (full cubes, stairs, slabs, fences, panes and bars) form a build line: once a repeat lands one
-//    block from the last one, only the next cell along that line is ever placed, and only while the look ray passes
-//    through it. Moving players extend from the last placed block on the face they move toward.
-//  - Releasing use ends the line.
+//  - fresh press always places at the crosshair (Start + Built)
+//  - held: each attempt waits the repeat delay: 300 ms when sneaking, after an interactive block, or with a
+//    snappable block before a build line exists; else min(900 / speed, 180) ms (speed in blocks/s,
+//    3d, from this tick's movement); 200 ms standing still
+//  - snappable blocks (full cubes, stairs, slabs, fences, panes, bars) form a build line: once a repeat lands one
+//    block from the last, only the next cell along the line is placed, and only while the look ray passes
+//    through it; moving players extend from the last placed block on the face they move toward
+//  - releasing use ends the line
 namespace perlin::heldbuild {
-    // A block and the face of it to click (0 down, 1 up, 2 north, 3 south, 4 west, 5 east).
+    // a block and the face to click (0 down, 1 up, 2 north, 3 south, 4 west, 5 east)
     struct Target {
         glm::ivec3 support{};
         int face = 0;
     };
 
     struct Hit {
-        bool block = false;     // the crosshair is on a block (a direct hit)
+        bool block = false;     // crosshair on a block (direct hit)
         Target target;
-        glm::vec3 point{};      // where the ray stopped: the hit point, or eye + look * reach without a hit
+        glm::vec3 point{};      // where the ray stopped: hit point, or eye + look * reach without a hit
     };
 
     class HeldBuild {
@@ -44,8 +44,8 @@ namespace perlin::heldbuild {
         std::optional<Target> Next(const Hit& hit, glm::vec3 eye, glm::vec3 posDelta, bool sneaking, uint64_t nowMs, uint64_t simulationTick,
                                    const std::function<bool(glm::ivec3)>& canBuildOver);
 
-        // A placement went through: the click on `clicked` produced a block at `cell`. `snappable` / `interactive`
-        // describe the held block and the clicked block, as GameMode::useItemOn records them.
+        // placement went through: click on `clicked` produced a block at `cell`; `snappable` / `interactive`
+        // describe the held and clicked blocks, as GameMode::useItemOn records them
         void Built(const Target& clicked, glm::ivec3 cell, bool snappable, bool interactive, uint64_t nowMs, bool fromRepeat);
 
     private:
@@ -62,19 +62,19 @@ namespace perlin::heldbuild {
         glm::ivec3 direction{};
         int continueFacing = 0;
         uint64_t lastBuildMs = 0;
-        uint64_t nextBuildMs = 0;  // lastBuildMs after the attempt Next returned succeeds
-        bool pendingLine = false;  // the attempt in flight is the line's next cell
+        uint64_t nextBuildMs = 0;  // lastBuildMs once the attempt Next returned succeeds
+        bool pendingLine = false;  // attempt in flight is the line's next cell
     };
 
-    // Face index along the dominant axis of `v` (Facing::fromVec3), vertical included.
+    // face index along the dominant axis of `v` (Facing::fromVec3), vertical included
     int FacingFromVec(glm::vec3 v);
 
-    // Full cubes, stairs, slabs, fences, walls, panes and bars: blocks that start a build line.
+    // full cubes, stairs, slabs, fences, walls, panes, bars: blocks starting a build line
     bool IsSnappable(const std::string& blockName, const std::vector<physics::Box>& shape);
 
-    // Whether a block with collision `shape` (block-local boxes) placed at `cell` would overlap `body`.
+    // block with collision `shape` (block-local boxes) at `cell` overlaps `body`
     bool OverlapsBody(glm::ivec3 cell, const std::vector<physics::Box>& shape, const physics::Box& body);
 
-    // Whether the segment a..b passes through the unit cell (touching counts).
+    // segment a..b passes through the unit cell (touching counts)
     bool SegmentHitsCell(glm::vec3 a, glm::vec3 b, glm::ivec3 cell);
 }

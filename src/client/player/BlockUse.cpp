@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string_view>
+#include <unordered_map>
 
 namespace perlin::blockuse {
     namespace {
@@ -62,5 +63,16 @@ namespace perlin::blockuse {
         if (holdsBlock && (clickedReplaceable || IsReplaceable(neighbourName)))
             r.use = Use::Place;
         return r;
+    }
+
+    int VanillaUseTicks(const std::string& itemName, bool food) {
+        // vanilla items carry no components on the wire: the game's own item classes
+        static const std::unordered_map<std::string_view, int> kVanilla = {
+            {"bow", 72000}, {"crossbow", 25}, {"trident", 72000}, {"spyglass", 1200}, {"goat_horn", 140},
+            {"potion", 32}, {"milk_bucket", 32}, {"honey_bottle", 40}, {"ominous_bottle", 32},
+        };
+        if (const auto it = kVanilla.find(Bare(itemName)); it != kVanilla.end())
+            return it->second;
+        return food ? 32 : 0;
     }
 }

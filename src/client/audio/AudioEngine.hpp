@@ -34,7 +34,7 @@ namespace perlin::audio {
         bool loop = false;
         std::string name;
         uint64_t id = 0;
-        // Wall-clock start, for predict+echo dedup in Start().
+        // wall-clock start, for predict+echo dedup in Start()
         uint64_t startedMs = 0;
         double cursor = 0.0;
         float fade = 1.0f;

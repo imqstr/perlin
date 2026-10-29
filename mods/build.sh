@@ -20,7 +20,7 @@ if [ -f "$manifest" ]; then
     python3 tools/perlin_settings.py "$manifest" "$gen/mod_settings.hpp"
     if [ "$(cd "$(dirname "$manifest")" && pwd)" != "$(cd "$out" && pwd)" ]; then cp "$manifest" "$out/$name.json"; fi
 fi
-exports="-Wl,--export=perlin_alloc -Wl,--export=perlin_free -Wl,--export=perlin_event -Wl,--export=perlin_subscriptions"
+exports="-Wl,--export=perlin_alloc -Wl,--export=perlin_free -Wl,--export=perlin_event -Wl,--export=perlin_subscriptions -Wl,--export=perlin_subscriptions_hi"
 
 if [ "$target" = wasm32 ]; then
     sdk="${WASI_SDK_PATH:?set WASI_SDK_PATH to a wasi-sdk install (or drop --wasm32 to build with Emscripten)}"

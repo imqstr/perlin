@@ -22,11 +22,10 @@ namespace perlin::ui {
 
     ScreenData PauseScreenData(const PauseModel& m) {
         ScreenData d;
-        // Buttons Perlin has a handler for.
         d.Set("#dressing_room_button_visible", true);
         d.Set("#store_button_visible", true);
         d.Set("#can_change_skin", true);
-        // Services Perlin does not provide (store, realms stories, Xbox invites, screenshots, achievements).
+        // services we don't provide (store, realms stories, xbox invites, screenshots, achievements)
         for (const char* off : {"#store_button_secondary_visible", "#store_button_secondary_enabled", "#store_error_tooltip_visible",
                                 "#achievements_visible", "#feedback_button_visible", "#screenshot_button_visible", "#invite_button_visible",
                                 "#invite_button_enabled", "#legacy_invite_button_visible", "#legacy_invite_button_enabled",

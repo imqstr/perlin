@@ -29,6 +29,78 @@ namespace perlin::attachable {
             return s;
         }
 
+        // poly_mesh: indexed polygons ([position, normal, uv] per corner), or parallel arrays grouped by "tri_list" /
+        // "quad_list". Bedrock counts mesh UVs from the bottom of the texture.
+        void ParsePolyMesh(const Json& mesh, Bone& bone) {
+            const auto list = [&](const char* key) -> const std::vector<Json>* {
+                const Json* v = mesh.Find(key);
+                return v && v->IsArray() ? &v->array : nullptr;
+            };
+            const std::vector<Json>* positions = list("positions");
+            const std::vector<Json>* normals = list("normals");
+            const std::vector<Json>* uvs = list("uvs");
+            const Json* polys = mesh.Find("polys");
+            if (!positions || !polys)
+                return;
+            bone.polyNormalized = mesh.Find("normalized_uvs") && mesh.Find("normalized_uvs")->BoolOr(false);
+            const auto at3 = [](const std::vector<Json>* v, long i, glm::vec3 fallback) {
+                return v && i >= 0 && static_cast<size_t>(i) < v->size() ? Vec3(&(*v)[static_cast<size_t>(i)], fallback) : fallback;
+            };
+            const auto at2 = [](const std::vector<Json>* v, long i) {
+                return v && i >= 0 && static_cast<size_t>(i) < v->size() ? Vec2(&(*v)[static_cast<size_t>(i)]) : glm::vec2(0.0f);
+            };
+            const auto emit = [&](const glm::vec3* p, const glm::vec3* n, const glm::vec2* uv, int count) {
+                if (count < 3)
+                    return;
+                Quad q;
+                for (int k = 0; k < 4; k++) {
+                    const int c = std::min(k, count - 1);
+                    q.p[k] = p[c];
+                    q.uv[k] = uv[c];
+                }
+                glm::vec3 normal = n[0] + n[1] + n[2];
+                if (glm::dot(normal, normal) < 1e-8f)
+                    normal = glm::cross(p[1] - p[0], p[2] - p[0]);
+                q.n = glm::dot(normal, normal) > 1e-12f ? glm::normalize(normal) : glm::vec3(0, 1, 0);
+                bone.polys.push_back(q);
+            };
+            if (polys->IsArray()) {
+                for (const Json& poly : polys->array) {
+                    if (!poly.IsArray())
+                        continue;
+                    glm::vec3 p[4], n[4];
+                    glm::vec2 uv[4];
+                    int count = 0;
+                    for (const Json& corner : poly.array) {
+                        if (count == 4 || !corner.IsArray() || corner.array.size() < 3)
+                            break;
+                        const long pi = static_cast<long>(corner.array[0].NumberOr(-1));
+                        const long ni = static_cast<long>(corner.array[1].NumberOr(-1));
+                        const long ui = static_cast<long>(corner.array[2].NumberOr(-1));
+                        p[count] = at3(positions, pi, glm::vec3(0.0f));
+                        n[count] = at3(normals, ni, glm::vec3(0.0f));
+                        uv[count] = at2(uvs, ui);
+                        count++;
+                    }
+                    emit(p, n, uv, count);
+                }
+            } else if (polys->IsString()) {
+                const int group = polys->string == "quad_list" ? 4 : polys->string == "tri_list" ? 3 : 0;
+                if (!group)
+                    return;
+                for (size_t i = 0; i + group <= positions->size(); i += group) {
+                    glm::vec3 p[4], n[4];
+                    glm::vec2 uv[4];
+                    for (int k = 0; k < group; k++) {
+                        p[k] = at3(positions, static_cast<long>(i + k), glm::vec3(0.0f));
+                        n[k] = at3(normals, static_cast<long>(i + k), glm::vec3(0.0f));
+                        uv[k] = at2(uvs, static_cast<long>(i + k));
+                    }
+                    emit(p, n, uv, group);
+                }
+            }
+        }
+
         void ParseBones(const Json& bones, Geometry& g) {
             for (const Json& b : bones.array) {
                 if (!b.IsObject())
@@ -80,12 +152,16 @@ namespace perlin::attachable {
                                         cube.faces[i].present = true;
                                         cube.faces[i].uv = Vec2(f->Find("uv"));
                                         cube.faces[i].size = Vec2(f->Find("uv_size"));
+                                        if (const Json* r = f->Find("uv_rotation"))
+                                            cube.faces[i].rotation = ((static_cast<int>(std::lround(r->NumberOr(0) / 90.0)) % 4) + 4) % 4;
                                     }
                             }
                         }
                         bone.cubes.push_back(cube);
                     }
                 }
+                if (const Json* mesh = b.Find("poly_mesh"); mesh && mesh->IsObject())
+                    ParsePolyMesh(*mesh, bone);
                 if (const Json* meshes = b.Find("texture_meshes"); meshes && meshes->IsArray()) {
                     for (const Json& m : meshes->array) {
                         TextureMesh mesh;
@@ -276,13 +352,15 @@ namespace perlin::attachable {
             const float w = c.size.x, h = c.size.y, d = c.size.z;
             glm::vec2 uvOrigin[6], uvSize[6];
             if (c.boxUv) {
+                // Box UV lays the faces out with whole-pixel sizes.
+                const float bw = std::floor(w), bh = std::floor(h), bd = std::floor(d);
                 const float u = c.uv.x, v = c.uv.y;
-                uvOrigin[0] = {u, v + d};             uvSize[0] = {d, h};
-                uvOrigin[1] = {u + d + w, v + d};     uvSize[1] = {d, h};
-                uvOrigin[2] = {u + d, v + d};         uvSize[2] = {w, h};
-                uvOrigin[3] = {u + d + w + d, v + d}; uvSize[3] = {w, h};
-                uvOrigin[4] = {u + d, v};             uvSize[4] = {w, d};
-                uvOrigin[5] = {u + d + w, v};         uvSize[5] = {w, d};
+                uvOrigin[0] = {u, v + bd};                uvSize[0] = {bd, bh};
+                uvOrigin[1] = {u + bd + bw, v + bd};      uvSize[1] = {bd, bh};
+                uvOrigin[2] = {u + bd, v + bd};           uvSize[2] = {bw, bh};
+                uvOrigin[3] = {u + bd + bw + bd, v + bd}; uvSize[3] = {bw, bh};
+                uvOrigin[4] = {u + bd, v};                uvSize[4] = {bw, bd};
+                uvOrigin[5] = {u + bd + bw, v};           uvSize[5] = {bw, bd};
             } else {
                 for (int i = 0; i < 6; i++) {
                     uvOrigin[i] = c.faces[i].uv;
@@ -305,6 +383,14 @@ namespace perlin::attachable {
                 if (flip) {
                     std::swap(a, b);
                     std::swap(dd, cc);
+                }
+                // uv_rotation turns the texture clockwise on the face: each corner takes the UV of the one before it.
+                if (const int turns = c.boxUv ? 0 : c.faces[fi].rotation) {
+                    const glm::vec2 ring[4] = {a, b, cc, dd};
+                    a = ring[(4 - turns) % 4];
+                    b = ring[(5 - turns) % 4];
+                    cc = ring[(6 - turns) % 4];
+                    dd = ring[(7 - turns) % 4];
                 }
                 Quad q;
                 const glm::vec3* corners[4] = {&f.tl, &f.tr, &f.br, &f.bl};
@@ -517,6 +603,16 @@ namespace perlin::attachable {
                 continue;
             for (const Cube& c : b.cubes)
                 AddCube(c, g, world[i], out.body, mirrorTextures);
+            for (const Quad& pq : b.polys) {
+                Quad q = pq;
+                for (int k = 0; k < 4; k++) {
+                    q.p[k] = glm::vec3(world[i] * glm::vec4(q.p[k], 1.0f));
+                    const glm::vec2 uv = b.polyNormalized ? q.uv[k] : q.uv[k] / glm::vec2(g.textureWidth, g.textureHeight);
+                    q.uv[k] = {uv.x, 1.0f - uv.y};
+                }
+                q.n = glm::normalize(glm::mat3(world[i]) * q.n);
+                out.body.push_back(q);
+            }
             for (const Quad& vq : b.voxels) {
                 Quad q = vq;
                 for (glm::vec3& pt : q.p)

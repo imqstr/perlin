@@ -113,10 +113,8 @@ namespace perlin::audio {
         const uint64_t nowMs = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
         if (voice.positional && !voice.loop && !voice.name.empty()) {
-            // Predict+echo dedup: the client predicts place/break/hit sounds and the
-            // server echo arrives ~1 frame later. Same sound at the same spot within
-            // a short window is the echo, not a second event. Different positions
-            // must remain separate events, including adjacent bridge placements.
+            // predict+echo dedup: server echo of place/break/hit ~1 frame later; same sound+spot in window = echo;
+            // legit repeats (steps 250ms+, bridging 166ms+ in other cells) fall outside
             for (const Voice& v : voices) {
                 if (v.stopping || v.name != voice.name || nowMs - v.startedMs > 90u)
                     continue;

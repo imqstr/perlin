@@ -8,13 +8,12 @@
 #include <string>
 #include <vector>
 
-// Builds every screen a UI stack defines and reports what the engine could not make sense of, so server packs can be
-// checked without joining the server.
+// builds every screen a ui stack defines, reports what the engine couldn't parse: check server packs without joining
 //
 //   ui_conformance <label>:<ui root> [<label>:<ui root> ...]
 //
-// Every root is layered the way the client layers it: pack roots first, then the data ui folder and the vanilla files.
-// Env: VANILLA_UI=<vanilla resource_pack/ui> (defaults to the Bedrock samples install), DATA_UI=<data dir>/ui.
+// roots layered like the client: pack roots first, then data ui folder and vanilla files
+// env: VANILLA_UI=<vanilla resource_pack/ui> (default: bedrock samples install), DATA_UI=<data dir>/ui
 #include "client/ui/HudData.hpp"
 #include "client/ui/JsonUi.hpp"
 #include "client/ui/McFont.hpp"
@@ -32,7 +31,7 @@ namespace {
         return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
 
-    // Screens a stack defines: namespace + control names ending in "_screen".
+    // screens a stack defines: namespace + control names ending in "_screen"
     std::vector<std::string> ScreensIn(const std::string& root) {
         std::vector<std::string> out;
         std::error_code ec;
@@ -79,7 +78,7 @@ namespace {
         if (n.type == "label" && !n.text.empty()) {
             if (n.text == "null")
                 s.nullText++;
-            // Text that never got decoded: a raw "$var", "#binding", or a control reference left in a label.
+            // undecoded text: raw "$var", "#binding" or control reference left in a label
             if (n.text[0] == '$' || n.text[0] == '#' ||
                 (n.text.find('@') == 0 && n.text.find('.') != std::string::npos))
                 s.rawText++;
@@ -118,7 +117,7 @@ int main(int argc, char** argv) {
     services.lineHeight = [](float s, bool ten) {
         return ten ? TenFont::Instance().LineHeight(s) : static_cast<float>(McFont::kLineHeight) * s;
     };
-    // Textures and translations are not what this checks: layout, bindings and emitted text are.
+    // checks layout, bindings and emitted text, not textures or translations
 
     int totalFailed = 0;
     for (const auto& [label, root] : stacks) {

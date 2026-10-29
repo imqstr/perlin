@@ -285,8 +285,7 @@ namespace perlin::ui {
         }
         out.type = FormModel::Type::Simple;
         out.content = Str(root.Find("content"));
-        // Classic simple forms list "buttons"; the newer format sends "elements" (buttons mixed with labels,
-        // headers and dividers).
+        // classic simple forms send "buttons"; newer format sends "elements" (buttons mixed with labels, headers, dividers)
         const Json* buttons = root.Find("buttons");
         if (!buttons || !buttons->IsArray())
             buttons = root.Find("elements");
@@ -440,6 +439,13 @@ namespace perlin::ui {
         return out;
     }
 
+    bool FormDismissDropdown(FormModel& form, const std::string& hoverId) {
+        if (form.openDropdown < 0 || hoverId.rfind("r:", 0) == 0 || hoverId.rfind("d:", 0) == 0)
+            return false;
+        form.openDropdown = -1;
+        return true;
+    }
+
     bool FormClick(FormModel& form, const std::string& id, std::string& response) {
         if (id.size() < 2)
             return false;
@@ -449,7 +455,7 @@ namespace perlin::ui {
                 response = index == 0 ? "true" : "false";
                 return true;
             }
-            // The server numbers only the buttons; labels, headers and dividers between them do not count.
+            // server numbers only buttons; labels, headers, dividers between them don't count
             int buttonIndex = 0;
             for (int i = 0; i < index && i < static_cast<int>(form.buttons.size()); i++) {
                 const std::string& k = form.buttons[static_cast<size_t>(i)].kind;
@@ -477,6 +483,14 @@ namespace perlin::ui {
             response = index == 1 ? "true" : "false";
             return true;
         }
+        if (kind == 'r') {
+            const int owner = form.openDropdown, option = index;
+            if (owner >= 0 && static_cast<size_t>(owner) < form.elements.size() &&
+                option < static_cast<int>(form.elements[static_cast<size_t>(owner)].options.size()))
+                form.elements[static_cast<size_t>(owner)].index = option;
+            form.openDropdown = -1;
+            return false;
+        }
         if (index < 0 || static_cast<size_t>(index) >= form.elements.size())
             return false;
         FormElement& e = form.elements[static_cast<size_t>(index)];
@@ -485,7 +499,7 @@ namespace perlin::ui {
         } else if (kind == 't') {
             e.flag = !e.flag;
         } else if (kind == 'd') {
-            e.index = (e.index + 1) % static_cast<int>(e.options.size());
+            form.openDropdown = form.openDropdown == index ? -1 : index;
         } else if (kind == 's') {
             const bool plus = colon != std::string::npos && rest[colon + 1] == '+';
             if (e.kind == FormElement::Kind::Slider)
@@ -580,6 +594,40 @@ namespace perlin::ui {
                     out = Json(true);
                     return true;
                 }
+                if (name == "#is_using_gamepad") {
+                    out = Json(false);
+                    return true;
+                }
+                if (name == "#close_button_visible") {
+                    out = Json(true);
+                    return true;
+                }
+                if (name == "#form_button_contents") {
+                    out = Json(static_cast<double>(items.size()));
+                    return true;
+                }
+                if (form.type == FormModel::Type::Modal) {
+                    if (name == "#modal_title_text") {
+                        out = Json(form.title);
+                        return true;
+                    }
+                    if (name == "#modal_label_text") {
+                        out = Json(form.content);
+                        return true;
+                    }
+                    if (name == "#modal_left_button_text") {
+                        out = Json(form.button1);
+                        return true;
+                    }
+                    if (name == "#modal_rightcancel_button_text") {
+                        out = Json(form.button2);
+                        return true;
+                    }
+                    if (name == "#modal_middle_button_text") {
+                        out = Json(std::string());
+                        return true;
+                    }
+                }
                 return false;
             }
 
@@ -606,11 +654,18 @@ namespace perlin::ui {
                         out = Json(e.value);
                     } else if (binding == "#custom_toggle_state") {
                         out = Json(e.flag);
+                    } else if (binding == "#custom_dropdown") {
+                        out = Json(form.openDropdown == index);
                     } else if (binding == "#custom_slider_value") {
-                        out = Json(e.number);
+                        // the slider control reads 0..1
+                        const double span = e.max - e.min;
+                        out = Json(span > 0 ? std::clamp((e.number - e.min) / span, 0.0, 1.0) : 0.0);
                     } else if (binding == "#custom_slider_step_value") {
                         out = Json(static_cast<double>(e.index));
-                    } else if (binding == "#custom_slider_text" || binding == "#custom_slider_step_text") {
+                    } else if (binding == "#custom_slider_steps") {
+                        out = Json(static_cast<double>(std::max<size_t>(e.options.size(), 1)));
+                    } else if (binding == "#custom_slider_text" || binding == "#custom_slider_step_text" ||
+                               binding == "#custom_slider_text_value" || binding == "#custom_slider_step_text_value") {
                         out = Json(ElementRowText(e, false));
                     } else if (binding == "#custom_tooltip_text") {
                         out = Json(std::string());
@@ -618,9 +673,27 @@ namespace perlin::ui {
                         out = Json(true);
                     } else if (binding == "#dropdown_option_text") {
                         out = Json(e.options.empty() ? std::string() : e.options[static_cast<size_t>(e.index)]);
+                    } else if (binding == "#custom_dropdown_length") {
+                        out = Json(static_cast<double>(form.openDropdown == index ? e.options.size() : 0));
                     } else {
                         return false;
                     }
+                    return true;
+                }
+                // only the open dropdown lists options, so its rows are this collection
+                if (collection == "custom_dropdown") {
+                    const int owner = form.openDropdown, option = index;
+                    if (owner < 0 || static_cast<size_t>(owner) >= form.elements.size())
+                        return false;
+                    const FormElement& e = form.elements[static_cast<size_t>(owner)];
+                    if (option < 0 || option >= static_cast<int>(e.options.size()))
+                        return false;
+                    if (binding == "#custom_radio_text")
+                        out = Json(e.options[static_cast<size_t>(option)]);
+                    else if (binding == "#custom_radio_toggled")
+                        out = Json(option == e.index);
+                    else
+                        return false;
                     return true;
                 }
                 if (collection != "form_buttons" || index < 0 || static_cast<size_t>(index) >= items.size())
@@ -631,7 +704,7 @@ namespace perlin::ui {
                     return true;
                 }
                 if (binding == "#form_button_texture") {
-                    // Web images report "loading" until downloaded, as the game does; packs show a spinner for it.
+                    // web images report "loading" until downloaded, as the game does; packs show a spinner
                     if (b.imageType == "url") {
                         std::string bytes;
                         out = Json(FormImageBytes(b.imageData, bytes) ? (bytes.empty() ? std::string() : "mcurl:" + b.imageData) : std::string("loading"));
@@ -672,112 +745,6 @@ namespace perlin::ui {
             const FormModel& form;
             std::vector<FormButton> items;
         };
-
-        bool NodeSupported(const std::string& type) {
-            return type == "panel" || type == "stack_panel" || type == "grid" || type == "image" || type == "label" ||
-                   type == "button" || type == "scroll_view" || type == "custom" || type == "factory" ||
-                   type == "collection_panel" || type == "input_panel" || type == "screen";
-        }
-
-        bool SubtreeSupported(const Node& node) {
-            if (!NodeSupported(node.type))
-                return false;
-            for (const auto& child : node.children)
-                if (!SubtreeSupported(*child))
-                    return false;
-            if (node.gridTemplate && !SubtreeSupported(*node.gridTemplate))
-                return false;
-            for (const auto& control : node.factoryControls)
-                if (!SubtreeSupported(*control.second))
-                    return false;
-            return true;
-        }
-
-        void ShimCustomRows(Node& node, UiLibrary& library, BuildReport& report) {
-            const Json* collection = node.props.Find("collection_name");
-            const bool customRows = collection && collection->IsString() && collection->string == "custom_form";
-            for (auto& control : node.factoryControls) {
-                const bool needsShim = customRows && (control.first == "toggle" || control.first == "slider" || control.first == "step_slider" ||
-                                                      control.first == "dropdown" || control.first == "input" || control.first == "multiselect" ||
-                                                      !SubtreeSupported(*control.second));
-                if (needsShim && !SubtreeSupported(*control.second)) {
-                    const std::string shimName = control.first == "multiselect" ? "dropdown" : control.first;
-                    if (auto shim = BuildTree(library, "perlin_form.custom_" + shimName, EngineRootVariables(), report)) {
-                        control.second = std::move(shim);
-                        continue;
-                    }
-                }
-                ShimCustomRows(*control.second, library, report);
-            }
-            for (auto& child : node.children)
-                ShimCustomRows(*child, library, report);
-            if (node.gridTemplate)
-                ShimCustomRows(*node.gridTemplate, library, report);
-        }
-
-        const char* kFormShim = R"JSON({
-  "namespace": "perlin_form",
-  "text_row": {
-    "type": "panel",
-    "size": ["100%", 32],
-    "$perlin_button": "button.perlin_form_toggle",
-    "controls": [
-      { "row@common_buttons.light_text_button": {
-          "$pressed_button_name": "$perlin_button",
-          "anchor_from": "top_left", "anchor_to": "top_left",
-          "size": ["100%", 32],
-          "$button_text": "#custom_row_text",
-          "$button_text_binding_type": "collection",
-          "$button_text_grid_collection_name": "custom_form",
-          "$button_text_max_size": ["100%", 20],
-          "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "custom_form" } ]
-      } }
-    ]
-  },
-  "custom_toggle@perlin_form.text_row": { "$perlin_button": "button.perlin_form_toggle" },
-  "custom_dropdown@perlin_form.text_row": { "$perlin_button": "button.perlin_form_dropdown" },
-  "custom_input@perlin_form.text_row": { "$perlin_button": "button.perlin_form_input" },
-  "stepper_row": {
-    "type": "stack_panel",
-    "orientation": "horizontal",
-    "size": ["100%", 32],
-    "controls": [
-      { "minus@common_buttons.light_text_button": {
-          "$pressed_button_name": "button.perlin_form_minus",
-          "size": [32, 32], "$button_text": "<" } },
-      { "value@common_buttons.light_text_button": {
-          "$pressed_button_name": "button.perlin_form_none",
-          "size": ["fill", 32],
-          "$button_text": "#custom_row_text",
-          "$button_text_binding_type": "collection",
-          "$button_text_grid_collection_name": "custom_form",
-          "$button_text_max_size": ["100%", 20],
-          "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "custom_form" } ] } },
-      { "plus@common_buttons.light_text_button": {
-          "$pressed_button_name": "button.perlin_form_plus",
-          "size": [32, 32], "$button_text": ">" } }
-    ]
-  },
-  "custom_slider@perlin_form.stepper_row": {},
-  "custom_step_slider@perlin_form.stepper_row": {},
-  "custom_label": {
-    "type": "panel",
-    "size": ["100%", "100%c"],
-    "controls": [
-      { "text": {
-          "type": "label",
-          "offset": [2, 2],
-          "size": ["100%", "default"],
-          "anchor_from": "top_left", "anchor_to": "top_left",
-          "color": "$main_header_text_color",
-          "text": "#custom_text",
-          "bindings": [ { "binding_name": "#custom_text", "binding_type": "collection", "binding_collection_name": "custom_form" } ]
-      } }
-    ]
-  },
-  "custom_header@perlin_form.custom_label": {}
-}
-)JSON";
 
         const char* kFormTemplate =
             "<rml>\n<head>\n<title>form</title>\n<style>\n"
@@ -843,14 +810,14 @@ namespace perlin::ui {
         roots.push_back(data + "/ui_defaults");
         roots.push_back(UiAssets::Instance().VanillaRoot() + "/ui");
         {
+            // the old text-row stand-ins for form controls; the real controls draw now
             std::error_code ec;
-            std::filesystem::create_directories(data + "/ui_defaults", ec);
-            std::ofstream shim(data + "/ui_defaults/perlin_form.json", std::ios::binary | std::ios::trunc);
-            shim << kFormShim;
+            std::filesystem::remove(data + "/ui_defaults/perlin_form.json", ec);
         }
         worker = std::thread([this, roots]() {
             library.SetRoots(roots);
             tree.reset();
+            modalTree.reset();
             problem.clear();
             if (!library.Scan()) {
                 problem = "no ui folder";
@@ -864,7 +831,16 @@ namespace perlin::ui {
                 state = 3;
                 return;
             }
-            ShimCustomRows(*tree, library, report);
+            // modal forms use the game's two-button popup
+            Vars modalVars = EngineRootVariables();
+            for (const char* flag : {"$no_buttons_visible", "$single_button_visible", "$single_button_checkbox_visible",
+                                     "$two_buttons_checkbox_visible", "$destructive_two_buttons_visible", "$three_buttons_visible",
+                                     "$destructive_three_buttons_visible", "$show_close_button"})
+                modalVars[flag] = Json(false);
+            modalVars["$two_buttons_visible"] = Json(true);
+            modalVars["$button_text_binding_type"] = Json("global");
+            BuildReport modalReport;
+            modalTree = BuildTree(library, "popup_dialog.modal_dialog_popup", modalVars, modalReport);
             for (const std::string& missing : report.missingControls)
                 std::cout << "[form] missing control " << missing << std::endl;
             state = 2;
@@ -884,16 +860,29 @@ namespace perlin::ui {
         FormData data(form);
         const auto started = std::chrono::steady_clock::now();
         anim.now = std::chrono::duration<double>(started - animStart).count();
-        const std::unique_ptr<LNode> root = EvaluateTree(*tree, data, services, static_cast<float>(guiW), static_cast<float>(guiH));
+        const Node& screen = form.type == FormModel::Type::Modal && modalTree ? *modalTree : *tree;
+        const std::unique_ptr<LNode> root = EvaluateTree(screen, data, services, static_cast<float>(guiW), static_cast<float>(guiH));
         if (!root)
             return false;
+        emitter.SetEditText([&form](const LNode& n, std::string& text, std::string& placeholder, bool& focused) {
+            if (n.index < 0 || static_cast<size_t>(n.index) >= form.elements.size())
+                return false;
+            text = form.elements[static_cast<size_t>(n.index)].value;
+            placeholder = form.elements[static_cast<size_t>(n.index)].placeholder;
+            focused = form.focus == n.index;
+            return true;
+        });
         emitter.SetScroll(scroll);
         emitter.SetTemplates(ScreenTemplate("server_form_screen.rml", kFormTemplate), std::string());
         rml = emitter.Emit(*root, static_cast<float>(guiW), static_cast<float>(guiH), std::string(), false);
         contentHeight = emitter.ContentHeight();
         viewHeight = emitter.ViewportHeight();
-        // A server's own form design may draw its text as images or decode it (CubeCraft packs flags into titles),
-        // so the text check only guards vanilla-only layouts.
+        for (size_t i = 0; i < form.elements.size(); i++)
+            if (const auto track = emitter.SliderTracks().find("k:" + std::to_string(i)); track != emitter.SliderTracks().end()) {
+                form.elements[i].trackX = track->second.first;
+                form.elements[i].trackW = track->second.second;
+            }
+        // server form designs may draw text as images or encode data in titles: text check only guards vanilla-only layouts
         if (!ServerStyled()) {
             std::vector<std::string> samples;
             if (form.type == FormModel::Type::Modal) {

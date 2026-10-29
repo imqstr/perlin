@@ -77,6 +77,23 @@ namespace perlin {
         PERLIN_EVENT_TAG(MouseWheel);
         PERLIN_EVENT_TAG(KeyRaw);
         PERLIN_EVENT_TAG(TextInput);
+        PERLIN_EVENT_TAG(ScreenRender);
+        PERLIN_EVENT_TAG(SlotClick);
+        PERLIN_EVENT_TAG(Interact);
+        PERLIN_EVENT_TAG(ChunkLoaded);
+        PERLIN_EVENT_TAG(ChunkUnloaded);
+        PERLIN_EVENT_TAG(BlockChanged);
+        PERLIN_EVENT_TAG(ResourcesReloaded);
+        PERLIN_EVENT_TAG(LevelLoaded);
+        PERLIN_EVENT_TAG(LevelUnloaded);
+        PERLIN_EVENT_TAG(ModsLoaded);
+        PERLIN_EVENT_TAG(ClientStopping);
+        PERLIN_EVENT_TAG(Toast);
+        PERLIN_EVENT_TAG(ModMessage);
+        PERLIN_EVENT_TAG(Tooltip);
+        PERLIN_EVENT_TAG(ScreenButton);
+        PERLIN_EVENT_TAG(WindowFocus);
+        PERLIN_EVENT_TAG(ServerPing);
 #undef PERLIN_EVENT_TAG
     }
 
@@ -366,10 +383,11 @@ namespace perlin {
         void dispatch(abi::Event id, abi::Reader& r, uint32_t& flags);
         void run_unload();
 
-        uint32_t subscriptions() const {
-            uint32_t mask = bit(abi::Event::HttpResponse) | bit(abi::Event::SettingChanged);
+        // bits 0-31 go through perlin_subscriptions, 32-63 through perlin_subscriptions_hi
+        uint64_t subscriptions() const {
+            uint64_t mask = bit(abi::Event::HttpResponse) | bit(abi::Event::SettingChanged);
             for (const auto& entry : handlers)
-                if (!entry.second.empty()) mask |= 1u << entry.first;
+                if (!entry.second.empty()) mask |= 1ull << entry.first;
             if (!timers.empty()) mask |= bit(abi::Event::Tick);
             if (!layers.empty()) mask |= bit(abi::Event::Frame);
             if (!commands.empty()) mask |= bit(abi::Event::Command);
@@ -378,7 +396,7 @@ namespace perlin {
         }
 
     private:
-        static constexpr uint32_t bit(abi::Event e) { return 1u << static_cast<uint32_t>(e); }
+        static constexpr uint64_t bit(abi::Event e) { return 1ull << static_cast<uint32_t>(e); }
 
         struct Timer {
             TimerId id;
@@ -611,7 +629,8 @@ void perlin_plugin_main(perlin::Context& ctx);
 extern "C" {
 __attribute__((export_name("perlin_alloc"))) inline void* perlin_alloc(uint32_t size) { return ::operator new(size ? size : 1); }
 __attribute__((export_name("perlin_free"))) inline void perlin_free(void* p) { ::operator delete(p); }
-__attribute__((export_name("perlin_subscriptions"))) inline uint32_t perlin_subscriptions() { return perlin::detail::context().subscriptions(); }
+__attribute__((export_name("perlin_subscriptions"))) inline uint32_t perlin_subscriptions() { return static_cast<uint32_t>(perlin::detail::context().subscriptions()); }
+__attribute__((export_name("perlin_subscriptions_hi"))) inline uint32_t perlin_subscriptions_hi() { return static_cast<uint32_t>(perlin::detail::context().subscriptions() >> 32); }
 __attribute__((export_name("perlin_event"))) inline uint32_t perlin_event(uint32_t id, const uint8_t* data, uint32_t len) {
     perlin::Context& ctx = perlin::detail::context();
     perlin::abi::Reader r(data, len);

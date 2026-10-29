@@ -23,7 +23,7 @@ namespace perlin::ui {
     };
 
     namespace {
-        // Every Bedrock install found under `base`, matching <base>/<a>/<b>/.../resource_packs/vanilla/font/.
+        // bedrock installs under `base`: <base>/<a>/<b>/.../resource_packs/vanilla/font/
         void Collect(const fs::path& base, int depth, std::vector<fs::path>& out) {
             std::error_code ec;
             if (depth < 0 || !fs::is_directory(base, ec))
@@ -47,12 +47,12 @@ namespace perlin::ui {
                 return out;
             const fs::path h(home);
             std::vector<fs::path> found;
-            // Bedrock On Linux: games/<channel>/<version>/data/...
+            // bedrock on linux: games/<channel>/<version>/data/...
             Collect(h / ".local/share/bedrock-on-linux/games", 4, found);
             // mcpelauncher: versions/<version>/assets/...
             Collect(h / ".local/share/mcpelauncher/versions", 3, found);
             Collect(h / ".var/app/io.mrarm.mcpelauncher/data/mcpelauncher/versions", 3, found);
-            // Newest version first: sort by path, versions are dotted numbers so later names win.
+            // newest first: dotted version paths sort later
             std::sort(found.begin(), found.end(), [](const fs::path& a, const fs::path& b) { return a.string() > b.string(); });
             out.insert(out.end(), found.begin(), found.end());
             return out;
@@ -126,7 +126,6 @@ namespace perlin::ui {
 
     float TenFont::Ascent(float scale) const { return 6.0f * scale; }
     float TenFont::Descent(float scale) const { return 3.0f * scale; }
-    float TenFont::LineHeight(float scale) const { return 9.0f * scale; }
 
     float TenFont::Advance(uint32_t cp, float scale) const {
         if (!impl)
@@ -144,7 +143,7 @@ namespace perlin::ui {
             const uint32_t cp = NextCodepoint(utf8, i);
             if (cp == 0)
                 break;
-            // Format codes (section sign + one character) take no space.
+            // format codes (section sign + char) take no space
             if (skip) {
                 skip = false;
                 continue;
@@ -178,7 +177,7 @@ namespace perlin::ui {
         page->version = ++pageVersion;
         const float scale = stbtt_ScaleForMappingEmToPixels(&impl->info, static_cast<float>(emPx));
 
-        // Latin, Latin-1 and Latin Extended-A: everything the font has that servers put in headings.
+        // latin, latin-1, latin extended-a: what servers use in headings
         std::vector<uint32_t> codepoints;
         for (uint32_t cp = 32; cp < 0x180; cp++)
             if (stbtt_FindGlyphIndex(&impl->info, static_cast<int>(cp)) != 0)
@@ -216,7 +215,7 @@ namespace perlin::ui {
             const int cy = static_cast<int>(i / static_cast<size_t>(across)) * cellH + 1;
             for (int y = 0; y < r.h; y++)
                 for (int x = 0; x < r.w; x++) {
-                    // The font is drawn on a pixel grid: harden the edges so it stays as crisp as the bitmap font.
+                    // pixel grid: harden edges to match bitmap font crispness
                     const unsigned char a = r.alpha[static_cast<size_t>(y) * static_cast<size_t>(r.w) + static_cast<size_t>(x)];
                     const uint8_t v = a >= 96 ? 255 : static_cast<uint8_t>(a * 255 / 96);
                     uint8_t* px = &page->rgba[(static_cast<size_t>(cy + y) * static_cast<size_t>(page->width) + static_cast<size_t>(cx + x)) * 4];

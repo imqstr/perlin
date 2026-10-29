@@ -87,7 +87,7 @@ namespace perlin::ui {
             draw.model[0] = s;
             draw.model[5] = s;
             draw.model[10] = 1.0f;
-            // Whole device pixels, so pixel art and bitmap text never straddle pixel boundaries.
+            // whole device pixels: pixel art and bitmap text never straddle pixel boundaries
             draw.model[12] = std::round(translation.x * s);
             draw.model[13] = std::round(translation.y * s);
             draw.scissor = scissorOn;
@@ -326,9 +326,8 @@ namespace perlin::ui {
             const Rml::ColourbPremultiplied shade(static_cast<Rml::byte>(main.red / 4), static_cast<Rml::byte>(main.green / 4),
                                                   static_cast<Rml::byte>(main.blue / 4), main.alpha);
 
-            // Bitmap glyphs stay crisp only when every font texel covers whole device pixels: a scale that lands near a
-            // whole number of pixels per texel (font_scale_factor 1.05 at any gui scale) is rounded to it, and glyph
-            // origins are snapped to the device grid. Layout widths keep the exact scale.
+            // bitmap glyphs stay crisp only when each font texel covers whole device pixels: a scale near a whole
+            // number of pixels per texel (font_scale_factor 1.05 at any gui scale) is rounded to it, origins snapped; layout keeps exact scale
             const float device = static_cast<float>(gScale);
             float texel = s * device;
             if (const float whole = std::round(texel); whole >= 1.0f && std::fabs(texel - whole) <= 0.2f * texel)
@@ -404,8 +403,8 @@ namespace perlin::ui {
             return c;
         }
 
-        // MinecraftTen: a real TrueType face rasterised at device resolution, so glyph texels cover whole screen pixels
-        // instead of landing between them the way the 8 px bitmap font would at a fractional scale.
+        // MinecraftTen: real truetype face rasterised at device resolution: texels cover whole screen pixels,
+        // unlike the 8 px bitmap font at a fractional scale
         int GenerateTenString(Rml::RenderManager& renderManager, const Face& f, Rml::StringView string,
                               const Rml::Vector2f& position, Rml::ColourbPremultiplied colour, float opacity,
                               Rml::TexturedMeshList& meshes) {

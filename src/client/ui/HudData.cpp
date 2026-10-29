@@ -33,8 +33,8 @@ namespace perlin::ui {
         v["$xbox"] = Json(false);
         v["$switch"] = Json(false);
 
-        // Platform flags the game sets before any screen is built. Perlin presents itself as the Windows
-        // (GDK) desktop client, so the vanilla screens take their desktop branches.
+        // platform flags set before any screen is built: we pose as the windows (gdk) desktop client
+        // so vanilla screens take their desktop branches
         for (const char* on : {"$win10_edition", "$microsoft_os", "$ms_platform", "$is_desktop", "$ignore_edu_pause",
                                "$is_publish", "$is_xboxlive_enabled", "$is_realms_enabled", "$gamepad_supported",
                                "$keyboard_and_mouse_supported", "$can_quit", "$supports_clipboard_set", "$screen_transitions_enabled",

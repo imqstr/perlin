@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 
 namespace perlin::ui {
@@ -140,8 +141,8 @@ namespace perlin::ui {
                 Tex(w, n, right - i * 8 - 9, n.ay, 9, i < full ? "bubble" : "bubble_pop");
         }
 
-        // The totem / omen activation: the icon rises from below the screen, swells past the crosshair and fades.
-        // Curve from Java's GameRenderer item activation.
+        // totem / omen activation: icon rises from below, swells past the crosshair, fades
+        // curve from java GameRenderer item activation
         void ScreenAnimation(const HudState& s, const LNode& n, RmlWriter& w) {
             if (s.screenAnimation < 0)
                 return;
@@ -547,23 +548,64 @@ namespace perlin::ui {
 
     void RegisterHudRenderers(RmlEmitter& emitter, const HudState& state, const UiServices&) {
         const HudState* s = &state;
-        emitter.Register("heart_renderer", [s](const LNode& n, RmlWriter& w) { Hearts(*s, n, w); });
-        emitter.Register("armor_renderer", [s](const LNode& n, RmlWriter& w) { Armor(*s, n, w); });
-        emitter.Register("hunger_renderer", [s](const LNode& n, RmlWriter& w) { Hunger(*s, n, w); });
-        emitter.Register("bubbles_renderer", [s](const LNode& n, RmlWriter& w) { Bubbles(*s, n, w); });
-        emitter.Register("hotbar_renderer", [s](const LNode& n, RmlWriter& w) { Hotbar(*s, n, w); });
-        emitter.Register("inventory_item_renderer", [s](const LNode& n, RmlWriter& w) { InventoryItem(*s, n, w); });
-        emitter.Register("debug_renderer", [s](const LNode& n, RmlWriter& w) { Debug(*s, n, w); });
-        emitter.Register("chat_renderer", [s](const LNode& n, RmlWriter& w) { Chat(*s, n, w); });
-        emitter.Register("subtitle_renderer", [s](const LNode& n, RmlWriter& w) { Subtitles(*s, n, w); });
-        emitter.Register("fire_renderer", [s](const LNode& n, RmlWriter& w) { Fire(*s, n, w); });
-        emitter.Register("progress_bar_renderer", [s](const LNode& n, RmlWriter& w) { ProgressBar(*s, n, w); });
-        emitter.Register("locator_bar", [s](const LNode& n, RmlWriter& w) { LocatorBar(*s, n, w); });
-        emitter.Register("mob_effects_renderer", [s](const LNode& n, RmlWriter& w) { MobEffects(*s, n, w); });
+        // every vanilla element goes through the mod filter: may hide it or shift its node
+        const auto Reg = [&emitter](const char* name, std::function<void(const LNode&, RmlWriter&)> draw) {
+            emitter.Register(name, [name, draw = std::move(draw)](const LNode& n, RmlWriter& w) {
+                float dx = 0, dy = 0;
+                if (!FilterHudElement(name, dx, dy))
+                    return;
+                if (dx == 0 && dy == 0) {
+                    draw(n, w);
+                    return;
+                }
+                // nodes own children, can't be copied: shift for this draw, put back
+                LNode& moved = const_cast<LNode&>(n);
+                moved.x += dx;
+                moved.ax += dx;
+                moved.y += dy;
+                moved.ay += dy;
+                draw(moved, w);
+                moved.x -= dx;
+                moved.ax -= dx;
+                moved.y -= dy;
+                moved.ay -= dy;
+            });
+        };
+        Reg("heart_renderer", [s](const LNode& n, RmlWriter& w) { Hearts(*s, n, w); });
+        Reg("armor_renderer", [s](const LNode& n, RmlWriter& w) { Armor(*s, n, w); });
+        Reg("hunger_renderer", [s](const LNode& n, RmlWriter& w) { Hunger(*s, n, w); });
+        Reg("bubbles_renderer", [s](const LNode& n, RmlWriter& w) { Bubbles(*s, n, w); });
+        Reg("hotbar_renderer", [s](const LNode& n, RmlWriter& w) { Hotbar(*s, n, w); });
+        Reg("inventory_item_renderer", [s](const LNode& n, RmlWriter& w) { InventoryItem(*s, n, w); });
+        Reg("debug_renderer", [s](const LNode& n, RmlWriter& w) { Debug(*s, n, w); });
+        Reg("chat_renderer", [s](const LNode& n, RmlWriter& w) { Chat(*s, n, w); });
+        Reg("subtitle_renderer", [s](const LNode& n, RmlWriter& w) { Subtitles(*s, n, w); });
+        Reg("fire_renderer", [s](const LNode& n, RmlWriter& w) { Fire(*s, n, w); });
+        Reg("progress_bar_renderer", [s](const LNode& n, RmlWriter& w) { ProgressBar(*s, n, w); });
+        Reg("locator_bar", [s](const LNode& n, RmlWriter& w) { LocatorBar(*s, n, w); });
+        Reg("mob_effects_renderer", [s](const LNode& n, RmlWriter& w) { MobEffects(*s, n, w); });
         for (const char* name : {"horse_jump_renderer", "dash_renderer",
                                  "vignette_renderer", "camera_renderer", "hud_player_renderer", "horse_heart_renderer",
                                  "cooldown_renderer", "editor_gizmo_renderer", "editor_compass_renderer",
                                  "editor_volume_highlight_renderer", "progress_indicator_renderer"})
             emitter.Register(name, [](const LNode&, RmlWriter&) {});
+    }
+
+    namespace {
+        HudElementFilter& ElementFilter() {
+            static HudElementFilter filter;
+            return filter;
+        }
+        std::atomic<uint64_t> gFilterVersion{0};
+    }
+
+    uint64_t HudFilterVersion() { return gFilterVersion.load(); }
+    void BumpHudFilter() { gFilterVersion++; }
+
+    void SetHudElementFilter(HudElementFilter filter) { ElementFilter() = std::move(filter); }
+
+    bool FilterHudElement(std::string_view renderer, float& dx, float& dy) {
+        const HudElementFilter& f = ElementFilter();
+        return !f || f(renderer, dx, dy);
     }
 }

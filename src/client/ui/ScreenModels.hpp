@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-// Turns Perlin's own state into the bindings Bedrock's screen controllers would publish, one function per screen.
-// Only bindings the vanilla files (or common server overrides) read are answered; the rest keep their defaults.
+// turns our state into the bindings bedrock's screen controllers would publish, one function per screen;
+// only bindings vanilla files (or common server overrides) read are answered; the rest keep defaults
 namespace perlin::ui {
     struct PausePlayer {
         std::string name;
@@ -21,7 +21,7 @@ namespace perlin::ui {
     };
     ScreenData PauseScreenData(const PauseModel& model);
 
-    // Slot bindings for container screens. `container` is the open container's items; `inventory` the player's 36
-    // slots (hotbar first). Item pictures come from JsonScreens::SetItems.
+    // slot bindings for container screens: `container` = open container's items, `inventory` = player's 36 slots
+    // (hotbar first); item pictures come from JsonScreens::SetItems
     ScreenData ContainerScreenData(const std::vector<HudItem>& container, const std::vector<HudItem>& inventory, int selectedHotbar);
 }

@@ -1,34 +1,7 @@
 #include "client/resources/BundledShaderPack.hpp"
 
-#include "client/renderer/shader/EmbeddedShaders.hpp"
-
-#include "perlin_shaders.h"
-
 namespace perlin {
     namespace {
-        const bgfx::EmbeddedShader kBundled[] = {
-            BGFX_EMBEDDED_SHADER(vv_vs_terrain),
-            BGFX_EMBEDDED_SHADER(vv_fs_terrain_solid),
-            BGFX_EMBEDDED_SHADER(vv_fs_terrain_cutout),
-            BGFX_EMBEDDED_SHADER(vv_fs_terrain_translucent),
-            BGFX_EMBEDDED_SHADER(vv_vs_sky),
-            BGFX_EMBEDDED_SHADER(vv_fs_sky),
-            BGFX_EMBEDDED_SHADER(vv_vs_star),
-            BGFX_EMBEDDED_SHADER(vv_fs_star),
-            BGFX_EMBEDDED_SHADER(vv_vs_sunrise),
-            BGFX_EMBEDDED_SHADER(vv_fs_sunrise),
-            BGFX_EMBEDDED_SHADER(vv_vs_celestial),
-            BGFX_EMBEDDED_SHADER(vv_fs_celestial),
-            BGFX_EMBEDDED_SHADER(vv_vs_cloud),
-            BGFX_EMBEDDED_SHADER(vv_fs_cloud),
-            BGFX_EMBEDDED_SHADER(vv_vs_shadow),
-            BGFX_EMBEDDED_SHADER(vv_fs_shadow),
-            BGFX_EMBEDDED_SHADER(vv_fs_shadow_cutout),
-            BGFX_EMBEDDED_SHADER(vv_fs_shadow_glass),
-            BGFX_EMBEDDED_SHADER_END(),
-        };
-
-
         const char* const kBundledMeta = R"({
   "name": "Vibrant Visuals",
   "description": "Bedrock's Vibrant Visuals look: atmospheric sky, square sun with bloom, blocky volumetric clouds with glowing edges, reflective water, soft shadows and haze",
@@ -85,43 +58,18 @@ namespace perlin {
   ]
 })";
 
-        bgfx::RendererType::Enum RendererOf(const std::string& backend) {
-            if (backend == "dxbc")
-                return bgfx::RendererType::Direct3D11;
-            if (backend == "glsl")
-                return bgfx::RendererType::OpenGL;
-            if (backend == "spirv")
-                return bgfx::RendererType::Vulkan;
-            if (backend == "metal")
-                return bgfx::RendererType::Metal;
-            if (backend == "essl")
-                return bgfx::RendererType::OpenGLES;
-            return bgfx::RendererType::Noop;
-        }
-
-        const bgfx::EmbeddedShader::Data* BundledData(const std::string& backend, const std::string& shader) {
-            const bgfx::RendererType::Enum want = RendererOf(backend);
-            const std::string name = "vv_" + shader;
-            for (const bgfx::EmbeddedShader* it = kBundled; it->name != nullptr; ++it) {
-                if (name != it->name)
-                    continue;
-                for (const auto& d : it->data)
-                    if (d.type == want && d.data != nullptr && d.size >= 16 && d.data[1] == 'S' && d.data[2] == 'H')
-                        return &d;
-            }
-            return nullptr;
-        }
-
     }
 
     const char* BundledShaderMeta() { return kBundledMeta; }
 
-    bool BundledShaderBytes(const std::string& backend, const std::string& shader, const uint8_t*& data, size_t& size) {
-        const bgfx::EmbeddedShader::Data* d = BundledData(backend, shader);
-        if (!d)
+    // the bundled pack's programs ship in the engine's own shader pack, so there are no per-backend binaries to hand out;
+    // one marker lets ShaderPack::Open see the pack as present
+    bool BundledShaderBytes(const std::string&, const std::string& shader, const uint8_t*& data, size_t& size) {
+        static const uint8_t kMarker[16] = {0, 'S', 'H'};
+        if (shader != "vs_terrain")
             return false;
-        data = d->data;
-        size = d->size;
+        data = kMarker;
+        size = sizeof(kMarker);
         return true;
     }
 }

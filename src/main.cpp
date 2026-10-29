@@ -174,6 +174,9 @@ namespace {
 
     perlin::LaunchArgs ParseArgs(int argc, char** argv) {
         perlin::LaunchArgs args;
+        // a preview screenshot runs on its own: no window needed (PERLIN_PREVIEW_VISIBLE=1 shows it anyway)
+        if (std::getenv("PERLIN_PREVIEW_SHOT") && !std::getenv("PERLIN_PREVIEW_VISIBLE"))
+            args.hidden = true;
         for (int i = 1; i < argc; i++) {
             const std::string arg = argv[i];
             if (arg == "--join" && i + 1 < argc)

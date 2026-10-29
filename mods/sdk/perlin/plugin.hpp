@@ -83,7 +83,11 @@ namespace perlin {
     X(SlotChanged, onSlotChanged) X(EntityAdded, onEntityAdded) X(EntityRemoved, onEntityRemoved) X(Sound, onSound)   \
     X(Packet, onPacket) X(Title, onTitle) X(SettingChanged, onSettingChanged) X(Look, onLook)                          \
     X(MouseMove, onMouseMove) X(MouseButton, onMouseButton) X(MouseWheel, onMouseWheel) X(KeyRaw, onKeyRaw)           \
-    X(TextInput, onTextInput)
+    X(TextInput, onTextInput) X(ScreenRender, onScreenRender) X(SlotClick, onSlotClick) X(Interact, onInteract)        \
+    X(ChunkLoaded, onChunkLoaded) X(ChunkUnloaded, onChunkUnloaded) X(BlockChanged, onBlockChanged)                    \
+    X(ResourcesReloaded, onResourcesReloaded) X(LevelLoaded, onLevelLoaded) X(LevelUnloaded, onLevelUnloaded)          \
+    X(ModsLoaded, onModsLoaded) X(ClientStopping, onClientStopping) X(Toast, onToast) X(ModMessage, onModMessage)      \
+    X(Tooltip, onTooltip) X(ScreenButton, onScreenButton) X(WindowFocus, onWindowFocus) X(ServerPing, onServerPing)
 
     namespace detail_plugin {
         template <class T>

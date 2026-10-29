@@ -1,8 +1,10 @@
 #include "client/attachable/Attachable.hpp"
+#include "client/resources/ServerPacks.hpp"
 #include "client/ui/UiAssets.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -156,7 +158,40 @@ namespace perlin::attachable {
         }
     }
 
+    void Attachables::RefreshServerIndex() {
+        const std::vector<std::string> dirs = ServerPacks::Instance().Directories();
+        std::string key;
+        for (const std::string& d : dirs)
+            key += d + "|";
+        if (key == serverKey)
+            return;
+        serverKey = key;
+        serverFiles.clear();
+        entries.clear();
+        namespace fs = std::filesystem;
+        for (const std::string& dir : dirs) {
+            std::error_code ec;
+            for (fs::recursive_directory_iterator it(fs::path(dir) / "attachables", ec), end; !ec && it != end; it.increment(ec)) {
+                if (!it->is_regular_file(ec) || it->path().extension() != ".json")
+                    continue;
+                std::ifstream f(it->path(), std::ios::binary);
+                std::stringstream ss;
+                ss << f.rdbuf();
+                Json doc;
+                std::string error;
+                if (!Json::Parse(ss.str(), doc, error))
+                    continue;
+                const Json* att = doc.Find("minecraft:attachable");
+                const Json* desc = att ? att->Find("description") : nullptr;
+                const Json* id = desc ? desc->Find("identifier") : nullptr;
+                if (id && id->IsString())
+                    serverFiles.try_emplace(id->string, it->path().string());
+            }
+        }
+    }
+
     Attachables::Entry* Attachables::Load(const std::string& identifier) {
+        RefreshServerIndex();
         auto [it, inserted] = entries.try_emplace(identifier);
         Entry& e = it->second;
         if (!inserted)
@@ -164,7 +199,13 @@ namespace perlin::attachable {
         e.loaded = true;
         const std::string name = Shorten(identifier);
         std::string text;
-        if (!ReadFile("attachables/" + name + ".json", text) && !ReadFile("attachables/" + name + ".entity.json", text))
+        if (const auto server = serverFiles.find(identifier); server != serverFiles.end()) {
+            std::ifstream f(server->second, std::ios::binary);
+            std::stringstream ss;
+            ss << f.rdbuf();
+            text = ss.str();
+        }
+        if (text.empty() && !ReadFile("attachables/" + name + ".json", text) && !ReadFile("attachables/" + name + ".entity.json", text))
             return nullptr;
         Json doc;
         std::string error;

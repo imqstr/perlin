@@ -79,10 +79,12 @@ namespace perlin {
             std::string capePhysics = "off";
             bool bedrockBridging = true;
             bool webTuned = false;
+            bool bedrockMenus = false;
             std::map<std::string, std::string> padKeys;
             float padSensitivity = 1.0f;
             float padDeadzone = 0.15f;
             bool padInvertY = false;
+            bool padVibration = true;
             float touchSensitivity = 1.0f;
             float touchScale = 1.0f;
             float touchOpacity = 0.85f;
@@ -233,6 +235,7 @@ namespace perlin {
         if (o.texturePacks.empty() && !stored.texturePack.empty())
             o.texturePacks.push_back(stored.texturePack);
         o.disabledMods = stored.disabledMods;
+        o.bedrockMenus = stored.bedrockMenus;
         o.approvedMods = stored.approvedMods;
         o.hotReload = stored.hotReload;
         o.betterGrass = stored.betterGrass;
@@ -265,7 +268,7 @@ namespace perlin {
         o.guiScale = std::clamp(stored.guiScale, 0, 16);
         o.sound = stored.sound;
         o.menuBlur = std::clamp(stored.menuBlur, 0, 10);
-        o.renderer = stored.renderer == "d3d11" || stored.renderer == "vulkan" || stored.renderer == "opengl" || stored.renderer == "metal" ? stored.renderer : std::string("auto");
+        o.renderer = stored.renderer == "d3d12" || stored.renderer == "d3d11" || stored.renderer == "vulkan" || stored.renderer == "metal" || stored.renderer == "webgpu" ? stored.renderer : std::string("auto");
         o.capePhysics = stored.capePhysics == "off" || stored.capePhysics == "shoulder" ? stored.capePhysics : std::string("off");
         o.sprintMode = stored.sprintMode == "toggle" ? "toggle" : "hold";
         o.sneakMode = stored.sneakMode == "toggle" ? "toggle" : "hold";
@@ -316,6 +319,7 @@ namespace perlin {
         o.padSensitivity = std::clamp(stored.padSensitivity, 0.1f, 3.0f);
         o.padDeadzone = std::clamp(stored.padDeadzone, 0.0f, 0.6f);
         o.padInvertY = stored.padInvertY;
+        o.padVibration = stored.padVibration;
         o.touchSensitivity = std::clamp(stored.touchSensitivity, 0.1f, 3.0f);
         o.touchScale = std::clamp(stored.touchScale, 0.5f, 1.8f);
         o.touchOpacity = std::clamp(stored.touchOpacity, 0.2f, 1.0f);
@@ -394,9 +398,11 @@ namespace perlin {
         for (size_t i = 0; i < kActionCount; i++)
             stored.padKeys[ActionId(static_cast<Action>(i))] = padKeys[i].Serialize();
         stored.webTuned = webTuned;
+        stored.bedrockMenus = bedrockMenus;
         stored.padSensitivity = padSensitivity;
         stored.padDeadzone = padDeadzone;
         stored.padInvertY = padInvertY;
+        stored.padVibration = padVibration;
         stored.touchSensitivity = touchSensitivity;
         stored.touchScale = touchScale;
         stored.touchOpacity = touchOpacity;

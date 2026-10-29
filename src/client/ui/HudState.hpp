@@ -50,7 +50,7 @@ namespace perlin::ui {
     };
 
     struct HudState {
-        // Server scoreboard shown in the sidebar slot (SetDisplayObjective "sidebar").
+        // server scoreboard in the sidebar slot (SetDisplayObjective "sidebar")
         bool sidebarVisible = false;
         std::string sidebarTitle;
         std::vector<HudSidebarRow> sidebar;
@@ -69,7 +69,7 @@ namespace perlin::ui {
         int xpLevel = 0;
         bool burning = false;
         int fireFrame = 0;
-        // OnScreenTextureAnimation / totem: what to show (-1 none, an effect id, or 1000 for the totem) and its progress 0..1.
+        // OnScreenTextureAnimation / totem: what to show (-1 none, effect id, 1000 totem) and progress 0..1
         int screenAnimation = -1;
         float screenAnimationT = 0;
         int air = 300;

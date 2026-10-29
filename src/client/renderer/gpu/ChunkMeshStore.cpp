@@ -1,0 +1,508 @@
+#include "client/renderer/gpu/ChunkMeshStore.hpp"
+
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <cstdio>
+
+namespace perlin::gpu {
+    namespace {
+        constexpr uint32_t kPageVerts = 1u << 20;
+    }
+
+    void ChunkMeshStore::Shutdown() {
+        Clear();
+        if (!gpu)
+            return;
+        for (Page& p : pages) {
+            p.vb.Destroy(gpu->Dev());
+            for (Arena& a : p.ib)
+                a.Destroy(gpu->Dev());
+        }
+        pages.clear();
+    }
+
+    void ChunkMeshStore::Clear() {
+        chunks.clear();
+        lods.clear();
+        visible.clear();
+        visibleSections.clear();
+        // pages keep their buffers; every range is returned so the next meshes reuse them
+        for (Page& p : pages) {
+            if (!p.live)
+                continue;
+            p.vb.Reset();
+            for (Arena& a : p.ib)
+                a.Reset();
+        }
+        generation++;
+    }
+
+    ChunkMeshStore::Backup ChunkMeshStore::Save() {
+        std::vector<Gpu::BufferSource> sources;
+        for (Page& p : pages) {
+            if (!p.live)
+                continue;
+            sources.push_back({p.vb.Buffer(), p.vb.BarrierState(), p.vb.Bytes()});
+            for (Arena& a : p.ib)
+                sources.push_back({a.Buffer(), a.BarrierState(), a.Bytes()});
+        }
+        Backup out;
+        out.blobs = gpu->ReadBuffers(sources);
+        return out;
+    }
+
+    void ChunkMeshStore::ReleaseGpu() {
+        const auto drop = [&](Arena& a) {
+            if (a.Buffer()) {
+                gpu->ForgetBuffer(a.Buffer());
+                gpu->Dev().Destroy(a.Buffer());
+            }
+            a.Detach();
+        };
+        for (Page& p : pages) {
+            if (!p.live)
+                continue;
+            drop(p.vb);
+            for (Arena& a : p.ib)
+                drop(a);
+        }
+    }
+
+    bool ChunkMeshStore::Load(Backup&& backup) {
+        size_t next = 0;
+        bool ok = true;
+        const auto restore = [&](Arena& a) {
+            a.Detach();
+            if (!a.Rebuild(gpu->Dev())) {
+                ok = false;
+                return;
+            }
+            if (next < backup.blobs.size() && !backup.blobs[next].empty())
+                gpu->WriteBuffer(a, 0, backup.blobs[next].data(), backup.blobs[next].size());
+            next++;
+        };
+        for (Page& p : pages) {
+            if (!p.live)
+                continue;
+            restore(p.vb);
+            for (Arena& a : p.ib)
+                restore(a);
+        }
+        return ok;
+    }
+
+    int ChunkMeshStore::CreatePage(uint32_t vCap, const std::array<uint32_t, kRenderLayerCount>& iCap) {
+        Page p;
+        bool ok = p.vb.Create(gpu->Dev(), vCap, sizeof(Vertex), rhi::BufferUsage::Vertex | rhi::BufferUsage::Storage, "chunk vertices");
+        for (size_t l = 0; l < kRenderLayerCount && ok; l++)
+            ok = p.ib[l].Create(gpu->Dev(), std::max(1u, iCap[l]), sizeof(uint32_t), rhi::BufferUsage::Index | rhi::BufferUsage::Storage,
+                                "chunk indices");
+        if (!ok) {
+            p.vb.Destroy(gpu->Dev());
+            for (Arena& a : p.ib)
+                a.Destroy(gpu->Dev());
+            return -1;
+        }
+        p.live = true;
+        for (size_t i = 0; i < pages.size(); i++)
+            if (!pages[i].live) {
+                pages[i] = std::move(p);
+                return static_cast<int>(i);
+            }
+        pages.push_back(std::move(p));
+        return static_cast<int>(pages.size()) - 1;
+    }
+
+    bool ChunkMeshStore::Alloc(uint32_t v, const std::array<uint32_t, kRenderLayerCount>& need, Chunk& out) {
+        const auto tryPage = [&](Page& pg, int index) {
+            if (!pg.live)
+                return false;
+            pg.emptyFrames = 0;
+            uint32_t vo = 0;
+            if (!pg.vb.Alloc(v, vo))
+                return false;
+            std::array<uint32_t, kRenderLayerCount> io{};
+            for (size_t l = 0; l < kRenderLayerCount; l++) {
+                if (need[l] && !pg.ib[l].Alloc(need[l], io[l])) {
+                    for (size_t k = 0; k < l; k++)
+                        if (need[k])
+                            pg.ib[k].Free(io[k], need[k]);
+                    pg.vb.Free(vo, v);
+                    return false;
+                }
+            }
+            out.page = index;
+            out.vOff = vo;
+            out.iOff = io;
+            return true;
+        };
+        for (size_t pi = 0; pi < pages.size(); pi++)
+            if (tryPage(pages[pi], static_cast<int>(pi)))
+                return true;
+        const uint32_t pageVerts = std::min<uint32_t>(kPageVerts, (1u << 18) << std::min<size_t>(pages.size(), 2));
+        const uint32_t base = (pageVerts / 4) * 6;
+        std::array<uint32_t, kRenderLayerCount> caps = {base, base / 2, base / 2, base / 4, base / 8};
+        for (size_t l = 0; l < kRenderLayerCount; l++)
+            caps[l] = std::max(caps[l], need[l]);
+        const int created = CreatePage(std::max(pageVerts, v), caps);
+        return created >= 0 && tryPage(pages[static_cast<size_t>(created)], created);
+    }
+
+    void ChunkMeshStore::ReleaseEmptyPages() {
+        for (Page& p : pages) {
+            if (!p.live)
+                continue;
+            bool unused = p.vb.Unused();
+            for (size_t l = 0; l < kRenderLayerCount && unused; l++)
+                unused = p.ib[l].Unused();
+            if (!unused) {
+                p.emptyFrames = 0;
+                continue;
+            }
+            if (++p.emptyFrames < 600)
+                continue;
+            p.vb.Destroy(gpu->Dev());
+            for (Arena& a : p.ib)
+                a.Destroy(gpu->Dev());
+            p.live = false;
+        }
+    }
+
+    void ChunkMeshStore::Free(Chunk& c) {
+        if (c.page >= 0 && c.page < static_cast<int>(pages.size()) && pages[static_cast<size_t>(c.page)].live) {
+            Page& pg = pages[static_cast<size_t>(c.page)];
+            pg.vb.Free(c.vOff, c.vCount);
+            for (size_t l = 0; l < kRenderLayerCount; l++)
+                if (c.layerCount[l])
+                    pg.ib[l].Free(c.iOff[l], c.layerCount[l]);
+        }
+        c.page = -1;
+    }
+
+    void ChunkMeshStore::Update(bool lod, int cx, int cz, int size, const Tessellator& tess, uint64_t version) {
+        Upload(lod ? lods : chunks, lod, cx, cz, size, tess, version);
+    }
+
+    void ChunkMeshStore::Remove(bool lod, int cx, int cz) {
+        auto& target = lod ? lods : chunks;
+        const auto it = target.find(Key(cx, cz));
+        if (it == target.end())
+            return;
+        Free(it->second);
+        target.erase(it);
+        if (!lod)
+            generation++;
+    }
+
+    void ChunkMeshStore::Upload(std::unordered_map<int64_t, Chunk>& target, bool lod, int cx, int cz, int size, const Tessellator& tess,
+                                uint64_t version) {
+        const int64_t key = Key(cx, cz);
+        const auto& verts = tess.Vertices();
+        auto it = target.find(key);
+        if (verts.empty() || tess.Empty()) {
+            if (it != target.end()) {
+                Free(it->second);
+                target.erase(it);
+                if (!lod)
+                    generation++;
+            }
+            return;
+        }
+        if (it != target.end() && it->second.version == version)
+            return;
+        if (it != target.end()) {
+            Free(it->second);
+            target.erase(it);
+        }
+
+        Chunk g;
+        g.vCount = static_cast<uint32_t>(verts.size());
+        for (size_t l = 0; l < kRenderLayerCount; l++)
+            g.layerCount[l] = static_cast<uint32_t>(tess.Indices(static_cast<RenderLayer>(l)).size());
+        if (!Alloc(g.vCount, g.layerCount, g))
+            return;
+        Page& pg = pages[static_cast<size_t>(g.page)];
+
+        gpu->WriteBuffer(pg.vb, static_cast<uint64_t>(g.vOff) * sizeof(Vertex), verts.data(), static_cast<uint64_t>(g.vCount) * sizeof(Vertex));
+        static thread_local std::vector<uint32_t> shifted;
+        for (size_t l = 0; l < kRenderLayerCount; l++) {
+            const auto& list = tess.Indices(static_cast<RenderLayer>(l));
+            if (list.empty())
+                continue;
+            shifted.resize(list.size());
+            for (size_t i = 0; i < list.size(); i++)
+                shifted[i] = list[i] + g.vOff;
+            gpu->WriteBuffer(pg.ib[l], static_cast<uint64_t>(g.iOff[l]) * sizeof(uint32_t), shifted.data(), shifted.size() * sizeof(uint32_t));
+        }
+
+        float lo = verts[0].y, hi = verts[0].y;
+        for (const Vertex& v : verts) {
+            lo = std::min(lo, v.y);
+            hi = std::max(hi, v.y);
+        }
+        g.minY = lo;
+        g.maxY = hi;
+
+        const auto& secs = tess.Sections();
+        if (secs.empty()) {
+            Section whole{lo, hi, 0, {}, {}};
+            for (size_t l = 0; l < kRenderLayerCount; l++) {
+                whole.start[l] = 0;
+                whole.count[l] = g.layerCount[l];
+            }
+            g.sections.push_back(whole);
+        } else {
+            g.sections.reserve(secs.size());
+            for (const MeshSection& ms : secs) {
+                Section section{static_cast<float>(ms.sy * 16), static_cast<float>(ms.sy * 16 + 16), ms.sy, {}, {}};
+                for (size_t l = 0; l < kRenderLayerCount; l++) {
+                    section.start[l] = ms.start[l];
+                    section.count[l] = ms.count[l];
+                }
+                g.sections.push_back(section);
+            }
+        }
+        g.cx = cx;
+        g.cz = cz;
+        g.size = size;
+        g.version = version;
+        {
+            const auto& vis = tess.Visibility();
+            if (!vis.empty() && vis.size() <= 32) {
+                g.visMin = vis.front().sy;
+                for (const SectionVis& v : vis)
+                    g.conn.push_back(v.conn);
+            }
+        }
+        if (!lod)
+            generation++;
+        target[key] = std::move(g);
+    }
+
+    uint64_t ChunkMeshStore::VertexBytes() const {
+        uint64_t total = 0;
+        for (const Page& p : pages)
+            if (p.live)
+                total += static_cast<uint64_t>(p.vb.Capacity()) * sizeof(Vertex);
+        return total;
+    }
+
+    uint64_t ChunkMeshStore::IndexBytes() const {
+        uint64_t total = 0;
+        for (const Page& p : pages)
+            if (p.live)
+                for (const Arena& a : p.ib)
+                    total += static_cast<uint64_t>(a.Capacity()) * sizeof(uint32_t);
+        return total;
+    }
+
+    bool ChunkMeshStore::SectionReached(int sx, int sy, int sz, bool caveCulling) const {
+        if (!caveCulling)
+            return true;
+        const auto it = chunks.find(Key(sx, sz));
+        if (it == chunks.end() || it->second.secVis == ~0u)
+            return true;
+        const int bit = sy - it->second.visMin;
+        return bit < 0 || bit >= 32 || (it->second.secVis & (1u << bit)) != 0;
+    }
+
+    void ChunkMeshStore::Select(const Frustum& frustum, float camX, float camY, float camZ, int cullRadius, bool caveCulling, double now) {
+        visible.clear();
+        visibleSections.clear();
+        if (chunks.empty() && lods.empty())
+            return;
+        if (caveCulling)
+            UpdateCave(camX, camY, camZ, now);
+        const int cullCx = static_cast<int>(std::floor(camX / 16.0f)), cullCz = static_cast<int>(std::floor(camZ / 16.0f));
+        for (const auto& entry : chunks) {
+            const Chunk& g = entry.second;
+            if (g.page < 0 || g.sections.empty())
+                continue;
+            if (cullRadius > 0) {
+                const int ddx = g.cx - cullCx, ddz = g.cz - cullCz;
+                if (std::abs(ddx) > cullRadius || std::abs(ddz) > cullRadius || ddx * ddx + ddz * ddz > (cullRadius + 1) * (cullRadius + 1))
+                    continue;
+            }
+            const float x0 = g.cx * 16.0f, z0 = g.cz * 16.0f;
+            const auto result = frustum.Test(x0, g.minY, z0, x0 + 16.0f, g.maxY, z0 + 16.0f);
+            if (result == Frustum::Result::Outside)
+                continue;
+            const float dx = x0 + 8.0f - camX, dz = z0 + 8.0f - camZ;
+            visible.push_back({dx * dx + dz * dz, &g, result == Frustum::Result::Inside});
+        }
+        for (const auto& entry : lods) {
+            const Chunk& g = entry.second;
+            if (g.page < 0 || g.sections.empty())
+                continue;
+            const float s = static_cast<float>(g.size);
+            const float x0 = g.cx * s, z0 = g.cz * s;
+            const auto result = frustum.Test(x0, g.minY, z0, x0 + s, g.maxY, z0 + s);
+            if (result == Frustum::Result::Outside)
+                continue;
+            const float dx = x0 + s * 0.5f - camX, dz = z0 + s * 0.5f - camZ;
+            visible.push_back({dx * dx + dz * dz, &g, result == Frustum::Result::Inside});
+        }
+        std::sort(visible.begin(), visible.end(), [](const Visible& x, const Visible& y) { return x.distance < y.distance; });
+        for (Visible& item : visible) {
+            const Chunk& g = *item.chunk;
+            const float x0 = g.cx * static_cast<float>(g.size), z0 = g.cz * static_cast<float>(g.size);
+            const float extent = static_cast<float>(g.size);
+            item.secBegin = static_cast<uint32_t>(visibleSections.size());
+            for (const Section& sec : g.sections) {
+                if (g.secVis != ~0u) {
+                    const int bit = sec.sy - g.visMin;
+                    if (bit >= 0 && bit < 32 && !(g.secVis & (1u << bit)))
+                        continue;
+                }
+                if (!item.fullyInside && !frustum.Visible(x0, sec.minY, z0, x0 + extent, sec.maxY, z0 + extent))
+                    continue;
+                visibleSections.push_back(&sec);
+            }
+            item.secEnd = static_cast<uint32_t>(visibleSections.size());
+        }
+    }
+
+    void ChunkMeshStore::CollectRuns(RenderLayer layer, bool farToNear, std::vector<Run>& out) {
+        out.clear();
+        const size_t slot = static_cast<size_t>(layer);
+        const auto push = [&](uint32_t page, uint32_t start, uint32_t count) {
+            if (!out.empty() && out.back().page == page && out.back().first + out.back().count == start)
+                out.back().count += count;
+            else
+                out.push_back({page, start, count});
+        };
+        const auto emit = [&](const Visible& item) {
+            const Chunk& g = *item.chunk;
+            if (!g.layerCount[slot])
+                return;
+            for (uint32_t i = item.secBegin; i < item.secEnd; i++) {
+                const Section& sec = *visibleSections[i];
+                if (sec.count[slot])
+                    push(static_cast<uint32_t>(g.page), g.iOff[slot] + sec.start[slot], sec.count[slot]);
+            }
+        };
+        if (farToNear)
+            for (auto it = visible.rbegin(); it != visible.rend(); ++it)
+                emit(*it);
+        else
+            for (const Visible& item : visible)
+                emit(item);
+    }
+
+    void ChunkMeshStore::UpdateCave(float camX, float camY, float camZ, double now) {
+        const int ccx = static_cast<int>(std::floor(camX / 16.0f)), ccz = static_cast<int>(std::floor(camZ / 16.0f));
+        const int csy = static_cast<int>(std::floor(camY / 16.0f));
+        const bool camMoved = caveCam[0] != ccx || caveCam[1] != csy || caveCam[2] != ccz;
+        if (!camMoved) {
+            if (caveGeneration == generation)
+                return;
+            if (now - caveLastRun < 0.15)
+                return;
+        }
+        caveLastRun = now;
+
+        int minX = INT_MAX, maxX = INT_MIN, minZ = INT_MAX, maxZ = INT_MIN, minS = INT_MAX, maxS = INT_MIN;
+        bool allData = true;
+        for (auto& entry : chunks) {
+            Chunk& g = entry.second;
+            g.secVis = ~0u;
+            if (g.conn.empty()) {
+                allData = false;
+                continue;
+            }
+            minX = std::min(minX, g.cx);
+            maxX = std::max(maxX, g.cx);
+            minZ = std::min(minZ, g.cz);
+            maxZ = std::max(maxZ, g.cz);
+            minS = std::min(minS, g.visMin);
+            maxS = std::max(maxS, g.visMin + static_cast<int>(g.conn.size()) - 1);
+        }
+        caveGeneration = generation;
+        caveCam[0] = ccx;
+        caveCam[1] = csy;
+        caveCam[2] = ccz;
+        if (!allData || minX > maxX || minS > maxS)
+            return;
+        minS = std::min(minS, csy);
+        maxS = std::max(maxS, csy);
+        if (ccx < minX || ccx > maxX || ccz < minZ || ccz > maxZ)
+            return;
+        const int W = maxX - minX + 1, D = maxZ - minZ + 1, H = maxS - minS + 1;
+        if (H > 32)
+            return;
+
+        static std::vector<Chunk*> grid;
+        static std::vector<uint8_t> entered;
+        static std::vector<uint32_t> reached;
+        grid.assign(static_cast<size_t>(W) * D, nullptr);
+        entered.assign(static_cast<size_t>(W) * D * H, 0);
+        reached.assign(static_cast<size_t>(W) * D, 0);
+        for (auto& entry : chunks)
+            grid[static_cast<size_t>(entry.second.cz - minZ) * W + (entry.second.cx - minX)] = &entry.second;
+
+        static const int kDx[6] = {0, 0, 0, 0, -1, 1};
+        static const int kDy[6] = {-1, 1, 0, 0, 0, 0};
+        static const int kDz[6] = {0, 0, -1, 1, 0, 0};
+
+        const auto connected = [&](int x, int z, int s, int a, int b) {
+            if (a == b)
+                return false;
+            if (a > b)
+                std::swap(a, b);
+            const Chunk* g = grid[static_cast<size_t>(z) * W + x];
+            if (!g)
+                return true;
+            const int i = (s + minS) - g->visMin;
+            if (i < 0 || i >= static_cast<int>(g->conn.size()))
+                return true;
+            return ((g->conn[static_cast<size_t>(i)] >> (a * (11 - a) / 2 + (b - a - 1))) & 1) != 0;
+        };
+
+        const int sx = ccx - minX, sz = ccz - minZ, ss = csy - minS;
+        reached[static_cast<size_t>(sz) * W + sx] |= 1u << ss;
+        struct Move {
+            int x, z, s;
+            uint8_t dir, dirs;
+        };
+        static std::vector<Move> moves;
+        moves.clear();
+        for (int d = 0; d < 6; d++)
+            moves.push_back({sx, sz, ss, static_cast<uint8_t>(d), static_cast<uint8_t>(1u << d)});
+        size_t head = 0;
+        while (head < moves.size()) {
+            const Move m = moves[head++];
+            const int nx = m.x + kDx[m.dir], nz = m.z + kDz[m.dir], ns = m.s + kDy[m.dir];
+            if (nx < 0 || nx >= W || nz < 0 || nz >= D || ns < 0 || ns >= H)
+                continue;
+            const int entry = m.dir ^ 1;
+            uint8_t& done = entered[(static_cast<size_t>(nz) * W + nx) * H + ns];
+            if (done & (1u << entry))
+                continue;
+            done |= static_cast<uint8_t>(1u << entry);
+            reached[static_cast<size_t>(nz) * W + nx] |= 1u << ns;
+            for (int d = 0; d < 6; d++) {
+                if (m.dirs & (1u << (d ^ 1)))
+                    continue;
+                if (!connected(nx, nz, ns, entry, d))
+                    continue;
+                moves.push_back({nx, nz, ns, static_cast<uint8_t>(d), static_cast<uint8_t>(m.dirs | (1u << d))});
+            }
+        }
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++) {
+                const int x = sx + dx, z = sz + dz;
+                if (x < 0 || x >= W || z < 0 || z >= D)
+                    continue;
+                for (int ds = -1; ds <= 1; ds++)
+                    if (ss + ds >= 0 && ss + ds < H)
+                        reached[static_cast<size_t>(z) * W + x] |= 1u << (ss + ds);
+            }
+        for (auto& entry : chunks) {
+            Chunk& g = entry.second;
+            const uint32_t col = reached[static_cast<size_t>(g.cz - minZ) * W + (g.cx - minX)];
+            const int shift = g.visMin - minS;
+            g.secVis = shift >= 0 ? (col >> shift) : (col << -shift);
+        }
+    }
+}

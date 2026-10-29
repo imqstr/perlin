@@ -95,7 +95,7 @@ namespace perlin::ui {
         std::string accountLabel;
         std::string accountUser;
         std::string accountHead;
-        // OreUI look for the main page (Bedrock menus), with the player's 3D skin in the character card.
+        // oreui look for the main page (bedrock menus), player's 3d skin in the character card
         bool oreUi = false;
         std::string dollSrc;
         std::string playerName;

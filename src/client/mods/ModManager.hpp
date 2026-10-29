@@ -30,6 +30,7 @@ namespace perlin::mods {
         bool hasSettings = false;
         uint32_t requested = 0;
         bool needsApproval = false;
+        int priority = 0;  // manifest "priority": higher runs first
     };
 
     struct PluginCommand {
@@ -38,6 +39,8 @@ namespace perlin::mods {
 
     struct PluginKey {
         std::string plugin, id, label, binding;
+        bool ctrl = false, shift = false, alt = false;  // required held modifiers (KeyRegisterEx)
+        abi::KeyContext context = abi::KeyContext::InGame;
     };
 
     struct UiLayer {
@@ -116,6 +119,9 @@ namespace perlin::mods {
         void SettingsClosed(const std::string& plugin);
 
         void PostMain(std::function<void()> task);
+        // thread-safe: delivered on main thread at next Pump if a mod wants it
+        void Queue(abi::Event event, abi::Writer payload);
+        bool Wants(abi::Event event) const { return (wanted.load() >> static_cast<uint32_t>(event)) & 1; }
         void Pump();
         bool HasPermission(const std::string& plugin, abi::Permission p) const;
         uint64_t Tick() const { return tickCounter.load(); }
@@ -127,6 +133,10 @@ namespace perlin::mods {
 
     private:
         ModManager() = default;
+        std::atomic<uint64_t> wanted{0};
+        bool modsSettled = false;
+        size_t settledCount = 0;
+        void RefreshWanted();
         ~ModManager();
         void Scan();
         void Load(Plugin& mod);
