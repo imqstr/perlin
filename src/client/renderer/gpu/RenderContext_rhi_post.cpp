@@ -588,7 +588,7 @@ namespace perlin {
             rd.depth.texture = target.depth;
             rd.depth.load = stage.clearDepth ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
             rd.depth.store = rhi::StoreOp::Store;
-            rd.depth.clearDepth = 1.0f;
+            rd.depth.clearDepth = StageReversed(stage) ? 0.0f : 1.0f;
         }
         rd.name = "pass";
         list.BeginRendering(rd);

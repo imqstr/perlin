@@ -235,6 +235,18 @@ namespace perlin {
     }
 
     PackDownloader::Result PackDownloader::Tick() {
+        // a chunk behind later ones that never shows up is asked for again
+        if (const auto cur = active.find(currentKey); cur != active.end() && !cur->second.early.empty() &&
+            std::chrono::steady_clock::now() - cur->second.gapSince > std::chrono::seconds(3)) {
+            Active& a = cur->second;
+            a.gapSince = std::chrono::steady_clock::now();
+            std::cout << "[packs] chunk " << a.next << " of " << a.packId << " is missing, asking again" << std::endl;
+            Result again;
+            again.step = Step::RequestChunk;
+            again.packId = a.packId;
+            again.chunks.push_back(a.next);
+            return again;
+        }
         if (!currentKey.empty() && !stallReported && std::chrono::steady_clock::now() - requestedAt > std::chrono::seconds(10)) {
             stallReported = true;
             std::cout << "[packs] no chunk for 10 s, still waiting" << std::endl;

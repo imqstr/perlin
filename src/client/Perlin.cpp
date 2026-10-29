@@ -968,7 +968,7 @@ namespace perlin {
         if (data.bars.size() > 8)
             data.bars.resize(8);
         const auto sb = live->Scoreboard();
-        if (sb.visible && !pauseShown && !(hud.Ready() && (options.bedrockMenus || hud.Overrides("scoreboard")))) {
+        if (sb.visible && !pauseShown && !(hud.Ready() && hud.Overrides("scoreboard"))) {
             data.scoreboard = true;
             data.scoreboardTitle = sb.title;
             for (const auto& r : sb.rows)
@@ -3463,14 +3463,6 @@ namespace perlin {
                            options.maxFps = steps >= 25 ? 0 : 10 + steps * 10;
                        });
                 toggle(tr("options.vsync", "VSync"), options.vsync);
-                model.push_back({std::string("Menu Style"), options.bedrockMenus ? std::string("Bedrock") : std::string("Java"), -1.0f,
-                                 [this](float, bool click) {
-                                     if (!click)
-                                         return;
-                                     options.bedrockMenus = !options.bedrockMenus;
-                                     pauseSignature.clear();
-                                     titleSignature.clear();
-                                 }});
                 model.push_back({std::string("GUI Scale"), options.guiScale == 0 ? tr("options.guiScale.auto", "Auto") : std::to_string(options.guiScale), -1.0f,
                                  [this](float, bool click) {
                                      if (!click)
@@ -4264,78 +4256,6 @@ namespace perlin {
             return;
         }
 
-        if (options.bedrockMenus) {
-            ui::JsonScreens& screens = ui::JsonScreens::Instance();
-            screens.Warm(ServerPacks::Instance().Directories());
-            if (screens.Ready()) {
-                ui::PauseModel pm;
-                pm.playerName = live ? live->PlayerName() : options.playerName;
-                pm.listTitle = tr("gui.playerList", "Player List");
-                pm.multiplayer = live != nullptr && !preview;
-                if (live)
-                    for (const BedrockSession::TabPlayer& p : live->PlayerList())
-                        pm.players.push_back({p.name, p.perm < 0 ? 1 : p.perm, p.name == pm.playerName});
-                // head follows the cursor, as on bedrock; only the doll image swaps while it moves
-                float headYaw = 0.0f, headPitch = 0.0f;
-                if (float dx, dy, dw, dh; screens.PaperDollRect(dx, dy, dw, dh)) {
-                    const float gx = mx / static_cast<float>(scale), gy = my / static_cast<float>(scale);
-                    headYaw = std::clamp(std::atan2(gx - (dx + dw * 0.5f), 90.0f) * 57.29578f, -55.0f, 55.0f);
-                    headPitch = std::clamp(std::atan2(gy - (dy + dh * 0.12f), 90.0f) * 57.29578f, -45.0f, 45.0f);
-                }
-                const std::string dollKey = SkinDollKey(options.skin, options.cape, options.skinParts.cape, headYaw, headPitch);
-                screens.SetPaperDoll(dollKey);
-                const ui::ScreenData data = ui::PauseScreenData(pm);
-                const std::string signature = "json:" + std::to_string(screens.Generation()) + ":" + std::to_string(guiW) + "x" +
-                                              std::to_string(guiH) + data.Signature();
-                bool shown = signature == pauseSignature && hud.Overlay().HasOverlay();
-                if (!shown) {
-                    std::string rml, error;
-                    if (screens.Build("pause.pause_screen", data, guiW, guiH, 0.0f, rml) && hud.Overlay().SetOverlay(rml, error)) {
-                        pauseSignature = signature;
-                        shown = true;
-                    } else if (!error.empty()) {
-                        std::cout << "[screens] pause.pause_screen: " << error << std::endl;
-                    }
-                }
-                if (shown) {
-                    hud.Overlay().SetOverlayAttribute("paper_doll", "src", "mchead:" + dollKey);
-                    hud.Overlay().MouseMove(mx / static_cast<float>(scale), my / static_cast<float>(scale));
-                    hud.UpdateOverlay(fbW, fbH, options.guiScale);
-                    ui::JsonButton button;
-                    const std::string hover = hud.Overlay().OverlayHover();
-                    if (!down && pauseLeftDown && clickReady && (hover == "close" || ui::ParseJsonButton(hover, button))) {
-                        const std::string& id = hover == "close" ? std::string("button.menu_continue") : button.id;
-                        if (id == "button.menu_continue") {
-                            hud.Overlay().ClearOverlay();
-                            pauseShown = false;
-                            input.SetTextMode(false);
-                        } else if (id == "button.menu_quit" && !preview) {
-                            LeaveToServerList(hud);
-                        } else if (id == "button.menu_settings") {
-                            pauseView = 1;
-                            optionsPage = 0;
-                            optionsSub = 0;
-                            optionsSignature.clear();
-                            hud.Overlay().ClearOverlay();
-                        } else if (id == "button.to_profile_or_skins_screen") {
-                            pauseView = 5;
-                            optionsSignature.clear();
-                            hud.Overlay().ClearOverlay();
-                        } else if (id == "button.menu_store") {
-                            pauseView = 4;  // our mods screen stands in for the marketplace
-                            optionsSignature.clear();
-                            hud.Overlay().ClearOverlay();
-                        } else if (id == "button.feedback") {
-                            platform->OpenUrl("https://github.com/theselauraproject/perlin/issues");
-                        } else {
-                            std::cout << "[screens] pause: no handler for " << id << std::endl;
-                        }
-                    }
-                    pauseLeftDown = down;
-                    return;
-                }
-            }
-        }
 
         ui::PauseScreenText t;
         t.title = i18n::Tr("menu.game");
@@ -5836,7 +5756,7 @@ namespace perlin {
         else
             title.accountUser = options.playerName;
         title.accountLabel = "Logged in as " + title.accountUser;
-        title.oreUi = options.bedrockMenus;
+        title.oreUi = false;
         title.playerName = title.accountUser;
         if (title.oreUi && title.page == ui::TitlePage::Main) {
             const std::string doll = SkinDollKey(options.skin, options.cape, options.skinParts.cape);
@@ -8224,7 +8144,7 @@ namespace perlin {
                 dbgBlock = handBlock;
             }
             if (hud)
-                hud->SetJavaStyle(!options.bedrockMenus);
+                hud->SetJavaStyle(true);
             FillHudState(hudState, live, preview);
             hudState.bossBars.clear();
             if (live)
@@ -8238,7 +8158,7 @@ namespace perlin {
                 // sidebar is part of the json ui hud: server packs restyling scoreboards.json apply
                 const auto sb = live->Scoreboard();
                 // json ui sidebar when the server restyles it (or bedrock menus are on); else the java one
-                hudState.sidebarVisible = sb.visible && !pauseShown && hud && (options.bedrockMenus || hud->Overrides("scoreboard"));
+                hudState.sidebarVisible = sb.visible && !pauseShown && hud && hud->Overrides("scoreboard");
                 hudState.sidebarTitle = sb.title;
                 for (const auto& r : sb.rows)
                     hudState.sidebar.push_back({r.name, r.score});
@@ -8471,7 +8391,7 @@ namespace perlin {
             {
                 camera.farPlane = std::max(static_cast<float>(options.renderDistance * 16) * 1.6f,
                                            static_cast<float>(GraphicsSettings::From(options).cloudRange * 16));
-                camera.nearPlane = std::clamp(0.05f + (camera.farPlane - 1500.0f) * 0.00004f, 0.05f, 0.25f);
+                camera.nearPlane = std::clamp(0.05f + (camera.farPlane - 1500.0f) * 0.00004f, 0.05f, camera.farPlane > 8000.0f ? 0.4f : 0.25f);
             }
             if (replayCtl.Playing()) {
                 if (replayUi.fovOverride > 0)

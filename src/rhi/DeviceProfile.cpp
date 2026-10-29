@@ -259,9 +259,10 @@ namespace rhi {
         p.lodMaxLevel = p.tier >= Tier::High ? 4 : 3;
 
         // meshes live in gpu memory: a share of it, never so much that the frame buffers and textures starve
-        const uint64_t share = mem ? mem / 4 : (256ull << 20);
-        p.meshBudgetBytes = std::clamp<uint64_t>(share, 128ull << 20, 4ull << 30);
-        p.retainBudgetBytes = p.meshBudgetBytes / 4;
+        // geometry only needs what the view distance fills; the rest of video memory is better left free for the driver and other apps
+        const uint64_t share = mem ? mem / 6 : (192ull << 20);
+        p.meshBudgetBytes = std::clamp<uint64_t>(share, 96ull << 20, 2ull << 30);
+        p.retainBudgetBytes = p.meshBudgetBytes / 6;
 
         p.framesInFlight = (p.tier >= Tier::Medium && best.adapter.type == AdapterType::Discrete) ? 3 : 2;
         p.gpuCulling = !haveCaps ? p.tier >= Tier::Medium : (f.drawIndirectCount || f.multiDrawIndirect);

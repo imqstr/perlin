@@ -68,7 +68,11 @@ namespace rhi::webgpu {
                 ReportError("CreateGraphicsPipeline: unusable vertex attribute");
                 return {};
             }
-            attributes[a.stream].push_back({vf, a.offset, a.location});
+            WGPUVertexAttribute attr{};
+            attr.format = vf;
+            attr.offset = a.offset;
+            attr.shaderLocation = a.location;
+            attributes[a.stream].push_back(attr);
         }
         std::array<WGPUVertexBufferLayout, kMaxVertexStreams> streams{};
         for (uint32_t i = 0; i < desc.streamCount; i++) {

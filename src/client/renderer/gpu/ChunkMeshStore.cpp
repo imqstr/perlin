@@ -25,6 +25,7 @@ namespace perlin::gpu {
     void ChunkMeshStore::Clear() {
         chunks.clear();
         lods.clear();
+        lodGroups.clear();
         visible.clear();
         visibleSections.clear();
         // pages keep their buffers; every range is returned so the next meshes reuse them
@@ -189,10 +190,50 @@ namespace perlin::gpu {
         const auto it = target.find(Key(cx, cz));
         if (it == target.end())
             return;
+        if (lod)
+            LodDrop(it->second);
         Free(it->second);
         target.erase(it);
         if (!lod)
             generation++;
+    }
+
+    void ChunkMeshStore::Recalc(LodGroup& g) {
+        bool first = true;
+        for (const Chunk* m : g.members) {
+            const float s = static_cast<float>(m->size);
+            const float x0 = m->cx * s, z0 = m->cz * s;
+            if (first) {
+                g.x0 = x0; g.z0 = z0; g.x1 = x0 + s; g.z1 = z0 + s; g.minY = m->minY; g.maxY = m->maxY;
+                first = false;
+            } else {
+                g.x0 = std::min(g.x0, x0); g.z0 = std::min(g.z0, z0);
+                g.x1 = std::max(g.x1, x0 + s); g.z1 = std::max(g.z1, z0 + s);
+                g.minY = std::min(g.minY, m->minY); g.maxY = std::max(g.maxY, m->maxY);
+            }
+        }
+    }
+
+    void ChunkMeshStore::LodAdd(const Chunk& chunk) {
+        LodGroup& g = lodGroups[Key(chunk.cx >> 3, chunk.cz >> 3)];
+        g.members.push_back(&chunk);
+        Recalc(g);
+    }
+
+    void ChunkMeshStore::LodDrop(const Chunk& chunk) {
+        const auto it = lodGroups.find(Key(chunk.cx >> 3, chunk.cz >> 3));
+        if (it == lodGroups.end())
+            return;
+        auto& members = it->second.members;
+        const auto at = std::find(members.begin(), members.end(), &chunk);
+        if (at != members.end()) {
+            *at = members.back();
+            members.pop_back();
+        }
+        if (members.empty())
+            lodGroups.erase(it);
+        else
+            Recalc(it->second);
     }
 
     void ChunkMeshStore::Upload(std::unordered_map<int64_t, Chunk>& target, bool lod, int cx, int cz, int size, const Tessellator& tess,
@@ -202,6 +243,8 @@ namespace perlin::gpu {
         auto it = target.find(key);
         if (verts.empty() || tess.Empty()) {
             if (it != target.end()) {
+                if (lod)
+                    LodDrop(it->second);
                 Free(it->second);
                 target.erase(it);
                 if (!lod)
@@ -212,6 +255,8 @@ namespace perlin::gpu {
         if (it != target.end() && it->second.version == version)
             return;
         if (it != target.end()) {
+            if (lod)
+                LodDrop(it->second);
             Free(it->second);
             target.erase(it);
         }
@@ -277,7 +322,9 @@ namespace perlin::gpu {
         }
         if (!lod)
             generation++;
-        target[key] = std::move(g);
+        Chunk& stored = target[key] = std::move(g);
+        if (lod)
+            LodAdd(stored);
     }
 
     uint64_t ChunkMeshStore::VertexBytes() const {
@@ -331,19 +378,33 @@ namespace perlin::gpu {
             const float dx = x0 + 8.0f - camX, dz = z0 + 8.0f - camZ;
             visible.push_back({dx * dx + dz * dz, &g, result == Frustum::Result::Inside});
         }
-        for (const auto& entry : lods) {
-            const Chunk& g = entry.second;
-            if (g.page < 0 || g.sections.empty())
-                continue;
-            const float s = static_cast<float>(g.size);
-            const float x0 = g.cx * s, z0 = g.cz * s;
-            const auto result = frustum.Test(x0, g.minY, z0, x0 + s, g.maxY, z0 + s);
-            if (result == Frustum::Result::Outside)
-                continue;
-            const float dx = x0 + s * 0.5f - camX, dz = z0 + s * 0.5f - camZ;
-            visible.push_back({dx * dx + dz * dz, &g, result == Frustum::Result::Inside});
-        }
+        // real chunks are drawn near to far; lod tiles go after them grouped by buffer range, which merges them into few draws
         std::sort(visible.begin(), visible.end(), [](const Visible& x, const Visible& y) { return x.distance < y.distance; });
+        const size_t realCount = visible.size();
+        for (const auto& [gkey, group] : lodGroups) {
+            const auto groupResult = frustum.Test(group.x0, group.minY, group.z0, group.x1, group.maxY, group.z1);
+            if (groupResult == Frustum::Result::Outside)
+                continue;
+            for (const Chunk* g : group.members) {
+                if (g->page < 0 || g->sections.empty())
+                    continue;
+                const float s = static_cast<float>(g->size);
+                const float x0 = g->cx * s, z0 = g->cz * s;
+                Frustum::Result result = groupResult;
+                if (result != Frustum::Result::Inside) {
+                    result = frustum.Test(x0, g->minY, z0, x0 + s, g->maxY, z0 + s);
+                    if (result == Frustum::Result::Outside)
+                        continue;
+                }
+                const float dx = x0 + s * 0.5f - camX, dz = z0 + s * 0.5f - camZ;
+                visible.push_back({dx * dx + dz * dz, g, result == Frustum::Result::Inside});
+            }
+        }
+        std::sort(visible.begin() + static_cast<std::ptrdiff_t>(realCount), visible.end(), [](const Visible& x, const Visible& y) {
+            if (x.chunk->page != y.chunk->page)
+                return x.chunk->page < y.chunk->page;
+            return x.chunk->iOff[0] < y.chunk->iOff[0];
+        });
         for (Visible& item : visible) {
             const Chunk& g = *item.chunk;
             const float x0 = g.cx * static_cast<float>(g.size), z0 = g.cz * static_cast<float>(g.size);

@@ -31,8 +31,11 @@ namespace perlin {
         static int TileOf(int chunk) { return chunk >= 0 ? chunk / kTileChunks : -((-chunk + kTileChunks - 1) / kTileChunks); }
 
         bool Capture(const Level& level, const ChunkPos& pos, const BlockLibrary& blocks, const BiomeTints& tints);
-        void Remove(const ChunkPos& pos) { columns.erase(pos); }
-        void Clear() { columns.clear(); colours.clear(); }
+        void Remove(const ChunkPos& pos) {
+            if (columns.erase(pos))
+                DropFromTile(pos);
+        }
+        void Clear() { columns.clear(); tiles.clear(); colours.clear(); }
         void InvalidateColours() { colours.clear(); }
         const LodColumn* Find(const ChunkPos& pos) const {
             const auto it = columns.find(pos);
@@ -41,6 +44,9 @@ namespace perlin {
         size_t Size() const { return columns.size(); }
         void Evict(int centreX, int centreZ, int radius, std::vector<ChunkPos>& removed);
         const std::unordered_map<ChunkPos, LodColumn, ChunkPosHash>& All() const { return columns; }
+        // tile key -> number of captured columns in it: lets distance scans walk tiles instead of every column
+        const std::unordered_map<int64_t, int>& Tiles() const { return tiles; }
+        static int64_t TileKeyOf(int tx, int tz) { return (static_cast<int64_t>(tx) << 32) | static_cast<uint32_t>(tz); }
 
         bool BuildTile(int tileX, int tileZ, int stride, const std::function<bool(const ChunkPos&)>& hidden,
                        Tessellator& out) const;
@@ -50,5 +56,11 @@ namespace perlin {
         Rgb ColourOf(uint16_t id, int biome, bool top, const BlockLibrary& blocks, const BiomeTints& tints);
         std::unordered_map<ChunkPos, LodColumn, ChunkPosHash> columns;
         std::unordered_map<uint32_t, Rgb> colours;
+        std::unordered_map<int64_t, int> tiles;
+        void DropFromTile(const ChunkPos& pos) {
+            const auto it = tiles.find(TileKeyOf(TileOf(pos.x), TileOf(pos.z)));
+            if (it != tiles.end() && --it->second <= 0)
+                tiles.erase(it);
+        }
     };
 }

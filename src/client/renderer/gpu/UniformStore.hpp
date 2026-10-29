@@ -16,7 +16,8 @@ namespace perlin::gpu {
         static constexpr int kMaxFloats = 32;
 
         int Id(std::string_view name) {
-            const auto it = ids.find(std::string(name));
+            // heterogeneous lookup: no temporary string per call (this runs several times for every draw)
+            const auto it = ids.find(name);
             if (it != ids.end())
                 return it->second;
             const int id = static_cast<int>(values.size());
@@ -86,7 +87,11 @@ namespace perlin::gpu {
         void ForgetBinders() { binders.clear(); }
 
     private:
-        std::unordered_map<std::string, int> ids;
+        struct NameHash {
+            using is_transparent = void;
+            size_t operator()(std::string_view v) const { return std::hash<std::string_view>{}(v); }
+        };
+        std::unordered_map<std::string, int, NameHash, std::equal_to<>> ids;
         std::vector<std::array<float, kMaxFloats>> values;
         std::vector<Binder> binders;
         uint64_t version = 1;

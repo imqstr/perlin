@@ -246,7 +246,7 @@ namespace perlin {
             };
             integer("maxFps", options.maxFps, 0, 260);
             boolean("vsync", options.vsync);
-            integer("renderDistance", options.renderDistance, 2, 64);
+            integer("renderDistance", options.renderDistance, 2, 256);
             real("fov", options.fov, 30.0f, 110.0f);
             real("gamma", options.gamma, 0.0f, 1.0f);
             real("mouseSensitivity", options.mouseSensitivity, 0.0f, 1.0f);

@@ -255,6 +255,14 @@ namespace rhi::d3d11 {
         std::vector<Resolve> resolves;
         // per stage and register: the range a dynamic constant buffer binding selected, copied out when the runtime cannot offset
         winrt::com_ptr<ID3D11Buffer> mirrors[3][14];
+        // small constant buffers refilled from the cpu copy of a uniform ring; `last` skips redundant uploads
+        struct UploadMirror {
+            winrt::com_ptr<ID3D11Buffer> buffer;
+            UINT bytes = 0;
+            bool valid = false;
+            std::vector<uint8_t> last;
+        };
+        UploadMirror uploadMirrors[3][14];
     };
 
     class Device final : public rhi::Device {

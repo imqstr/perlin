@@ -72,7 +72,7 @@ void stageMain()
     float wsum = 0.0;
     vec3 m1 = vec3_splat(0.0);
     vec3 m2 = vec3_splat(0.0);
-    float nearest = 1.0;
+    float nearest = 0.0;
     for (int y = -1; y <= 1; y++)
     {
         for (int x = -1; x <= 1; x++)
@@ -85,7 +85,7 @@ void stageMain()
             wsum += w;
             m1 += c;
             m2 += c * c;
-            nearest = min(nearest, fetchDepth(texel));
+            nearest = max(nearest, fetchDepth(texel));
         }
     }
     vec3 resolved = sum / max(wsum, 1.0e-4);

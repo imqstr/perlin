@@ -325,9 +325,6 @@ else()
     perlin_default_api(PERLIN_RHI_METAL OFF)
     perlin_default_api(PERLIN_RHI_WEBGPU OFF)
 endif()
-if(PERLIN_RHI_METAL)
-    enable_language(OBJCXX)
-endif()
 
 include(cmake/PerlinShaders.cmake)
 
@@ -452,6 +449,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PERLIN_RESOURCE
 
 file(GLOB_RECURSE PERLIN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/network/Nbt\\.cpp")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/(bgfx|shader)/") # stale leftovers from the pre-RHI tree
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/gpu/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/rhi/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/render/")

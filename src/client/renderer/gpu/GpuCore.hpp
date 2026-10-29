@@ -153,6 +153,9 @@ namespace perlin::gpu {
         void SetPresentMode(rhi::PresentMode mode);
         rhi::Format TargetFormat() const { return targetFormat; }
         uint32_t TargetWidth() const { return targetWidth; }
+        // frames in a row that found no image to draw to
+        uint32_t AcquireFailures() const { return acquireFailures; }
+        void ClearAcquireFailures() { acquireFailures = 0; }
         uint32_t TargetHeight() const { return targetHeight; }
         rhi::TextureHandle OffscreenTexture() const { return offscreen; }
 
@@ -260,6 +263,7 @@ namespace perlin::gpu {
         rhi::TextureHandle offscreen;
         rhi::Format targetFormat = rhi::Format::BGRA8Unorm;
         uint32_t targetWidth = 0, targetHeight = 0;
+        uint32_t acquireFailures = 0;
     };
 
     uint32_t FormatBytes(rhi::Format format);

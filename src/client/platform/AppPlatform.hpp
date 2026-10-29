@@ -65,6 +65,9 @@ public:
     virtual bool WindowMinimized() const { return false; }
     virtual void OpenUrl(const std::string& url) { (void)url; }
     virtual bool TakeSurfaceChanged() { return false; }
+    // a fresh native surface for the next graphics backend: windows and metal tie a window to the api that first presented to it,
+    // so after a backend switch the old surface can keep showing its last frame; call with the old swapchain already destroyed
+    virtual void RenewRenderSurface() {}
     virtual bool PickFile(const std::string& kind) { (void)kind; return false; }
 
     virtual void SetTouchState(const perlin::TouchState& state) { (void)state; }

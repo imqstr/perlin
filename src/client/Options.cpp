@@ -79,7 +79,6 @@ namespace perlin {
             std::string capePhysics = "off";
             bool bedrockBridging = true;
             bool webTuned = false;
-            bool bedrockMenus = false;
             std::map<std::string, std::string> padKeys;
             float padSensitivity = 1.0f;
             float padDeadzone = 0.15f;
@@ -235,7 +234,6 @@ namespace perlin {
         if (o.texturePacks.empty() && !stored.texturePack.empty())
             o.texturePacks.push_back(stored.texturePack);
         o.disabledMods = stored.disabledMods;
-        o.bedrockMenus = stored.bedrockMenus;
         o.approvedMods = stored.approvedMods;
         o.hotReload = stored.hotReload;
         o.betterGrass = stored.betterGrass;
@@ -398,7 +396,6 @@ namespace perlin {
         for (size_t i = 0; i < kActionCount; i++)
             stored.padKeys[ActionId(static_cast<Action>(i))] = padKeys[i].Serialize();
         stored.webTuned = webTuned;
-        stored.bedrockMenus = bedrockMenus;
         stored.padSensitivity = padSensitivity;
         stored.padDeadzone = padDeadzone;
         stored.padInvertY = padInvertY;

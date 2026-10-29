@@ -901,7 +901,10 @@ namespace perlin {
             }
         }
         if (state == State::ResourcePacks) {
-            packs.Tick();
+            const auto again = packs.Tick();
+            if (again.step == PackDownloader::Step::RequestChunk)
+                for (const uint32_t index : again.chunks)
+                    Send(proto::ResourcePackChunkRequestPacket{.packId = again.packId, .chunkIndex = index});
         }
         std::vector<uint8_t> msg;
         const auto receiveStart = std::chrono::steady_clock::now();

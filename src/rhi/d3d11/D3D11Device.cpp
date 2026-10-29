@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "rhi/d3d11/D3D11Internal.hpp"
 
 #include <algorithm>
@@ -84,7 +85,8 @@ namespace rhi::d3d11 {
         if (device1) {
             D3D11_FEATURE_DATA_D3D11_OPTIONS options11{};
             if (SUCCEEDED(device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options11, sizeof(options11))))
-                constantOffsetting = options11.ConstantBufferOffsetting != FALSE;
+                // opt-in only: drivers disagree on offset binding from deferred contexts, so default to copying each range
+                constantOffsetting = options11.ConstantBufferOffsetting != FALSE && std::getenv("PERLIN_D3D11_CB_OFFSET") != nullptr;
         }
         FillCaps();
         frameFence = CreateFence(0);

@@ -60,7 +60,6 @@ namespace perlin {
         bool webTuned = false;
         // draw our own menus (title, pause, settings) the bedrock way instead of java layouts; server ui
         // (sidebars, forms, container screens a server pack restyles) always uses the server's json ui
-        bool bedrockMenus = false;
         int maxFps = 120;
         bool vsync = true;
         bool eulaAccepted = false;

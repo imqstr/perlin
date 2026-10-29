@@ -364,8 +364,7 @@ namespace perlin {
     void RenderContext_rhi::DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) {
         if (!initialized || !frameOpen)
             return;
-        if (!packActive)
-            DrawSky();
+        DrawSky();
         meshes.ReleaseEmptyPages();
         if (meshes.Empty()) {
             DrawClouds();

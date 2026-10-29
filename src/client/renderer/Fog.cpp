@@ -53,6 +53,13 @@ namespace perlin {
         fog.environmentalStart = env.fogStart + -160.0f * in.rainFogMultiplier;
         const float minRainFogEnd = std::min(96.0f, env.fogEnd);
         fog.environmentalEnd = std::max(minRainFogEnd, env.fogEnd + -256.0f * in.rainFogMultiplier);
+        // open-sky dimensions: the haze moves out with the render distance so far terrain is not hidden by fog that
+        // was tuned for the default range (dense dimensions such as the nether keep their own limit)
+        if (env.fogEnd >= 512.0f && renderDistance > env.fogEnd) {
+            const float scale = renderDistance / env.fogEnd;
+            fog.environmentalStart *= scale;
+            fog.environmentalEnd *= scale;
+        }
         fog.skyEnd = std::min(renderDistance, env.skyFogEnd);
         fog.cloudEnd = std::min(static_cast<float>(in.cloudRangeChunks * 16), env.cloudFogEnd);
 
@@ -70,7 +77,7 @@ namespace perlin {
             fog.cloudEnd = 1.0f;
         }
 
-        const float span = std::clamp(renderDistance / 10.0f, 4.0f, 64.0f);
+        const float span = std::clamp(renderDistance / 10.0f, 4.0f, 256.0f);
         fog.renderDistanceStart = renderDistance - span;
         fog.renderDistanceEnd = renderDistance;
         return fog;

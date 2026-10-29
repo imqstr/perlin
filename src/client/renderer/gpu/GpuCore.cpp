@@ -1,13 +1,14 @@
 #include "client/renderer/gpu/GpuCore.hpp"
 
 #include <algorithm>
+#include <unordered_set>
 #include <cstdio>
 
 namespace perlin::gpu {
     using namespace rhi;
 
     namespace {
-        constexpr uint64_t kRingChunk = 8ull << 20;
+        constexpr uint64_t kRingChunk = 4ull << 20;
 
         uint64_t AlignUp(uint64_t v, uint64_t a) { return a ? (v + a - 1) / a * a : v; }
 
@@ -428,7 +429,21 @@ namespace perlin::gpu {
             out.index = 0;
             return true;
         }
-        return swapchain && swapchain->Acquire(out);
+        if (!swapchain) {
+            acquireFailures++;
+            return false;
+        }
+        if (!swapchain->Acquire(out)) {
+            acquireFailures++;
+            return false;
+        }
+        acquireFailures = 0;
+        // the chain may have settled on another size than asked for (clamping, a window that moved on): draw to what it really is
+        if (swapchain->Width() && swapchain->Height()) {
+            targetWidth = swapchain->Width();
+            targetHeight = swapchain->Height();
+        }
+        return true;
     }
 
     void Gpu::PresentImage() {
@@ -456,7 +471,14 @@ namespace perlin::gpu {
             textureStates.erase(offscreen.value);
             return true;
         }
-        return swapchain && swapchain->Resize(w, h);
+        if (!swapchain)
+            return false;
+        const bool ok = swapchain->Resize(w, h);
+        if (swapchain->Width() && swapchain->Height()) {
+            targetWidth = swapchain->Width();
+            targetHeight = swapchain->Height();
+        }
+        return ok;
     }
 
     bool Gpu::RecreateSurface(uint32_t w, uint32_t h) {
@@ -623,9 +645,11 @@ namespace perlin::gpu {
         imageWrites.erase(std::remove_if(imageWrites.begin(), imageWrites.end(),
                                          [&](const ImageWrite& w) { return device->GetDesc(w.texture) == nullptr; }),
                           imageWrites.end());
+        std::unordered_set<uint32_t> seenBuffers;
+        seenBuffers.reserve(16);
         for (const BufferWrite& w : bufferWrites) {
-            const bool seen = std::any_of(toCopy.begin(), toCopy.end(), [&](const BufferBarrier& b) { return b.buffer == w.buffer; });
-            if (seen)
+            // one barrier pair per buffer however many ranges it has (a world load writes thousands of ranges)
+            if (!seenBuffers.insert(w.buffer.value).second)
                 continue;
             const auto known = bufferStates.find(w.buffer.value);
             toCopy.push_back({w.buffer, known == bufferStates.end() ? State::Undefined : known->second, State::CopyDst});
@@ -633,8 +657,9 @@ namespace perlin::gpu {
             bufferStates[w.buffer.value] = w.state;
         }
         std::vector<TextureHandle> touched;
+        std::unordered_set<uint32_t> seenTextures;
         for (const ImageWrite& w : imageWrites) {
-            if (std::find(touched.begin(), touched.end(), w.texture) != touched.end())
+            if (!seenTextures.insert(w.texture.value).second)
                 continue;
             touched.push_back(w.texture);
             const State from = StateOf(w.texture);
@@ -668,6 +693,9 @@ namespace perlin::gpu {
         bufferWrites.clear();
         imageWrites.clear();
         pendingBytes.clear();
+        // a world load or atlas upload can leave this holding hundreds of megabytes it will not need again
+        if (pendingBytes.capacity() > (48ull << 20))
+            std::vector<uint8_t>().swap(pendingBytes);
     }
 }
 

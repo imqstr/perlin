@@ -89,6 +89,15 @@ namespace perlin::gpu {
         void Upload(std::unordered_map<int64_t, Chunk>& target, bool lod, int cx, int cz, int size, const Tessellator& tess,
                     uint64_t version);
         void UpdateCave(float camX, float camY, float camZ, double now);
+        // lod tiles in 8x8 groups: one box test rejects (or accepts) a whole group before any tile is looked at
+        struct LodGroup {
+            float x0 = 0, z0 = 0, x1 = 0, z1 = 0, minY = 0, maxY = 0;
+            std::vector<const Chunk*> members;
+        };
+        void LodAdd(const Chunk& chunk);
+        void LodDrop(const Chunk& chunk);
+        static void Recalc(LodGroup& group);
+        std::unordered_map<int64_t, LodGroup> lodGroups;
 
         Gpu* gpu = nullptr;
         std::vector<Page> pages;

@@ -125,6 +125,31 @@ int main(int argc, char** argv) {
     if (!rgba.empty())
         Check(!Red(At(rgba, w, w / 2, h / 2)), "back face culled from below");
 
+    // depth ordering (reversed depth): the nearer quad must win whichever one is drawn first
+    for (int order = 0; order < 2; order++) {
+        Tessellator stack;
+        stack.Begin();
+        stack.EnterSection(0);
+        const float nearV[4][3] = {{-2, 1, -2}, {2, 1, -2}, {2, 1, 2}, {-2, 1, 2}};
+        const float farV[4][3] = {{-2, 0, -2}, {2, 0, -2}, {2, 0, 2}, {-2, 0, 2}};
+        const float bright[4][3] = {{1, 1, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}};
+        const float dim[4][3] = {{0.4f, 0.4f, 0.4f}, {0.4f, 0.4f, 0.4f}, {0.4f, 0.4f, 0.4f}, {0.4f, 0.4f, 0.4f}};
+        if (order == 0) {
+            stack.AddQuad(farV, dim, uv, false, 15.0f, 15.0f);
+            stack.AddQuad(nearV, bright, uv, false, 15.0f, 15.0f);
+        } else {
+            stack.AddQuad(nearV, bright, uv, false, 15.0f, 15.0f);
+            stack.AddQuad(farV, dim, uv, false, 15.0f, 15.0f);
+        }
+        stack.End();
+        ctx.UpdateChunkMesh(0, 0, stack, 10 + order);
+        Check(Frame(ctx, MakeFrame({0, 3, 0}, {0, 0, 0}, {0, 0, -1}, 128, 96), rgba, w, h), "frame with stacked quads");
+        if (!rgba.empty()) {
+            const Pixel p = At(rgba, w, w / 2, h / 2);
+            Check(p.r > 200, order == 0 ? "near quad wins (far drawn first)" : "near quad wins (near drawn first)");
+        }
+    }
+
     // screen orientation: a quad in the +x half must land on the right of the image
     Tessellator right;
     right.Begin();
@@ -198,6 +223,39 @@ int main(int argc, char** argv) {
     Check(Frame(ctx, MakeFrame({0, 3, 0}, {0, 0, 0}, {0, 0, -1}, 128, 96), rgba, w, h), "frame after removal");
     if (!rgba.empty())
         Check(Background(At(rgba, w, w / 2, h / 2)), "removed mesh is gone");
+
+    // lod tiles: grouped culling must show a tile in view, hide tiles outside it, and let go of removed ones
+    {
+        Tessellator lodTile;
+        lodTile.Begin();
+        const float tv[4][3] = {{-64, 60, -192}, {0, 60, -192}, {0, 60, -128}, {-64, 60, -128}};
+        lodTile.AddQuad(tv, c, uv, false, 15.0f, 15.0f);
+        lodTile.End();
+        // plenty of unrelated tiles around, most of them outside the view
+        for (int tz = -10; tz <= 10; tz++)
+            for (int tx = -10; tx <= 10; tx++)
+                if (!(tx == -1 && tz == -3)) {
+                    Tessellator far;
+                    far.Begin();
+                    const float fx = static_cast<float>(tx * 64), fz = static_cast<float>(tz * 64);
+                    const float fv[4][3] = {{fx, 60, fz}, {fx + 64, 60, fz}, {fx + 64, 60, fz + 64}, {fx, 60, fz + 64}};
+                    far.AddQuad(fv, c, uv, false, 15.0f, 15.0f);
+                    far.End();
+                    // behind the camera and to the sides: none of these may cover the centre of the picture
+                    if (tz > -1 || std::abs(tx) > 2)
+                        ctx.UpdateLodTile(tx, tz, 64, far, 1);
+                }
+        ctx.UpdateLodTile(-1, -3, 64, lodTile, 1);
+        const FrameParams f = MakeFrame({-32, 100, 0}, {-32, 60, -168}, {0, 1, 0}, 128, 96);
+        Check(Frame(ctx, f, rgba, w, h), "frame with lod tiles");
+        if (!rgba.empty())
+            Check(Red(At(rgba, w, w / 2, h / 2)), "lod tile in view is drawn");
+        ctx.RemoveLodTile(-1, -3);
+        Check(Frame(ctx, f, rgba, w, h), "frame after lod removal");
+        if (!rgba.empty())
+            Check(!Red(At(rgba, w, w / 2, h / 2)), "removed lod tile is gone");
+    }
+
 
     // sun shadows: a floating quad must darken the ground it covers, only with shadows on
     perlin::TestSetBundledPack(true);

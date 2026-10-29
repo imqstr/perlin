@@ -320,6 +320,8 @@ namespace rhi::vk {
         ai.device = device;
         ai.instance = inst->instance;
         ai.vulkanApiVersion = (std::min)(phys.props.apiVersion, inst->apiVersion);
+        // the 256 MB default block wastes most of itself on a game that needs a few hundred in total
+        ai.preferredLargeHeapBlockSize = 32ull << 20;
         ai.pVulkanFunctions = &vf;
         if (en12.bufferDeviceAddress)
             ai.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;

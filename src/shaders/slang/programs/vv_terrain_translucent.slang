@@ -180,7 +180,7 @@ vec4 traceReflection(vec3 origin, vec3 dir, float jitter, float quality)
             break;
         float sceneD = sceneDepthAt(uv);
         float rayD = clipDepthToTexture(ndc.z);
-        if (rayD > sceneD && sceneD < 0.99999)
+        if (rayD < sceneD && sceneD > 0.00001)
         {
             float behind = length(q - cam) - length(sceneWorld(uv, sceneD) - cam);
             if (behind < stepLen * 2.0 + 0.6)
@@ -205,7 +205,7 @@ vec4 traceReflection(vec3 origin, vec3 dir, float jitter, float quality)
             vec4 c2 = mul(u_mvp, vec4(origin + dir * mid, 1.0));
             vec3 n2 = c2.xyz / max(c2.w, 0.05);
             vec2 uv2 = ndcToUv(n2.xy);
-            if (clipDepthToTexture(n2.z) > sceneDepthAt(uv2))
+            if (clipDepthToTexture(n2.z) < sceneDepthAt(uv2))
                 hi = mid;
             else
                 lo = mid;
@@ -218,7 +218,7 @@ vec4 traceReflection(vec3 origin, vec3 dir, float jitter, float quality)
     {
         vec4 far = mul(u_mvp, vec4(origin + dir * 3000.0, 1.0));
         vec2 uv = ndcToUv(far.xy / max(far.w, 0.05));
-        if (far.w > 0.05 && uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0 && sceneDepthAt(uv) >= 0.99999)
+        if (far.w > 0.05 && uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0 && sceneDepthAt(uv) <= 0.00001)
             result = vec4(sceneColorAt(uv), edgeFade(uv) * 0.999);
     }
     return result;
@@ -347,13 +347,13 @@ void stageMain()
             vec2 uvR = clamp(uv + offset, vec2_splat(0.001), vec2_splat(0.999));
             float dR = sceneDepthAt(uvR);
             vec3 behindR = sceneWorld(uvR, dR);
-            if (dR < 0.99999 && length(behindR - u_camera.xyz) < surfaceDist)
+            if (dR > 0.00001 && length(behindR - u_camera.xyz) < surfaceDist)
             {
                 uvR = uv;
                 dR = sceneDepthAt(uv);
                 behindR = sceneWorld(uv, dR);
             }
-            float thickness = dR >= 0.99999 ? 48.0 : max(length(behindR - u_camera.xyz) - surfaceDist, 0.0);
+            float thickness = dR <= 0.00001 ? 48.0 : max(length(behindR - u_camera.xyz) - surfaceDist, 0.0);
             if (!fromAbove)
                 thickness = min(thickness, 6.0) * 0.4;
             if (!top)

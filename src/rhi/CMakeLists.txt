@@ -77,18 +77,15 @@ if(NOT TARGET perlin_rhi)
     endif()
 
     if(PERLIN_RHI_METAL)
-        get_property(perlin_langs GLOBAL PROPERTY ENABLED_LANGUAGES)
-        if(NOT "OBJCXX" IN_LIST perlin_langs)
-            enable_language(OBJCXX)
-        endif()
-        set(CMAKE_OBJCXX_STANDARD 23)
-        set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
-        set(CMAKE_OBJCXX_EXTENSIONS OFF)
         list(APPEND PERLIN_RHI_SOURCES
             metal/MetalConvert.mm
             metal/MetalDevice.mm
             metal/MetalCommands.mm
             metal/MetalInstance.mm)
+        # compiled as c++ with the objective-c++ dialect forced, so no separate OBJCXX language is needed: enabling that one
+        # leaves cmake without its compile and archive rules on the macos runners
+        set_source_files_properties(metal/MetalConvert.mm metal/MetalDevice.mm metal/MetalCommands.mm metal/MetalInstance.mm
+            PROPERTIES LANGUAGE CXX COMPILE_OPTIONS "-x;objective-c++;-fobjc-arc")
     endif()
 
     if(PERLIN_RHI_WEBGPU)
@@ -156,12 +153,16 @@ if(NOT TARGET perlin_rhi)
     if(PERLIN_RHI_STREAMLINE AND WIN32)
         target_compile_definitions(perlin_rhi PUBLIC RHI_HAS_STREAMLINE=1)
         target_include_directories(perlin_rhi PRIVATE "${streamline_SOURCE_DIR}/include")
-        target_include_directories(perlin_rhi PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/compat")
+        if(MINGW)
+            # mingw headers spell softpub.h in lower case on a case sensitive file system
+            target_include_directories(perlin_rhi PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/compat")
+        endif()
+        # the sdk headers use std::to_underlying only when __cplusplus is exactly 202302L, and the msvc stl hides it
+        # unless /std:c++latest is given; building this one file as c++20 makes them use their own helper
         if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-            # cl and clang-cl: some MSVC STL versions lack std::to_underlying, which the sdk headers use under c++23
-            set_source_files_properties(vendor/Streamline.cpp PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/vendor/compat/to_underlying_shim.h")
+            set_source_files_properties(vendor/Streamline.cpp PROPERTIES COMPILE_OPTIONS "-clang:-std=c++20")
         else()
-            set_source_files_properties(vendor/Streamline.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20;-include;${CMAKE_CURRENT_SOURCE_DIR}/vendor/compat/to_underlying_shim.h")
+            set_source_files_properties(vendor/Streamline.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
         endif()
         if(PERLIN_RHI_VULKAN)
             target_include_directories(perlin_rhi PRIVATE "${vulkan_headers_SOURCE_DIR}/include")
@@ -217,7 +218,6 @@ if(NOT TARGET perlin_rhi)
     endif()
 
     if(PERLIN_RHI_METAL)
-        target_compile_options(perlin_rhi PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
         target_link_libraries(perlin_rhi PUBLIC "-framework Metal" "-framework QuartzCore" "-framework Foundation" "-framework CoreGraphics")
     endif()
 
