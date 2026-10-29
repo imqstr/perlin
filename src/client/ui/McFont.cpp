@@ -71,6 +71,25 @@ namespace perlin::ui {
     bool McFont::Next(const std::string& s, size_t& i, uint32_t& cp) {
         if (i >= s.size())
             return false;
+        // icon escape: section + 'm' + two hex section codes addresses a glyph page icon directly
+        const auto hex = [](unsigned char ch) -> int {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+            return -1;
+        };
+        if (i + 9 <= s.size() && static_cast<unsigned char>(s[i]) == 0xC2 && static_cast<unsigned char>(s[i + 1]) == 0xA7 &&
+            (s[i + 2] == 'm' || s[i + 2] == 'M') && static_cast<unsigned char>(s[i + 3]) == 0xC2 &&
+            static_cast<unsigned char>(s[i + 4]) == 0xA7 && static_cast<unsigned char>(s[i + 6]) == 0xC2 &&
+            static_cast<unsigned char>(s[i + 7]) == 0xA7) {
+            const int hi = hex(static_cast<unsigned char>(s[i + 5]));
+            const int lo = hex(static_cast<unsigned char>(s[i + 8]));
+            if (hi >= 0 && lo >= 0) {
+                cp = 0xE100u | (static_cast<uint32_t>(hi) << 4) | static_cast<uint32_t>(lo);
+                i += 9;
+                return true;
+            }
+        }
         const unsigned char c = static_cast<unsigned char>(s[i]);
         if (c < 0x80) {
             cp = c;
@@ -94,8 +113,14 @@ namespace perlin::ui {
     }
 
     void McFont::UnloadLevelResources() {
-        // glyph pages are per-server, font sheets persist across levels
         glyphPages.clear();
+        sheets.clear();
+        sheetChars.clear();
+        hex.clear();
+        hexPath.clear();
+        ttfs.clear();
+        ttfPaths.clear();
+        UseBuiltin();
     }
 
     void McFont::UseBuiltin() {
@@ -147,6 +172,8 @@ namespace perlin::ui {
                         static_cast<size_t>(sheet) * 4);
         dynY0 = ((sheet + 15) / 16) * 16;
         dynNext = 0;
+        glyphShelfX = glyphShelfHeight = 0;
+        glyphShelfY = dynLimitY = atlasHeight;
         dyn.clear();
         glyphs.assign(256, Glyph{});
         const int stride = atlasWidth;
@@ -216,6 +243,8 @@ namespace perlin::ui {
         sheetChars = std::move(table);
         dyn.clear();
         dynNext = 0;
+        glyphShelfX = glyphShelfHeight = 0;
+        glyphShelfY = dynLimitY = atlasHeight;
         for (int y = dynY0; y < atlasHeight; y++)
             std::memset(&atlas[static_cast<size_t>(y) * static_cast<size_t>(atlasWidth) * 4], 0, static_cast<size_t>(atlasWidth) * 4);
         version++;
@@ -240,7 +269,7 @@ namespace perlin::ui {
         if (ink == 0)
             return nullptr;
         const int perRow = atlasWidth / 16;
-        const int rows = (atlasHeight - dynY0) / 16;
+        const int rows = (dynLimitY - dynY0) / 16;
         if (dynNext >= perRow * rows)
             return nullptr;
         const int cx = (dynNext % perRow) * 16, cy = dynY0 + (dynNext / perRow) * 16;
@@ -267,6 +296,8 @@ namespace perlin::ui {
         if (!hex.empty() && path == hexPath) {
             dyn.clear();
             dynNext = 0;
+            glyphShelfX = glyphShelfHeight = 0;
+            glyphShelfY = dynLimitY = atlasHeight;
             version++;
             return true;
         }
@@ -314,6 +345,8 @@ namespace perlin::ui {
         hexPath = path;
         dyn.clear();
         dynNext = 0;
+        glyphShelfX = glyphShelfHeight = 0;
+        glyphShelfY = dynLimitY = atlasHeight;
         for (int y = dynY0; y < atlasHeight; y++)
             std::memset(&atlas[static_cast<size_t>(y) * static_cast<size_t>(atlasWidth) * 4], 0, static_cast<size_t>(atlasWidth) * 4);
         version++;
@@ -343,6 +376,8 @@ namespace perlin::ui {
         ttfPaths.push_back(path);
         dyn.clear();
         dynNext = 0;
+        glyphShelfX = glyphShelfHeight = 0;
+        glyphShelfY = dynLimitY = atlasHeight;
         for (int y = dynY0; y < atlasHeight; y++)
             std::memset(&atlas[static_cast<size_t>(y) * static_cast<size_t>(atlasWidth) * 4], 0, static_cast<size_t>(atlasWidth) * 4);
         version++;
@@ -410,40 +445,57 @@ namespace perlin::ui {
         version++;
     }
 
+    bool McFont::ReserveGlyphCell(int w, int h, int& x, int& y) const {
+        if (w > atlasWidth || w <= 0 || h <= 0)
+            return false;
+        if (glyphShelfX + w > atlasWidth || h > glyphShelfHeight) {
+            const int perRow = atlasWidth / 16;
+            const int usedBottom = dynY0 + ((dynNext + perRow - 1) / perRow) * 16;
+            if (dynLimitY - h < usedBottom)
+                return false;
+            glyphShelfY = dynLimitY - h;
+            dynLimitY = glyphShelfY;
+            glyphShelfX = 0;
+            glyphShelfHeight = h;
+        }
+        x = glyphShelfX;
+        y = glyphShelfY;
+        glyphShelfX += w;
+        return true;
+    }
+
     const McFont::Glyph* McFont::FromGlyphPage(uint32_t cp) const {
         const auto page = glyphPages.find(cp >> 8);
         if (page == glyphPages.end() || atlasWidth < 16)
             return nullptr;
         const GlyphPage& gp = page->second;
-        const int perRow = atlasWidth / 16;
-        const int rows = (atlasHeight - dynY0) / 16;
-        if (dynNext >= perRow * rows)
-            return nullptr;
         const int cellW = gp.width / 16, cellH = gp.height / 16;
         const int sx0 = static_cast<int>(cp & 15) * cellW, sy0 = static_cast<int>((cp >> 4) & 15) * cellH;
-        // glyphs fill the full line like the game: cell scaled to the 16 px atlas slot (8 gui px)
-        const int cx = (dynNext % perRow) * 16, cy = dynY0 + (dynNext / perRow) * 16;
-        int ink = 0;
-        for (int y = 0; y < 16; y++)
-            for (int x = 0; x < 16; x++) {
-                const int sx = sx0 + x * cellW / 16, sy = sy0 + y * cellH / 16;
-                const uint8_t* src = &gp.rgba[(static_cast<size_t>(sy) * static_cast<size_t>(gp.width) + static_cast<size_t>(sx)) * 4];
-                uint8_t* dst = &atlas[(static_cast<size_t>(cy + y) * static_cast<size_t>(atlasWidth) + static_cast<size_t>(cx + x)) * 4];
-                std::copy(src, src + 4, dst);
-                if (src[3] > 16)
-                    ink = 1;
-            }
-        if (ink == 0)
-            return nullptr;  // empty cell: let other sources (or the fallback) draw it
-        dynNext++;
+        bool ink = false;
+        for (int y = 0; y < cellH && !ink; y++)
+            for (int x = 0; x < cellW; x++)
+                if (gp.rgba[(static_cast<size_t>(sy0 + y) * gp.width + sx0 + x) * 4 + 3] > 16) {
+                    ink = true;
+                    break;
+                }
+        if (!ink)
+            return nullptr;
+        int cx = 0, cy = 0;
+        if (!ReserveGlyphCell(cellW, cellH, cx, cy))
+            return nullptr;
+        // preserve source texels: reducing high-resolution icons to 16x16 destroys their silhouettes
+        for (int y = 0; y < cellH; y++)
+            std::memcpy(&atlas[(static_cast<size_t>(cy + y) * atlasWidth + cx) * 4],
+                        &gp.rgba[(static_cast<size_t>(sy0 + y) * gp.width + sx0) * 4],
+                        static_cast<size_t>(cellW) * 4);
         Glyph g;
         g.width = 8;
         g.advance = 8;
         g.cell = kCell;
         g.u0 = static_cast<float>(cx) / static_cast<float>(atlasWidth);
         g.v0 = static_cast<float>(cy) / static_cast<float>(atlasHeight);
-        g.u1 = static_cast<float>(cx + g.width * 2) / static_cast<float>(atlasWidth);
-        g.v1 = static_cast<float>(cy + 16) / static_cast<float>(atlasHeight);
+        g.u1 = static_cast<float>(cx + cellW) / static_cast<float>(atlasWidth);
+        g.v1 = static_cast<float>(cy + cellH) / static_cast<float>(atlasHeight);
         version++;
         return &dyn.emplace(cp, g).first->second;
     }
@@ -457,7 +509,7 @@ namespace perlin::ui {
             return g;
         if (!ttfs.empty()) {
             const int perRow = atlasWidth / 16;
-            const int rows = (atlasHeight - dynY0) / 16;
+            const int rows = (dynLimitY - dynY0) / 16;
             if (dynNext < perRow * rows) {
                 const int cx = (dynNext % perRow) * 16, cy = dynY0 + (dynNext / perRow) * 16;
                 Glyph g;
@@ -477,7 +529,7 @@ namespace perlin::ui {
         if (src == hex.end())
             return nullptr;
         const int perRow = atlasWidth / 16;
-        const int rows = (atlasHeight - dynY0) / 16;
+        const int rows = (dynLimitY - dynY0) / 16;
         if (dynNext >= perRow * rows)
             return nullptr;
         const int cx = (dynNext % perRow) * 16, cy = dynY0 + (dynNext / perRow) * 16;

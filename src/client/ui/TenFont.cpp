@@ -139,6 +139,8 @@ namespace perlin::ui {
     float TenFont::Advance(uint32_t cp, float scale) const {
         if (!impl)
             return 0.0f;
+        if (cp < 32 || cp >= 0x180 || stbtt_FindGlyphIndex(&impl->info, static_cast<int>(cp)) == 0)
+            return static_cast<float>(McFont::Instance().Get(cp).advance) * Em(scale) / 8.0f;
         int advance = 0, bearing = 0;
         stbtt_GetCodepointHMetrics(&impl->info, static_cast<int>(cp), &advance, &bearing);
         return static_cast<float>(advance) * stbtt_ScaleForMappingEmToPixels(&impl->info, Em(scale));
@@ -161,7 +163,11 @@ namespace perlin::ui {
                 skip = true;
                 continue;
             }
-            width += Advance(cp, scale);
+            float adv = Advance(cp, scale);
+            // server icons have no heading-face advance: measure the bitmap fallback the draw uses
+            if (adv == 0.0f && cp != ' ')
+                adv = static_cast<float>(McFont::Instance().Get(cp).advance) * scale * (kEm / 8.0f);
+            width += adv;
         }
         return width;
     }

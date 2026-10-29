@@ -137,6 +137,27 @@ namespace perlin::ui {
         };
         for (size_t i = 0; i < text.size();) {
             if (IsSection(text, i)) {
+                // icon escape: section + 'm' + two hex section codes addresses a glyph page icon directly
+                const auto hex = [](unsigned char ch) -> int {
+                    if (ch >= '0' && ch <= '9') return ch - '0';
+                    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+                    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+                    return -1;
+                };
+                if (i + 9 <= text.size() && (text[i + 2] == 'm' || text[i + 2] == 'M') && IsSection(text, i + 3) &&
+                    IsSection(text, i + 6)) {
+                    const int hi = hex(static_cast<unsigned char>(text[i + 5]));
+                    const int lo = hex(static_cast<unsigned char>(text[i + 8]));
+                    if (hi >= 0 && lo >= 0) {
+                        flush();
+                        const uint32_t cp = 0xE100u | (static_cast<uint32_t>(hi) << 4) | static_cast<uint32_t>(lo);
+                        chunk += static_cast<char>(0xE0 | (cp >> 12));
+                        chunk += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                        chunk += static_cast<char>(0x80 | (cp & 0x3F));
+                        i += 9;
+                        continue;
+                    }
+                }
                 flush();
                 const char code = text[i + 2];
                 i += 3;
