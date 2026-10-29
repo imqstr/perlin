@@ -156,6 +156,16 @@ namespace perlin::ui {
                 if (!UiAssets::Instance().ItemIcon(source.substr(7), t))
                     return 0;
             } else if (!UiAssets::Instance().Image(source, t)) {
+                // Bedrock uses a literal "null" texture path to mean "draw nothing"; keep it
+                // transparent instead of showing the missing-texture magenta.
+                std::string tail = source;
+                const size_t slash = tail.find_last_of("/\\:");
+                if (slash != std::string::npos)
+                    tail.erase(0, slash + 1);
+                for (char& c : tail)
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (tail == "null" || tail == "null.png" || tail == "null.tga")
+                    return 0;
                 std::cout << "[ui] missing texture " << source << std::endl;
                 t.width = t.height = 2;
                 t.pixels = {248, 0, 248, 255, 0, 0, 0, 255, 0, 0, 0, 255, 248, 0, 248, 255};
