@@ -1002,6 +1002,11 @@ namespace perlin::ui {
             problem = "form buttons were not produced by the ui files";
             std::cout << "[form] no buttons in rml for '" << form.title << "' (modal=" << wantModal
                       << " hasModalTree=" << (modalTree != nullptr) << "), rml head: " << rml.substr(0, 600) << std::endl;
+            {
+                std::error_code ec;
+                std::filesystem::create_directories(paths::DataDir() + "/ui_generated", ec);
+                std::ofstream(paths::DataDir() + "/ui_generated/last_form_json_failed.rml", std::ios::binary | std::ios::trunc) << rml;
+            }
             return false;
         }
         return true;
