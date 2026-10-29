@@ -28,8 +28,8 @@ namespace perlin::attachable {
                 out.present = true;
                 return true;
             }
-            if (v.IsNumber() || v.IsString()) {
-                auto e = ParseValue(v);
+            if (v.IsNumber() || v.IsString() || (v.IsArray() && v.array.size() == 1)) {
+                auto e = ParseValue(v.IsArray() ? v.array[0] : v);
                 out.e[0] = out.e[1] = out.e[2] = e;
                 out.present = true;
                 return true;
@@ -48,6 +48,8 @@ namespace perlin::attachable {
                 Keyframe k;
                 k.time = static_cast<float>(std::atof(key.c_str()));
                 if (frame.IsObject()) {
+                    if (const Json* mode = frame.Find("lerp_mode"))
+                        k.catmullRom = mode->StringOr("") == "catmullrom";
                     if (const Json* pre = frame.Find("pre"))
                         ParseVec3(*pre, k.pre);
                     if (const Json* post = frame.Find("post"))
@@ -80,12 +82,20 @@ namespace perlin::attachable {
     }
 
     glm::vec3 Channel::Eval(molang::Scope& scope, float time) const {
+        struct RestoreLerp {
+            double& value;
+            double previous;
+            ~RestoreLerp() { value = previous; }
+        } restore{scope.keyFrameLerpTime, scope.keyFrameLerpTime};
+        scope.keyFrameLerpTime = 0;
         if (keys.empty())
             return constant.Eval(scope);
-        if (time <= keys.front().time)
+        if (time < keys.front().time)
             return keys.front().pre.Eval(scope);
-        if (time >= keys.back().time)
+        if (time >= keys.back().time) {
+            scope.keyFrameLerpTime = 1;
             return keys.back().post.Eval(scope);
+        }
         size_t i = 0;
         while (i + 1 < keys.size() && keys[i + 1].time <= time)
             i++;
@@ -93,7 +103,15 @@ namespace perlin::attachable {
         const Keyframe& b = keys[i + 1];
         const float span = b.time - a.time;
         const float t = span > 0 ? (time - a.time) / span : 0.0f;
-        return glm::mix(a.post.Eval(scope), b.pre.Eval(scope), t);
+        scope.keyFrameLerpTime = t;
+        const glm::vec3 p1 = a.post.Eval(scope), p2 = b.pre.Eval(scope);
+        if (!a.catmullRom)
+            return glm::mix(p1, p2, t);
+        const glm::vec3 p0 = i > 0 ? keys[i - 1].post.Eval(scope) : p1;
+        const glm::vec3 p3 = i + 2 < keys.size() ? keys[i + 2].pre.Eval(scope) : p2;
+        return 0.5f * (2.0f * p1 + (p2 - p0) * t +
+                       (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t * t +
+                       (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t * t * t);
     }
 
     void AnimationLibrary::LoadAnimations(const std::string& text) {
@@ -139,6 +157,12 @@ namespace perlin::attachable {
                             a.length = std::max(a.length, c->keys.back().time);
                 }
             }
+            if (!def.Find("animation_length"))
+                for (const auto& [bone, channels] : a.bones) {
+                    (void)bone;
+                    for (const Channel* channel : {&channels.position, &channels.rotation, &channels.scale})
+                        if (!channel->keys.empty()) a.length = std::max(a.length, channel->keys.back().time);
+                }
             animations[id] = std::move(a);
         }
     }
@@ -199,6 +223,35 @@ namespace perlin::attachable {
     const AnimationLibrary::Controller* AnimationLibrary::FindController(const std::string& id) const {
         const auto it = controllers.find(id);
         return it == controllers.end() ? nullptr : &it->second;
+    }
+
+    void StartController(const AnimationLibrary::Controller& controller, molang::Scope& scope,
+                         std::string& state, double& entered, bool& started, double now) {
+        if (started) return;
+        started = true;
+        state = controller.initial;
+        entered = now;
+        if (const auto initial = controller.states.find(state); initial != controller.states.end())
+            for (const auto& script : initial->second.onEntry)
+                script->Eval(scope);
+    }
+
+    bool AdvanceController(const AnimationLibrary::Controller& controller, molang::Scope& scope,
+                           std::string& state, double& entered, double now) {
+        const auto current = controller.states.find(state);
+        if (current == controller.states.end()) return false;
+        // bedrock processes at most one transition per controller per frame
+        for (const auto& [target, condition] : current->second.transitions) {
+            if (!condition || !condition->Eval(scope).Truthy()) continue;
+            const auto next = controller.states.find(target);
+            if (next == controller.states.end()) continue;
+            for (const auto& script : current->second.onExit) script->Eval(scope);
+            state = target;
+            entered = now;
+            for (const auto& script : next->second.onEntry) script->Eval(scope);
+            return true;
+        }
+        return false;
     }
 
     void Apply(const Animation& a, molang::Scope& scope, float time, float weight, Pose& pose, const BindLookup& bindRotation,

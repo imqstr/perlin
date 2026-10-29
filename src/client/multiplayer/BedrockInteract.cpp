@@ -80,6 +80,21 @@ namespace perlin {
             itemUseDest[2] = dest[2];
         }
         if (use == 2) {
+            // the game spends one block up front; the server corrects us if it disagrees
+            const bool creative = World().worldGameMode == 1;
+            if (!creative) {
+                std::lock_guard lock(statusMutex);
+                const int held = std::clamp(inventory.selected, 0, 8);
+                if (InvInfoLocked(held).count > 0) {
+                    InvInfoLocked(held).count--;
+                    if (InvRawLocked(held).count > 0)
+                        InvRawLocked(held).count = static_cast<uint16_t>(InvRawLocked(held).count - 1);
+                    if (InvInfoLocked(held).count <= 0) {
+                        InvInfoLocked(held) = ItemStackInfo{};
+                        InvRawLocked(held) = ItemV4{};
+                    }
+                }
+            }
             std::lock_guard lock(placeMutex);
             pendingPlace = {dest[0], dest[1], dest[2], std::chrono::steady_clock::now(), true, static_cast<int32_t>(u.heldItem.blockRuntimeId)};
         }

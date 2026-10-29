@@ -33,6 +33,25 @@ static void Tree(const LNode& n, int depth, bool onlyVisible) {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--boss-selftest") {
+        HudState state;
+        HudData data(state);
+        Json value;
+        const auto initial = HudSignature(state);
+        if (data.CollectionSize("boss_bars") != 0 || !data.Global("#boss_grid_dimension", value) ||
+            value.array.size() != 2 || value.array[1].number != 0) return 1;
+        state.bossBars.push_back({"native-title", 0.25f, 1, 0});
+        if (data.CollectionSize("boss_bars") != 1 || HudSignature(state) == initial) return 1;
+        if (!data.CollectionValue("boss_bars", 0, "#bossName", value) || value.string != "native-title") return 1;
+        if (!data.CollectionValue("boss_bars", 0, "#progress_percentage", value) || value.number != 0.25) return 1;
+        if (!data.CollectionValue("boss_bars", 1, "#bar_visible", value) || value.boolean) return 1;
+        const auto beforeProgress = HudSignature(state);
+        state.bossBars[0].progress = 0.75f;
+        if (HudSignature(state) == beforeProgress) return 1;
+        state.bossBars.clear();
+        return HudSignature(state) == initial && data.CollectionSize("boss_bars") == 0 ? 0 : 1;
+    }
+
     const std::string pack = argc > 1 ? argv[1] : "/tmp/pdata/Perlin/bedrock-samples/repo/resource_pack";
     const float W = argc > 2 ? std::atof(argv[2]) : 427, H = argc > 3 ? std::atof(argv[3]) : 240;
     UiLibrary lib;

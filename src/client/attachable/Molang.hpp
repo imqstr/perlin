@@ -30,6 +30,7 @@ namespace perlin::molang {
         std::unordered_map<std::string, std::vector<Value>> arrays;
         bool cacheQueries = false;
         std::unordered_map<const void*, Value> queryCache;
+        double keyFrameLerpTime = 0;
         double thisValue = 0;
         double thisVec[3] = {0, 0, 0};
     };

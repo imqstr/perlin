@@ -807,6 +807,7 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
         src/client/ui/HudRenderers.cpp src/client/ui/EffectData.cpp src/client/i18n/Lang.cpp src/client/resources/ServerPackRegistry.cpp src/client/i18n/BuiltinEnglish.cpp src/util/Resources.cpp src/util/Paths.cpp)
     target_include_directories(hud_dump PRIVATE src "${stb_SOURCE_DIR}")
     target_compile_features(hud_dump PRIVATE cxx_std_23)
+    add_test(NAME hud_boss_bindings COMMAND hud_dump --boss-selftest)
     add_executable(screen_dump tests/screen_dump.cpp src/client/ui/Json.cpp src/client/ui/UiExpr.cpp src/client/ui/JsonUi.cpp
         src/client/ui/UiLayout.cpp src/client/ui/McFont.cpp src/client/ui/TenFont.cpp src/client/ui/RmlEmit.cpp src/client/ui/FormatCodes.cpp src/client/ui/HudData.cpp src/client/ui/EffectData.cpp
         src/client/i18n/Lang.cpp src/client/resources/ServerPackRegistry.cpp src/client/i18n/BuiltinEnglish.cpp src/util/Resources.cpp src/util/Paths.cpp)
@@ -830,6 +831,18 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     set_tests_properties(ui_repeated_routes PROPERTIES ENVIRONMENT "SCREEN_TREE=1;SCREEN_VARS={\"#title_text\":\"middle\"}"
         PASS_REGULAR_EXPRESSION "text=EXPECTED_MIDDLE_ROUTE"
         FAIL_REGULAR_EXPRESSION "text=WRONG_FIRST_ROUTE;text=WRONG_LAST_ROUTE")
+    add_test(NAME ui_fractional_font COMMAND screen_dump font_sizes.fractional_screen 320 240
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_font_sizes")
+    set_tests_properties(ui_fractional_font PROPERTIES ENVIRONMENT "SCREEN_RML=1"
+        PASS_REGULAR_EXPRESSION "font-family:minecraft-size-6[.]4")
+    add_test(NAME ui_stack_vertical COMMAND screen_dump stack_regression.vertical_screen 320 240
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_stack")
+    set_tests_properties(ui_stack_vertical PROPERTIES ENVIRONMENT "SCREEN_TREE=1"
+        PASS_REGULAR_EXPRESSION "content.*320[.]0x221[.]0")
+    add_test(NAME ui_stack_horizontal COMMAND screen_dump stack_regression.horizontal_screen 320 240
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_stack")
+    set_tests_properties(ui_stack_horizontal PROPERTIES ENVIRONMENT "SCREEN_TREE=1"
+        PASS_REGULAR_EXPRESSION "content.*301[.]0x240[.]0")
     add_test(NAME ui_deferred_text COMMAND screen_dump regression.deferred_screen 320 240
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_deferred")
     set_tests_properties(ui_deferred_text PROPERTIES ENVIRONMENT "SCREEN_TREE=1"

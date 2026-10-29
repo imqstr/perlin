@@ -791,7 +791,8 @@ namespace perlin::ui {
     void UiAssets::ClearLevelCache() {
         ClearItemCache();
         std::lock_guard lock(mutex);
-        heads.clear();
+        // featured server logos belong to the menu, whose rows survive level exits
+        std::erase_if(heads, [](const auto& entry) { return entry.first.rfind("fs:", 0) != 0; });
         lang.clear();
         langLoaded = false;
     }

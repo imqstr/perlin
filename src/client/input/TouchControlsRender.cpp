@@ -149,7 +149,7 @@ namespace perlin {
             for (uint32_t c : cps) {
                 const ui::McFont::Glyph& g = font.Get(c);
                 if (g.width > 0)
-                    text.Quad(pen, top + g.top * scale, pen + g.width * scale, top + (g.top + g.height) * scale, g.u0, g.v0, g.u1, g.v1, Pack(1, 1, 1, alpha));
+                    text.Quad(pen + g.left * scale, top + g.top * scale, pen + (g.left + g.width) * scale, top + (g.top + g.height) * scale, g.u0, g.v0, g.u1, g.v1, Pack(1, 1, 1, alpha));
                 pen += static_cast<float>(g.advance) * scale;
             }
         };

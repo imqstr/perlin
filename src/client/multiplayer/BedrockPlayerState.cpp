@@ -664,7 +664,15 @@ namespace perlin {
             }
             inventory.chestOpen = false;
             chestWindow = -1;
-            if (p.windowType == WindowType::Container) {
+            // plain chests on boats and minecarts arrive as their own window types
+            const auto wt = p.windowType;
+            const bool plainContainer = wt == WindowType::Container || wt == WindowType::MinecartChest ||
+                wt == WindowType::ChestBoat || wt == WindowType::Hopper || wt == WindowType::Dropper ||
+                wt == WindowType::Dispenser;
+            if (wt != WindowType::Container && wt != WindowType::Horse && wt != WindowType::Workbench)
+                std::cout << "[bedrock] container open window " << static_cast<int>(p.windowId) << " type "
+                          << static_cast<int>(wt) << " (unhandled)" << std::endl;
+            if (plainContainer) {
                 bool loaded = false;
                 const std::string name = BlockPalette::Instance().Name(netLevel.GetBlock(p.coordinates.x, p.coordinates.y, p.coordinates.z, loaded));
                 const auto has = [&](const char* s) { return name.find(s) != std::string::npos; };

@@ -88,7 +88,7 @@ namespace perlin {
         }
 
         for (const entity::Entity& e : entities) {
-            if (e.isSelf)
+            if (e.isSelf || e.isItem)
                 continue;
             {
                 const double far = (entityReach >= 0.0 ? entityReach : reach) + 6.0;

@@ -93,3 +93,10 @@ swing packets still select the main hand unless a source supplies an explicit
 hand. Mob locomotion remains species-specific and resource driven. Passing the
 humanoid and root fixtures does not by itself prove every creature animation or
 every live interaction is correct.
+
+Resource animation sampling also handles outgoing Catmull-Rom interpolation,
+per-channel `query.key_frame_lerp_time` (including query caching), discontinuous
+first/last keyframes and one-element uniform vectors. Animations without an
+explicit duration derive it from their last keyframe. The sampler test includes
+the installed vanilla sheep grazing expression and a non-linear four-key curve;
+these checks do not establish complete Bedrock animation parity.

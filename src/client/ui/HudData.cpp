@@ -94,6 +94,13 @@ namespace perlin::ui {
         if (name == "#exp_progress") return set(N(std::clamp(s.xpProgress, 0.0f, 1.0f)));
         if (name == "#level_number") return set(Json(std::to_string(s.xpLevel)));
         if (name == "#level_number_visible") return set(B(survival && s.xpLevel > 0));
+        if (name == "#boss_hud_padding" || name == "#boss_hud_touch_padding") return set(B(false));
+        if (name == "#boss_grid_dimension") {
+            Json a = Json::MakeArray();
+            a.Push(N(1));
+            a.Push(N(static_cast<double>(s.bossBars.size())));
+            return set(std::move(a));
+        }
         if (name == "#hotbar_grid_dimensions") {
             Json a = Json::MakeArray();
             a.Push(N(9));
@@ -119,6 +126,7 @@ namespace perlin::ui {
     }
 
     int HudData::CollectionSize(const std::string& collection) const {
+        if (collection == "boss_bars") return static_cast<int>(s.bossBars.size());
         if (collection == "scoreboard_players" || collection == "scoreboard_scores")
             return static_cast<int>(s.sidebar.size());
         return collection == "hotbar_items" ? 9 : 0;
@@ -126,6 +134,15 @@ namespace perlin::ui {
 
     bool HudData::CollectionValue(const std::string& collection, int index, const std::string& binding, Json& out) const {
         const auto set = [&](Json v) { out = std::move(v); return true; };
+        if (collection == "boss_bars") {
+            if (binding == "#bar_visible")
+                return set(B(s.visible && index >= 0 && static_cast<size_t>(index) < s.bossBars.size()));
+            if (index < 0 || static_cast<size_t>(index) >= s.bossBars.size()) return false;
+            const auto& bar = s.bossBars[static_cast<size_t>(index)];
+            if (binding == "#bossName") return set(Json(bar.title));
+            if (binding == "#progress_percentage") return set(N(std::clamp(bar.progress, 0.0f, 1.0f)));
+            return false;
+        }
         if (collection == "scoreboard_players" || collection == "scoreboard_scores") {
             if (index < 0 || static_cast<size_t>(index) >= s.sidebar.size())
                 return false;
@@ -185,6 +202,13 @@ namespace perlin::ui {
         const auto mixq = [&](float v) { mix(static_cast<uint64_t>(static_cast<int64_t>(std::lround(v * 24.0f)))); };
         const auto mixs = [&](const std::string& t) { for (const char c : t) mix(static_cast<uint8_t>(c)); mix(0xff); };
         mix(i18n::Lang::Get().Version());
+        mix(s.bossBars.size());
+        for (const auto& bar : s.bossBars) {
+            mixs(bar.title);
+            mixf(bar.progress);
+            mix(static_cast<uint64_t>(bar.color));
+            mix(static_cast<uint64_t>(bar.overlay));
+        }
         mix(s.sidebarVisible);
         mixs(s.sidebarTitle);
         for (const HudSidebarRow& r : s.sidebar) {

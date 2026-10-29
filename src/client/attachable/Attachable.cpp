@@ -27,6 +27,7 @@ namespace perlin::attachable {
     struct Host final : molang::Host {
         const ItemState* state = nullptr;
         double animTime = 0;
+        bool allFinished = false, anyFinished = false;
 
         bool Query(const std::string& name, const molang::Args& args, Value& out) override {
             if (!state)
@@ -39,6 +40,8 @@ namespace perlin::attachable {
             if (name == "get_animation_frame") return num(s.animationFrame);
             if (name == "life_time") return num(s.lifeSeconds);
             if (name == "anim_time") return num(animTime);
+            if (name == "all_animations_finished") return num(allFinished);
+            if (name == "any_animation_finished") return num(anyFinished);
             if (name == "blocking") return num(s.blocking ? 1.0 : 0.0);
             if (name == "can_damage_nearby_mobs" || name == "has_target" || name == "is_moving") return num(0);
             if (name == "get_equipped_item_name") {
@@ -347,13 +350,13 @@ namespace perlin::attachable {
             (void)id;
             return static_cast<float>(since);
         };
-        const auto play = [&](const std::string& id, double startedAt) {
+        const auto play = [&](const std::string& id, double startedAt, float weight) {
             const Animation* a = animations.Find(id);
             if (!a)
                 return;
             const double since = in.now - startedAt;
             in.host.animTime = since;
-            Apply(*a, in.scope, animationTime(id, *a, since), 1.0f, pose);
+            Apply(*a, in.scope, animationTime(id, *a, since), weight, pose);
         };
         const auto activate = [&](const std::string& id) {
             active[id] = true;
@@ -365,54 +368,52 @@ namespace perlin::attachable {
         for (const auto& [shortName, cond] : e->animate) {
             if (state.bindPose)
                 break;
-            if (cond && !cond->Eval(in.scope).Truthy())
-                continue;
+            const float rootWeight = cond ? static_cast<float>(cond->Number(in.scope)) : 1.0f;
+            if (rootWeight == 0.0f) continue;
             const auto found = e->animations.find(shortName);
             if (found == e->animations.end())
                 continue;
             const std::string& id = found->second;
             if (const auto* controller = animations.FindController(id)) {
                 auto& cs = in.controllerStates[id];
-                if (!cs.started) {
-                    cs.started = true;
-                    cs.state = controller->initial;
-                    cs.entered = in.now;
-                }
-                for (int guard = 0; guard < 4; guard++) {
-                    const auto st = controller->states.find(cs.state);
-                    if (st == controller->states.end())
-                        break;
-                    bool moved = false;
-                    for (const auto& [target, test] : st->second.transitions) {
-                        if (test && test->Eval(in.scope).Truthy()) {
-                            for (const auto& s : st->second.onExit)
-                                s->Eval(in.scope);
-                            cs.state = target;
-                            cs.entered = in.now;
-                            if (const auto next = controller->states.find(target); next != controller->states.end())
-                                for (const auto& s : next->second.onEntry)
-                                    s->Eval(in.scope);
-                            moved = true;
-                            break;
+                StartController(*controller, in.scope, cs.state, cs.entered, cs.started, in.now);
+                in.host.animTime = in.now - cs.entered;
+                in.host.allFinished = false;
+                in.host.anyFinished = false;
+                if (const auto current = controller->states.find(cs.state); current != controller->states.end()) {
+                    bool all = !current->second.animations.empty();
+                    for (const auto& [name, blend] : current->second.animations) {
+                        (void)blend;
+                        const auto child = e->animations.find(name);
+                        const auto* animation = child != e->animations.end() ? animations.Find(child->second) : nullptr;
+                        bool done = false;
+                        if (animation) {
+                            const std::string key = id + "/" + cs.state + "/" + child->second;
+                            const auto start = in.animStart.find(key);
+                            const double startedAt = start == in.animStart.end() ? cs.entered : start->second;
+                            done = animation->loop != Animation::Loop::Yes && animation->length > 0 &&
+                                   in.now - startedAt >= animation->length;
                         }
+                        all = all && done;
+                        in.host.anyFinished = in.host.anyFinished || done;
                     }
-                    if (!moved)
-                        break;
+                    in.host.allFinished = all;
                 }
+                AdvanceController(*controller, in.scope, cs.state, cs.entered, in.now);
                 const auto st = controller->states.find(cs.state);
                 if (st == controller->states.end())
                     continue;
                 for (const auto& [animShort, animCond] : st->second.animations) {
-                    if (animCond && !animCond->Eval(in.scope).Truthy())
-                        continue;
+                    const float weight = rootWeight * (animCond ? static_cast<float>(animCond->Number(in.scope)) : 1.0f);
+                    if (weight == 0.0f) continue;
                     const auto aid = e->animations.find(animShort);
                     if (aid == e->animations.end())
                         continue;
                     const std::string stateKey = id + "/" + cs.state + "/" + aid->second;
-                    play(aid->second, activate(stateKey) );
+                    play(aid->second, activate(stateKey), weight);
                 }
             } else {
-                play(id, activate(id));
+                play(id, activate(id), rootWeight);
             }
         }
         for (auto it = in.animStart.begin(); it != in.animStart.end();)

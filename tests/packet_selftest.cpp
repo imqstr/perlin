@@ -119,6 +119,23 @@ int main() {
               q.position.z == -20);
     }
     {
+        // independent wire fixture: 64-bit runtime ids and mode-gated teleport fields have no presence byte
+        const std::vector<uint8_t> wire{
+            0xa8,0xf8,0xd8,0xbd,0xfe,0xa8,0xca,0x6d,
+            0x00,0xc0,0x9c,0x44,0x71,0x3d,0xdb,0x42,0x00,0x00,0x63,0x44,
+            0x00,0x00,0x00,0x00,0x00,0x00,0xb4,0x42,0x00,0x00,0xb4,0x42,
+            0x02,0x00,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x63};
+        MovePlayerPacket captured;
+        CHECK(Decode(wire, captured) && captured.runtimeId == 61688408706530344ULL &&
+              captured.position.x == 1254.0f && captured.teleport && captured.tick == 99);
+        CHECK(net::Encode(captured) == wire);
+        TakeItemEntityPacket pickup;
+        pickup.runtimeEntityId = 7;
+        pickup.target = 61688408706530344ULL;
+        const std::vector<uint8_t> pickupWire{7,0xa8,0xf8,0xd8,0xbd,0xfe,0xa8,0xca,0x6d};
+        CHECK(net::Encode(pickup) == pickupWire);
+        TakeItemEntityPacket received;
+        CHECK(Decode(pickupWire, received) && received.target == pickup.target);
         MovePlayerPacket p;
         p.mode = MovePlayerPacketMode::Teleport;
         p.teleport = MovePlayerPacketTeleport{MovePlayerPacketTeleportCause::Command, LegacyEntityType{}};

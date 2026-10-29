@@ -49,7 +49,14 @@ namespace perlin::ui {
         int score = 0;
     };
 
+    struct HudBossBar {
+        std::string title;
+        float progress = 1.0f;
+        int color = 0, overlay = 0;
+    };
+
     struct HudState {
+        std::vector<HudBossBar> bossBars;
         // server scoreboard in the sidebar slot (SetDisplayObjective "sidebar")
         bool sidebarVisible = false;
         std::string sidebarTitle;

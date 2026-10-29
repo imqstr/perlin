@@ -253,7 +253,13 @@ namespace perlin::ui {
             face.outline = family.find("outline") != Rml::String::npos;
             face.bold = weight == Rml::Style::FontWeight::Bold;
             face.italic = style == Rml::Style::FontStyle::Italic;
-            face.size = std::max(size, 1);
+            face.size = static_cast<float>(std::max(size, 1));
+            // RmlUi's face callback rounds CSS sizes to integers; retain the source size in our family key
+            if (const size_t at = family.rfind("-size-"); at != Rml::String::npos) {
+                const float requested = std::strtof(family.c_str() + at + 6, nullptr);
+                if (std::isfinite(requested) && requested > 0 && requested <= 4096)
+                    face.size = requested;
+            }
             for (size_t i = 0; i < faces.size(); i++)
                 if (faces[i].ten == face.ten && faces[i].shadow == face.shadow && faces[i].outline == face.outline &&
                     faces[i].bold == face.bold && faces[i].italic == face.italic && faces[i].size == face.size)
@@ -317,6 +323,12 @@ namespace perlin::ui {
                 return GenerateTenString(renderManager, f, string, position, colour, opacity, meshes);
             const float s = static_cast<float>(f.size) / 8.0f;
             const McFont& font = McFont::Instance();
+            const std::string text(string.begin(), string.end());
+            size_t glyphIndex = 0;
+            uint32_t glyphCode;
+            // dynamic glyphs must be rasterized before the atlas texture is uploaded
+            while (McFont::Next(text, glyphIndex, glyphCode))
+                font.Get(glyphCode);
             Rml::Texture texture = renderManager.LoadTexture("mcfont:atlas#" + std::to_string(font.Version()));
             meshes.resize(meshes.size() + 1);
             Rml::TexturedMesh& out = meshes.back();
@@ -326,16 +338,13 @@ namespace perlin::ui {
             const Rml::ColourbPremultiplied shade(static_cast<Rml::byte>(main.red / 4), static_cast<Rml::byte>(main.green / 4),
                                                   static_cast<Rml::byte>(main.blue / 4), main.alpha);
 
-            // bitmap glyphs stay crisp only when each font texel covers whole device pixels: a scale near a whole
-            // number of pixels per texel (font_scale_factor 1.05 at any gui scale) is rounded to it, origins snapped; layout keeps exact scale
-            const float device = static_cast<float>(gScale);
-            float texel = s * device;
-            if (const float whole = std::round(texel); whole >= 1.0f && std::fabs(texel - whole) <= 0.2f * texel)
-                texel = whole;
-            const float k = texel / device;
+            // geometry and advances must use the same scale as text measurement
+            const float device = static_cast<float>(std::max(1, gScale));
+            const float k = s;
+            // bitmap texels cover whole device pixels: snap geometry and pen together so spacing matches drawn size
+            const float kGeo = std::max(1.0f, std::round(k * device)) / device;
             const auto snap = [&](float v) { return std::round(v * device) / device; };
 
-            const std::string text(string.begin(), string.end());
             const auto quads = [&](float ox, float oy, const Rml::ColourbPremultiplied& c) {
                 float pen = 0;
                 size_t i = 0;
@@ -343,37 +352,43 @@ namespace perlin::ui {
                 while (McFont::Next(text, i, cp)) {
                     const McFont::Glyph& g = font.Get(cp);
                     if (g.width > 0) {
-                        const float x = snap(position.x + pen + ox);
-                        const float y = snap(position.y - 7.0f * k + oy) + g.top * k;
-                        const float w = g.width * k, h = g.height * k;
+                        // Font::drawTransformed scales the whole run: rounding each pen position changes glyph spacing
+                        const float x = g.colored ? snap(position.x + pen + ox + g.left * kGeo)
+                                                  : position.x + pen + ox + g.left * kGeo;
+                        const float y = (g.colored ? snap(position.y - 7.0f * kGeo + oy)
+                                                  : position.y - 7.0f * kGeo + oy) + g.top * kGeo;
+                        const float w = g.width * kGeo, h = g.height * kGeo;
+                        const Rml::ColourbPremultiplied ink = g.colored
+                            ? Rml::ColourbPremultiplied(c.alpha, c.alpha, c.alpha, c.alpha) : c;
                         for (int pass = 0; pass < (f.bold ? 2 : 1); pass++) {
                             if (!f.italic) {
-                                Rml::MeshUtilities::GenerateQuad(out.mesh, {x + pass * k, y}, {w, h}, c, {g.u0, g.v0}, {g.u1, g.v1});
+                                Rml::MeshUtilities::GenerateQuad(out.mesh, {x + pass * kGeo, y}, {w, h}, ink, {g.u0, g.v0}, {g.u1, g.v1});
                                 continue;
                             }
-                            const float top = (1.0f - 0.25f * g.top) * k, bottom = (1.0f - 0.25f * (g.top + g.height)) * k;
+                            const float top = (1.0f - 0.25f * g.top) * kGeo, bottom = (1.0f - 0.25f * (g.top + g.height)) * kGeo;
                             const int base = static_cast<int>(out.mesh.vertices.size());
-                            const float bx = x + pass * k;
-                            out.mesh.vertices.push_back({{bx + top, y}, c, {g.u0, g.v0}});
-                            out.mesh.vertices.push_back({{bx + w + top, y}, c, {g.u1, g.v0}});
-                            out.mesh.vertices.push_back({{bx + w + bottom, y + h}, c, {g.u1, g.v1}});
-                            out.mesh.vertices.push_back({{bx + bottom, y + h}, c, {g.u0, g.v1}});
+                            const float bx = x + pass * kGeo;
+                            out.mesh.vertices.push_back({{bx + top, y}, ink, {g.u0, g.v0}});
+                            out.mesh.vertices.push_back({{bx + w + top, y}, ink, {g.u1, g.v0}});
+                            out.mesh.vertices.push_back({{bx + w + bottom, y + h}, ink, {g.u1, g.v1}});
+                            out.mesh.vertices.push_back({{bx + bottom, y + h}, ink, {g.u0, g.v1}});
                             for (int idx : {0, 2, 1, 0, 3, 2})
                                 out.mesh.indices.push_back(base + idx);
                         }
                     }
-                    pen += static_cast<float>(g.advance + (f.bold ? 1 : 0)) * k;
+                    // pen follows snapped geometry: exact advances overlap widened glyphs
+                    pen += static_cast<float>(g.advance + (f.bold ? 1 : 0)) * kGeo;
                 }
                 return pen;
             };
             if (f.shadow)
-                quads(k, k, shade);
+                quads(kGeo, kGeo, shade);
             if (f.outline) {
                 const Rml::ColourbPremultiplied black(0, 0, 0, main.alpha);
-                quads(k, 0, black);
-                quads(-k, 0, black);
-                quads(0, k, black);
-                quads(0, -k, black);
+                quads(kGeo, 0, black);
+                quads(-kGeo, 0, black);
+                quads(0, kGeo, black);
+                quads(0, -kGeo, black);
             }
             const float width = quads(0, 0, main);
             return static_cast<int>(std::lround(width));
@@ -389,7 +404,7 @@ namespace perlin::ui {
             bool outline = false;
             bool bold = false;
             bool italic = false;
-            int size = 8;
+            float size = 8;
             Rml::FontMetrics metrics{};
         };
 
@@ -418,6 +433,12 @@ namespace perlin::ui {
                 return 0;
             // gui pixels per atlas pixel
             const float k = static_cast<float>(f.size) / static_cast<float>(page->emPx);
+            const std::string text(string.begin(), string.end());
+            size_t glyphIndex = 0;
+            uint32_t glyphCode;
+            while (McFont::Next(text, glyphIndex, glyphCode))
+                if (!page->glyphs.contains(glyphCode))
+                    McFont::Instance().Get(glyphCode);
             Rml::Texture texture = renderManager.LoadTexture("mcten:atlas#" + std::to_string(emPx));
             meshes.resize(meshes.size() + 2);
             Rml::TexturedMesh& out = meshes[meshes.size() - 2];
@@ -429,20 +450,22 @@ namespace perlin::ui {
             const Rml::ColourbPremultiplied shade(static_cast<Rml::byte>(main.red / 4), static_cast<Rml::byte>(main.green / 4),
                                                   static_cast<Rml::byte>(main.blue / 4), main.alpha);
             const auto snap = [&](float v) { return std::round(v * device) / device; };
-            const std::string text(string.begin(), string.end());
-
             const auto quads = [&](float ox, float oy, const Rml::ColourbPremultiplied& c) {
+                // single snap for the run origin: per-glyph snapping jitters spacing at fractional scales
+                const float baseX = snap(position.x + ox);
+                const float baseY = snap(position.y + oy);
                 float pen = 0;
                 size_t i = 0;
                 uint32_t cp;
                 while (McFont::Next(text, i, cp)) {
                     const auto it = page->glyphs.find(cp);
-                    if (it != page->glyphs.end() && it->second.w > 0 && it->second.h > 0) {
+                    if (it != page->glyphs.end()) {
                         const TenFont::Glyph& g = it->second;
                         // glyph bearings are relative to RmlUi's supplied baseline
-                        const float x = snap(position.x + pen + ox + static_cast<float>(g.x) * k);
-                        const float y = snap(position.y + oy + static_cast<float>(g.y) * k);
-                        Rml::MeshUtilities::GenerateQuad(out.mesh, {x, y},
+                        const float x = baseX + pen + static_cast<float>(g.x) * k;
+                        const float y = baseY + static_cast<float>(g.y) * k;
+                        if (g.w > 0 && g.h > 0)
+                            Rml::MeshUtilities::GenerateQuad(out.mesh, {x, y},
                                                          {static_cast<float>(g.w) * k, static_cast<float>(g.h) * k}, c,
                                                          {g.u0, g.v0}, {g.u1, g.v1});
                         pen += ten.Advance(cp, s);
@@ -451,11 +474,12 @@ namespace perlin::ui {
                     // server icons live in the bitmap atlas, not in the heading face
                     const McFont::Glyph& mg = McFont::Instance().Get(cp);
                     if (mg.width > 0) {
-                        const float ks = k * (TenFont::kEm / 8.0f);
-                        const float x = snap(position.x + pen + ox);
-                        const float y = snap(position.y - 7.0f * ks + oy) + mg.top * ks;
+                        const float ks = s * (TenFont::kEm / 8.0f);
+                        const float x = baseX + pen + mg.left * ks;
+                        const float y = baseY - 7.0f * ks + mg.top * ks;
                         Rml::MeshUtilities::GenerateQuad(fallback.mesh, {x, y},
-                                                         {static_cast<float>(mg.width) * ks, static_cast<float>(mg.height) * ks}, c,
+                                                         {static_cast<float>(mg.width) * ks, static_cast<float>(mg.height) * ks},
+                                                         mg.colored ? Rml::ColourbPremultiplied(c.alpha, c.alpha, c.alpha, c.alpha) : c,
                                                          {mg.u0, mg.v0}, {mg.u1, mg.v1});
                         pen += static_cast<float>(mg.advance) * ks;
                         continue;

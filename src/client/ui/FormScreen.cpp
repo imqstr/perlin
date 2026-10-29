@@ -1003,7 +1003,8 @@ namespace perlin::ui {
             }
         }
         const size_t buttons = form.type == FormModel::Type::Modal ? 2 : form.type == FormModel::Type::Custom ? 0 : form.buttons.size();
-        if (buttons > 0 && rml.find("id=\"fb:0\"") == std::string::npos) {
+        // metadata rows can hide index zero while later collection entries produce the interactive controls
+        if (buttons > 0 && rml.find("id=\"fb:") == std::string::npos) {
             problem = "form buttons were not produced by the ui files";
             std::cout << "[form] no buttons in rml for '" << form.title << "' (modal=" << wantModal
                       << " hasModalTree=" << (modalTree != nullptr) << "), rml head: " << rml.substr(0, 600) << std::endl;

@@ -192,7 +192,11 @@ namespace perlin::ui {
         std::string cls = st.ten ? "t ten" : "t";
         if (st.outline) cls += " o";
         else if (st.shadow) cls += " s";
-        body += "  <div class=\"" + cls + "\" style=\"left:" + std::to_string(Px(ax)) + "px;top:" +
+        std::string family = st.ten ? "minecraft-ten" : "minecraft";
+        if (st.outline) family += "-outline";
+        else if (st.shadow) family += "-shadow";
+        family += "-size-" + Num(size);
+        body += "  <div class=\"" + cls + "\" style=\"font-family:" + family + ";left:" + std::to_string(Px(ax)) + "px;top:" +
                 std::to_string(Px(ay)) + "px;width:" + Num(std::max(w, 1.0f)) + "px;height:" + Num(h) + "px;z-index:" +
                 std::to_string(z) + ";font-size:" + Num(size) + "px;line-height:" + Num(lineHeight) + "px;text-align:" +
                 st.align + ";color:" + Hex(st.r, st.g, st.b, st.a) + ";\">";

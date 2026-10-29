@@ -1,4 +1,5 @@
 #include "client/ui/TenFont.hpp"
+#include "client/ui/McFont.hpp"
 #include <bit>
 #include <cmath>
 #include <fstream>
@@ -26,6 +27,8 @@ int main() {
     const float descent = -std::bit_cast<int16_t>(u16(hhea + 6));
     for (float scale : {0.5f, 0.75f, 1.0f, 1.5f, 2.0f}) {
         const float em = font.Em(scale);
+        const float fallbackAdvance = perlin::ui::McFont::Instance().Get(0xe000).advance * em / 8.0f;
+        if (std::fabs(font.Advance(0xe000, scale) - fallbackAdvance) > 1e-5f) return 1;
         if (std::fabs(font.Ascent(scale) - ascent * em / units) > 1e-5f ||
             std::fabs(font.Descent(scale) - descent * em / units) > 1e-5f ||
             font.XHeight(scale) <= 0) {

@@ -85,5 +85,21 @@
         }
       }
     ]
+  },
+  "fractional_screen": {
+    "type": "panel",
+    "controls": [
+      {
+        "price": {
+          "type": "label",
+          "text": "1690",
+          "font_scale_factor": 0.8,
+          "size": [
+            "default",
+            "default"
+          ]
+        }
+      }
+    ]
   }
 }

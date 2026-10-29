@@ -288,8 +288,10 @@ namespace perlin {
                     std::copy(std::begin(horseRaw), std::end(horseRaw), std::begin(snapshot.horse));
                     gChestSlotType = chestSlotType;
                     if (legacyInventory) {
-                        if (op(r) && !r.actions.empty())
+                        if (op(r) && !r.actions.empty()) {
+                            std::cout << "[inventory] legacy send " << r.actions.size() << " actions" << std::endl;
                             SendLegacyInventoryLocked(snapshot);
+                        }
                         continue;
                     }
                     if (op(r) && !r.actions.empty()) {
@@ -451,6 +453,8 @@ namespace perlin {
     void BedrockSession::InvClick(int addr, bool right) {
         if (addr < 0 || addr >= kInvTotal || addr == kInvCursor)
             return;
+        if (addr >= kInvChest0)
+            std::cout << "[inventory] chest click addr " << addr << (InvInfoLocked(addr).Empty() ? " empty" : " has-item") << std::endl;
         InvEnqueue([this, addr, right](ItemStackRequest& r) {
             Mover m{*this, r, [this](int a) -> ItemStackInfo& { return InvInfoLocked(a); }, [this](int a) -> ItemV4& { return InvRawLocked(a); }};
             auto& S = InvInfoLocked(addr);
@@ -520,6 +524,8 @@ namespace perlin {
     void BedrockSession::InvShiftClick(int addr) {
         if (addr < 0 || addr >= kInvTotal || addr == kInvCursor)
             return;
+        if (addr >= kInvChest0)
+            std::cout << "[inventory] chest shift-click addr " << addr << (InvInfoLocked(addr).Empty() ? " empty" : " has-item") << std::endl;
         InvEnqueue([this, addr](ItemStackRequest& r) {
             Mover m{*this, r, [this](int a) -> ItemStackInfo& { return InvInfoLocked(a); }, [this](int a) -> ItemV4& { return InvRawLocked(a); }};
             auto& S = InvInfoLocked(addr);

@@ -960,8 +960,10 @@ namespace perlin {
             data.toastTitle = lastToastTitle;
             data.toastMessage = lastToastMessage;
         }
-        for (const auto& b : live->BossBars())
-            data.bars.push_back({b.title, b.progress, b.color, b.overlay});
+        const bool jsonBossBars = hud.Ready() && (options.bedrockMenus || hud.Overrides("hud"));
+        if (!jsonBossBars)
+            for (const auto& b : live->BossBars())
+                data.bars.push_back({b.title, b.progress, b.color, b.overlay});
         // vanilla stacks all bars, no 4-cap
         if (data.bars.size() > 8)
             data.bars.resize(8);
@@ -8224,6 +8226,12 @@ namespace perlin {
             if (hud)
                 hud->SetJavaStyle(!options.bedrockMenus);
             FillHudState(hudState, live, preview);
+            hudState.bossBars.clear();
+            if (live)
+                for (const auto& b : live->BossBars()) {
+                    if (hudState.bossBars.size() == 8) break;
+                    hudState.bossBars.push_back({b.title, b.progress, b.color, b.overlay});
+                }
             hudState.sidebarVisible = false;
             hudState.sidebar.clear();
             if (live) {

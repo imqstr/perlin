@@ -230,9 +230,9 @@ namespace perlin::ui {
             const int cy = static_cast<int>(i / static_cast<size_t>(across)) * cellH + 1;
             for (int y = 0; y < r.h; y++)
                 for (int x = 0; x < r.w; x++) {
-                    // pixel grid: harden edges to match bitmap font crispness
+                    // heading face stays smooth: keep truetype coverage as-is
                     const unsigned char a = r.alpha[static_cast<size_t>(y) * static_cast<size_t>(r.w) + static_cast<size_t>(x)];
-                    const uint8_t v = a >= 96 ? 255 : static_cast<uint8_t>(a * 255 / 96);
+                    const uint8_t v = a;
                     uint8_t* px = &page->rgba[(static_cast<size_t>(cy + y) * static_cast<size_t>(page->width) + static_cast<size_t>(cx + x)) * 4];
                     px[0] = px[1] = px[2] = 255;
                     px[3] = v;

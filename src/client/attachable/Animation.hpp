@@ -30,6 +30,7 @@ namespace perlin::attachable {
 
     struct Keyframe {
         float time = 0;
+        bool catmullRom = false;
         Vec3Expr pre, post;
     };
 
@@ -74,6 +75,11 @@ namespace perlin::attachable {
         std::unordered_map<std::string, Animation> animations;
         std::unordered_map<std::string, Controller> controllers;
     };
+
+    void StartController(const AnimationLibrary::Controller& controller, molang::Scope& scope,
+                         std::string& state, double& entered, bool& started, double now);
+    bool AdvanceController(const AnimationLibrary::Controller& controller, molang::Scope& scope,
+                           std::string& state, double& entered, double now);
 
     using BindLookup = std::function<glm::vec3(const std::string& bone)>;
     void Apply(const Animation& animation, molang::Scope& scope, float time, float weight, Pose& pose,

@@ -249,14 +249,27 @@ namespace perlin {
         if (it == active.end())
             return r;
         Active& a = it->second;
+        // chunks may arrive out of order: hold early ones, drain in order
+        if (chunk.chunkIndex < a.next)
+            return r;
         if (chunk.chunkIndex != a.next) {
-            r.step = Step::Failed;
-            r.message = "pack chunk " + std::to_string(chunk.chunkIndex) + " arrived, expected " + std::to_string(a.next);
+            if (chunk.chunkIndex < a.chunkCount)
+                a.held.emplace(chunk.chunkIndex, chunk.payload);
+            Refill(a, r);
             return r;
         }
         a.data.insert(a.data.end(), chunk.payload.begin(), chunk.payload.end());
         receivedBytes += chunk.payload.size();
         a.next++;
+        while (true) {
+            auto held = a.held.find(a.next);
+            if (held == a.held.end())
+                break;
+            a.data.insert(a.data.end(), held->second.begin(), held->second.end());
+            receivedBytes += held->second.size();
+            a.held.erase(held);
+            a.next++;
+        }
         requestedAt = std::chrono::steady_clock::now();
         stallReported = false;
         if (a.next < a.chunkCount) {

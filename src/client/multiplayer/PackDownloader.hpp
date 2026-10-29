@@ -58,6 +58,7 @@ namespace perlin {
             std::vector<uint8_t> hash;
             std::vector<uint8_t> data;
             std::string fileName;
+            std::map<uint32_t, std::vector<uint8_t>> held;
         };
         struct Offered {
             std::string fileName, uuid, key;

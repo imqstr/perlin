@@ -146,5 +146,44 @@
         ]
       }
     ]
+  },
+  "retype": {
+    "packet_move_player.runtime_id": "varint64",
+    "packet_move_player.ridden_runtime_id": "varint64",
+    "packet_move_player.teleport": [
+      "switch",
+      {
+        "compareTo": "mode",
+        "fields": {
+          "teleport": [
+            "container",
+            [
+              {
+                "name": "cause",
+                "type": [
+                  "mapper",
+                  {
+                    "type": "li32",
+                    "mappings": {
+                      "0": "unknown",
+                      "1": "projectile",
+                      "2": "chorus_fruit",
+                      "3": "command",
+                      "4": "behavior"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "source_entity_type",
+                "type": "LegacyEntityType"
+              }
+            ]
+          ]
+        },
+        "default": "void"
+      }
+    ],
+    "packet_take_item_entity.target": "varint64"
   }
 }

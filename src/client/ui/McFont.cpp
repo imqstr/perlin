@@ -71,25 +71,6 @@ namespace perlin::ui {
     bool McFont::Next(const std::string& s, size_t& i, uint32_t& cp) {
         if (i >= s.size())
             return false;
-        // icon escape: section + 'm' + two hex section codes addresses a glyph page icon directly
-        const auto hex = [](unsigned char ch) -> int {
-            if (ch >= '0' && ch <= '9') return ch - '0';
-            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-            return -1;
-        };
-        if (i + 9 <= s.size() && static_cast<unsigned char>(s[i]) == 0xC2 && static_cast<unsigned char>(s[i + 1]) == 0xA7 &&
-            (s[i + 2] == 'm' || s[i + 2] == 'M') && static_cast<unsigned char>(s[i + 3]) == 0xC2 &&
-            static_cast<unsigned char>(s[i + 4]) == 0xA7 && static_cast<unsigned char>(s[i + 6]) == 0xC2 &&
-            static_cast<unsigned char>(s[i + 7]) == 0xA7) {
-            const int hi = hex(static_cast<unsigned char>(s[i + 5]));
-            const int lo = hex(static_cast<unsigned char>(s[i + 8]));
-            if (hi >= 0 && lo >= 0) {
-                cp = 0xE100u | (static_cast<uint32_t>(hi) << 4) | static_cast<uint32_t>(lo);
-                i += 9;
-                return true;
-            }
-        }
         const unsigned char c = static_cast<unsigned char>(s[i]);
         if (c < 0x80) {
             cp = c;
@@ -421,7 +402,7 @@ namespace perlin::ui {
                 out.advance = std::max(2, static_cast<int>(std::lround(static_cast<float>(advance) * scale / 2.0f)));
             } else {
                 out.width = (ink + 1) / 2;
-                out.advance = std::max(out.width + 1, static_cast<int>(std::lround(static_cast<float>(advance) * scale / 2.0f)));
+                out.advance = std::max(out.width + 1.0f, static_cast<float>(std::lround(static_cast<float>(advance) * scale / 2.0f)));
             }
             return true;
         }
@@ -471,14 +452,14 @@ namespace perlin::ui {
         const GlyphPage& gp = page->second;
         const int cellW = gp.width / 16, cellH = gp.height / 16;
         const int sx0 = static_cast<int>(cp & 15) * cellW, sy0 = static_cast<int>((cp >> 4) & 15) * cellH;
-        bool ink = false;
-        for (int y = 0; y < cellH && !ink; y++)
+        int first = cellW, last = -1;
+        for (int y = 0; y < cellH; y++)
             for (int x = 0; x < cellW; x++)
-                if (gp.rgba[(static_cast<size_t>(sy0 + y) * gp.width + sx0 + x) * 4 + 3] > 16) {
-                    ink = true;
-                    break;
+                if (gp.rgba[(static_cast<size_t>(sy0 + y) * gp.width + sx0 + x) * 4 + 3] != 0) {
+                    first = std::min(first, x);
+                    last = std::max(last, x);
                 }
-        if (!ink)
+        if (last < first)
             return nullptr;
         int cx = 0, cy = 0;
         if (!ReserveGlyphCell(cellW, cellH, cx, cy))
@@ -489,8 +470,15 @@ namespace perlin::ui {
                         &gp.rgba[(static_cast<size_t>(sy0 + y) * gp.width + sx0) * 4],
                         static_cast<size_t>(cellW) * 4);
         Glyph g;
-        g.width = 8;
-        g.advance = 8;
+        // BitmapFont::_scanUnicodeCharacterSize and _buildChar: private-use icons retain native cell size
+        const bool nativeSize = cp >= 0xe000 && cp <= 0xf8ff;
+        const float unit = nativeSize ? 1.0f : 8.0f / static_cast<float>(cellW);
+        g.width = nativeSize ? static_cast<float>(cellW) : 8.0f;
+        g.height = g.width;
+        g.advance = static_cast<float>(last - first + 1) * unit + 1.0f;
+        g.left = static_cast<float>(1 - first) * unit;
+        g.top = nativeSize ? (8.0f - g.height) * 0.5f : 0.0f;
+        g.colored = nativeSize;
         g.cell = kCell;
         g.u0 = static_cast<float>(cx) / static_cast<float>(atlasWidth);
         g.v0 = static_cast<float>(cy) / static_cast<float>(atlasHeight);
@@ -565,6 +553,13 @@ namespace perlin::ui {
     }
 
     const McFont::Glyph& McFont::Get(uint32_t cp) const {
+        // control codes take no space: rml handles line breaks, tabs become a space
+        if (cp == '\n' || cp == '\r') {
+            static const Glyph empty{};
+            return empty;
+        }
+        if (cp == '\t')
+            return glyphs[' '];
         if (cp < glyphs.size() && (glyphs[cp].advance > 0 || cp == ' '))
             return glyphs[cp];
         if (cp == ' ')

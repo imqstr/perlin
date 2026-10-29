@@ -692,16 +692,9 @@ namespace perlin::entity {
                 return;
             if (const auto* controller = assets.animations.FindController(id)) {
                 auto& cs = v.ctrl[path + id];
-                if (!cs.started) {
-                    cs.started = true;
-                    cs.state = controller->initial;
-                    cs.entered = now;
-                }
+                attachable::StartController(*controller, scope, cs.state, cs.entered, cs.started, now);
                 std::string key;
-                for (int guard = 0; guard < 4; guard++) {
-                    const auto st = controller->states.find(cs.state);
-                    if (st == controller->states.end())
-                        break;
+                if (const auto st = controller->states.find(cs.state); st != controller->states.end()) {
                     host->animTime = static_cast<float>(now - cs.entered);
                     {
                         bool all = true, any = false;
@@ -723,22 +716,7 @@ namespace perlin::entity {
                         host->allFinished = all && !st->second.animations.empty();
                         host->anyFinished = any;
                     }
-                    bool moved = false;
-                    for (const auto& [target, test] : st->second.transitions) {
-                        if (!test || !test->Eval(scope).Truthy())
-                            continue;
-                        for (const auto& s : st->second.onExit)
-                            s->Eval(scope);
-                        cs.state = target;
-                        cs.entered = now;
-                        if (const auto next = controller->states.find(target); next != controller->states.end())
-                            for (const auto& s : next->second.onEntry)
-                                s->Eval(scope);
-                        moved = true;
-                        break;
-                    }
-                    if (!moved)
-                        break;
+                    attachable::AdvanceController(*controller, scope, cs.state, cs.entered, now);
                 }
                 const auto st = controller->states.find(cs.state);
                 if (st == controller->states.end())
@@ -1829,7 +1807,7 @@ namespace perlin::entity {
                     continue;
                 const ui::McFont::Glyph& g = font.Get(cp);
                 if (g.width > 0)
-                    quad(textV, textI, pen, rowY + g.top, pen + static_cast<float>(g.width), rowY + g.top + g.height, g.u0, g.v0, g.u1, g.v1, PackColor(col));
+                    quad(textV, textI, pen + g.left, rowY + g.top, pen + g.left + g.width, rowY + g.top + g.height, g.u0, g.v0, g.u1, g.v1, PackColor(g.colored ? glm::vec3(1.0f) : col));
                 pen += static_cast<float>(g.advance) + (bold ? 1.0f : 0.0f);
             }
             }
@@ -2999,9 +2977,9 @@ namespace perlin::entity {
                             continue;
                         const ui::McFont::Glyph& g = font.Get(cp);
                         if (g.width > 0) {
-                            const uint32_t color = PackColor(col * lit);
+                            const uint32_t color = PackColor(g.colored ? glm::vec3(1.0f) : col * lit);
                             for (int pass = 0; pass < (bold ? 2 : 1); pass++) {
-                                const float gx0 = pen + static_cast<float>(pass), gx1 = gx0 + static_cast<float>(g.width);
+                                const float gx0 = pen + g.left + static_cast<float>(pass), gx1 = gx0 + static_cast<float>(g.width);
                                 const auto corner = [&](float gx, float gy) {
                                     float ox, oz;
                                     const float lx = 0.5f + rx * gx * scale, lz = planeZ + dir * 0.0f;

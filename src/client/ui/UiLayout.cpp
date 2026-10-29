@@ -1057,6 +1057,11 @@ namespace perlin::ui {
                     if (n.type == "grid") hundred.kind = Term::PctChildren;
                     if (w.empty()) w.push_back(intrinsic ? def : hundred);
                     if (h.empty()) h.push_back(intrinsic ? def : hundred);
+                    // unsized stacks wrap children on their stacking axis, leaving room for fill siblings
+                    if (n.type == "stack_panel" && !size) {
+                        Dim& main = StackVertical(n) ? h : w;
+                        main = {Term{Term::PctChildren, 100, 1}};
+                    }
                 }
                 // inherit_max_sibling_width/height: grow to widest/tallest sibling; applied in Measure
             }
