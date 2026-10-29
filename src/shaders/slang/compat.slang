@@ -49,6 +49,8 @@ float4 mod(float4 x, float y) { return x - y * floor(x / y); }
 
 #define texture2D(tex, uv) tex.Sample(tex##_s, uv)
 #define texture2DLod(tex, uv, lod) tex.SampleLevel(tex##_s, uv, lod)
+#define textureLod(tex, uv, lod) tex.SampleLevel(tex##_s, uv, lod)
+#define texelFetch(tex, px, lod) tex.Load(int3(px, lod))
 #define texture2DArray(tex, uvl) tex.Sample(tex##_s, uvl)
 #define texture2DArrayLod(tex, uvl, lod) tex.SampleLevel(tex##_s, uvl, lod)
 

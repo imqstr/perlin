@@ -341,6 +341,8 @@ SAMPLER_SLOTS = {
     "shadowcolor1": "s_shadowTintB",
     "depthtex0": "s_sceneDepth",
     "depthtex1": "s_depth",
+    # bare depthtex is only ever a sampler parameter receiving depthtex1
+    "depthtex": "s_depth",
     "noisetex": "s_noise",
     "normals": "s_normals",
     "specular": "s_specular",
@@ -493,6 +495,17 @@ def _rename_builtins(body: str, needed_matrices: dict[str, str]) -> str:
     sub(r"\bgl_MultiTexCoord0\b", "vec4(a_texcoord0, 0.0, 1.0)")
     # engine light bytes are 0..15 in a_texcoord1.xy; the pack wants 0..1
     sub(r"\bgl_MultiTexCoord1\b", "javaLightCoord(a_texcoord1)")
+    # fixed-function transform: projection * modelview * vertex
+    if re.search(r"\bftransform\s*\(\s*\)", body):
+        needed_matrices["gl_ProjectionMatrix"] = LEGACY_MATRIX["gl_ProjectionMatrix"]
+        needed_matrices["gl_ModelViewMatrix"] = LEGACY_MATRIX["gl_ModelViewMatrix"]
+        sub(r"\bftransform\s*\(\s*\)", "(u_jProjectionMatrix * u_jModelViewMatrix * vec4(a_position, 1.0))")
+    # sampler params arrive as legacy types; the global slot with the same
+    # name supplies the sampler state (see depthtex below)
+    sub(r"\bsampler2D\b", "Texture2D")
+    # fixed-function fog: engine feeds start/scale (see FeedJavaUniforms)
+    sub(r"\bgl_Fog\.start\b", "u_jFogStart")
+    sub(r"\bgl_Fog\.scale\b", "u_jFogScale")
     for java, member in LEGACY_MATRIX.items():
         base = java.replace("gl_TextureMatrix", "gl_TextureMatrix")
         if base.startswith("gl_TextureMatrix"):
@@ -687,6 +700,10 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     emitted_macros: set[str] = set()
     for stage in ("vertex", "fragment"):
         bodies[stage] = _rename_builtins(bodies[stage], needed_matrices)
+    # engine-fed fixed-function fog (renamed above, after stripping)
+    if any("u_jFogStart" in bodies[stage] or "u_jFogScale" in bodies[stage] for stage in ("vertex", "fragment")):
+        uni.setdefault("FogStart", ("float", ""))
+        uni.setdefault("FogScale", ("float", ""))
     # sampler map: known slots renamed, unknown keep name (unbound decls)
     smap = {s: SAMPLER_SLOTS.get(s, s) for s in samp}
     for stage in ("vertex", "fragment"):
@@ -701,9 +718,17 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
 
     import json as _json
     try:
-        _known_slots = set(_json.loads((Path(__file__).resolve().parent.parent / "src/shaders/slang/texture_slots.json").read_text()))
+        _slot_nums = {k: v[0] for k, v in _json.loads(
+            (Path(__file__).resolve().parent.parent / "src/shaders/slang/texture_slots.json").read_text()).items()}
     except Exception:
-        _known_slots = set()
+        _slot_nums = {}
+    _known_slots = set(_slot_nums)
+    try:
+        _vv = (Path(__file__).resolve().parent.parent / "src/shaders/slang/vv_resources.slang").read_text()
+        _vv_declared = set(re.findall(r"SAMPLER2D(ARRAY)?\((\w+)", _vv))
+        _vv_declared = {m[1] if isinstance(m, tuple) else m for m in _vv_declared}
+    except Exception:
+        _vv_declared = set()
     unmapped_samplers = sorted(s for s in samp
                                if s not in SAMPLER_SLOTS or SAMPLER_SLOTS[s] not in _known_slots)
     targets = sorted({int(m) for stage in ("vertex", "fragment")
@@ -732,8 +757,13 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append("")
     for s in sorted(samp):
         slot = SAMPLER_SLOTS.get(s, s)
-        if slot in _known_slots:
+        if slot in _known_slots and slot in _vv_declared:
             lines.append(f"// java sampler {s} -> RHI slot {slot} (see vv_resources.slang)")
+        elif slot in _known_slots:
+            # post-chain slots live in each program, not the shared header
+            n = _slot_nums[slot]
+            lines.append(f"// java sampler {s} -> RHI slot {slot} (declared here)")
+            lines.append(f"SAMPLER2D({slot}, {n * 2}, {n * 2 + 1});")
         else:
             lines.append(f"// TODO(java): sampler {s} has no RHI slot yet: left unbound below")
             lines.append(f"Texture2D {slot};")

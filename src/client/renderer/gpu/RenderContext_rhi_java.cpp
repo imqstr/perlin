@@ -228,5 +228,9 @@ namespace perlin {
         uni.Set("u_jplayerMood", &zero, 1);
         uni.Set("u_jnear", &params.cameraNear, 1);
         uni.Set("u_jfar", &params.cameraFar, 1);
+        const float fogSpan = std::max(params.environmentalFogEnd - params.environmentalFogStart, 1e-3f);
+        const float fogScale = 1.0f / fogSpan;
+        uni.Set("u_jFogStart", &params.environmentalFogStart, 1);
+        uni.Set("u_jFogScale", &fogScale, 1);
     }
 } // namespace perlin

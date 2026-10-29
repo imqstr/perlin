@@ -4,6 +4,7 @@
 #include "client/platform/AppPlatform.hpp"
 #include "client/resources/ShaderPack.hpp"
 #include "client/renderer/MaterialDb.hpp"
+#include "client/renderer/Tessellator.hpp"
 #include "rhi/DeviceProfile.hpp"
 #include "util/Env.hpp"
 #include "util/Paths.hpp"
@@ -36,7 +37,7 @@ namespace perlin {
             {"terrain_solid", "vv_terrain_solid", gpu::VertexLayout::Terrain, "java_gbuffers_terrain"},
             {"terrain_cutout", "vv_terrain_cutout", gpu::VertexLayout::Terrain},
             {"terrain_translucent", "vv_terrain_translucent", gpu::VertexLayout::Terrain},
-            {"sky", "vv_sky", gpu::VertexLayout::Position},
+            {"sky", "vv_sky", gpu::VertexLayout::Terrain, "java_gbuffers_skybasic"},
             {"star", "vv_star", gpu::VertexLayout::Position},
             {"sunrise", "vv_sunrise", gpu::VertexLayout::Color},
             {"celestial", "vv_celestial", gpu::VertexLayout::Texture},
@@ -314,8 +315,28 @@ namespace perlin {
             return gpu.CreateStatic(indices.data(), indices.size() * sizeof(uint16_t), rhi::BufferUsage::Index, name);
         };
         const std::vector<PositionVertex> topSkyV = BuildSkyDisc(16.0f);
-        topSky = upload(topSkyV, "sky top");
-        bottomSky = upload(BuildSkyDisc(-16.0f), "sky bottom");
+        // sky discs ride the terrain layout so converted java sky programs
+        // see valid inputs; vv sky only reads position
+        const auto toTerrain = [](const std::vector<PositionVertex>& in) {
+            std::vector<Vertex> out;
+            out.reserve(in.size());
+            const uint32_t bright = PackLight(15.0f, 15.0f);
+            for (const PositionVertex& p : in) {
+                const float l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+                const float inv = l > 1e-6f ? 1.0f / l : 0.0f;
+                Vertex v{};
+                v.x = p.x;
+                v.y = p.y;
+                v.z = p.z;
+                v.rgba = 0xFFFFFFFFu;
+                v.light = bright;
+                v.normal = PackColor(p.x * inv * 0.5f + 0.5f, p.y * inv * 0.5f + 0.5f, p.z * inv * 0.5f + 0.5f);
+                out.push_back(v);
+            }
+            return out;
+        };
+        topSky = upload(toTerrain(topSkyV), "sky top");
+        bottomSky = upload(toTerrain(BuildSkyDisc(-16.0f)), "sky bottom");
         {
             std::vector<PositionVertex> box;
             for (int i = 0; i < 8; i++)
