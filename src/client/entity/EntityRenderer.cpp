@@ -18,6 +18,8 @@
 
 #include <algorithm>
 #include <map>
+#include <string>
+#include <unordered_set>
 #include <deque>
 #include <cmath>
 #include <cstdlib>
@@ -2007,6 +2009,21 @@ namespace perlin::entity {
                 const std::string& label = !e.nameTag.empty() ? e.nameTag : e.isPlayer ? e.name : e.nameTag;
                 const double d2 = glm::dot(delta, delta);
                 if (!label.empty() && d2 < (e.isPlayer ? 64.0 * 64.0 : 16.0 * 16.0)) {
+                    if (std::getenv("PERLIN_DEBUG_NAMETAGS") != nullptr) {
+                        static std::unordered_set<std::string> seen;
+                        if (seen.size() > 20000)
+                            seen.clear();
+                        std::string key = std::to_string(e.runtimeId) + "|" + label;
+                        if (seen.insert(key).second) {
+                            std::string flat = label;
+                            for (char& c : flat)
+                                if (c == '\n')
+                                    c = '|';
+                            std::cout << "[nametag] draw rid=" << e.runtimeId << " type=" << e.type
+                                      << (e.isPlayer ? " player" : "") << " taglen=" << e.nameTag.size()
+                                      << " text=" << flat << std::endl;
+                        }
+                    }
                     const auto hb = HitBox(e);
                     Tag t;
                     t.text = label;

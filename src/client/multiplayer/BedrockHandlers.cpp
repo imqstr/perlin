@@ -72,11 +72,20 @@ namespace perlin {
         void ApplyMetadata(entity::EntityTracker& tracker, uint64_t rid, const std::vector<MetadataDictionaryEntry>& metadata) {
             int variant = -1, mark = -1, color = -1;
             float boxWidth = 0.0f, boxHeight = 0.0f;
+            static const bool debugTags = std::getenv("PERLIN_DEBUG_NAMETAGS") != nullptr;
             for (const MetadataDictionaryEntry& m : metadata) {
                 if (m.key == MetadataDictionaryEntryKey::Nametag) {
                     if (const auto* inner = std::get_if<4>(&m.value))
-                        if (const auto* str = std::get_if<5>(inner))
+                        if (const auto* str = std::get_if<5>(inner)) {
                             tracker.SetNameTag(rid, *str);
+                            if (debugTags) {
+                                std::string flat = *str;
+                                for (char& c : flat)
+                                    if (c == '\n')
+                                        c = '|';
+                                std::cout << "[nametag] set rid=" << rid << " text=" << flat << std::endl;
+                            }
+                        }
                     continue;
                 }
                 double n = 0;
@@ -1057,6 +1066,13 @@ namespace perlin {
             // AddPlayer carries the feet position, unlike the move packets which carry the eye.
             entities.AddPlayer(p.runtimeId, p.uniqueId, UuidKey(p.uuid), p.username,
                                {p.position.x, p.position.y, p.position.z}, p.pitch, p.yaw, p.headYaw, MetaFlags(p.metadata), held);
+            if (std::getenv("PERLIN_DEBUG_NAMETAGS") != nullptr) {
+                std::string flat = p.username;
+                for (char& c : flat)
+                    if (c == '\n')
+                        c = '|';
+                std::cout << "[npcname] addplayer rid=" << p.runtimeId << " user=" << flat << std::endl;
+            }
             ApplyMetadata(entities, p.runtimeId, p.metadata);
             ApplyEntityProperties(p.runtimeId, "minecraft:player", p.properties);
         });
