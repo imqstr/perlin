@@ -42,8 +42,13 @@ namespace perlin::physics::bds {
                 result.bouncePosition = BlockPosition{FloorBlockCoordinate(position.x),
                                                        FloorBlockCoordinate(position.y),
                                                        FloorBlockCoordinate(position.z)};
+            result.velocity.y = 0.0f;
+        } else if (surface == LandingSurface::Ordinary || sneaking) {
+            // Sneaking on any surface (and all ordinary landings) kills vertical motion.
+            // A rising or stationary body on slime/bed is left alone: the game only
+            // bounces falling bodies and never zeroes anything otherwise.
+            result.velocity.y = 0.0f;
         }
-        result.velocity.y = 0.0f;
         return result;
     }
 
