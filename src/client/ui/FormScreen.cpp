@@ -222,6 +222,34 @@ namespace perlin::ui {
         return false;
     }
 
+    // tab stops have no defined advance in the bitmap font: long runs push labels out of view,
+    // so server menus treat them as plain word separators
+    void NormalizeFormText(std::string& text) {
+        for (char& c : text)
+            if (c == '\t')
+                c = ' ';
+        std::string collapsed;
+        collapsed.reserve(text.size());
+        bool lastSpace = true;
+        for (const char c : text) {
+            if (c == '\n') {
+                collapsed += c;
+                lastSpace = true;
+                continue;
+            }
+            if (c == ' ') {
+                if (lastSpace)
+                    continue;
+                lastSpace = true;
+                collapsed += c;
+                continue;
+            }
+            lastSpace = false;
+            collapsed += c;
+        }
+        text = std::move(collapsed);
+    }
+
     bool ParseForm(uint32_t id, const std::string& json, FormModel& out) {
         Json root;
         std::string error;
@@ -236,6 +264,10 @@ namespace perlin::ui {
             out.content = Str(root.Find("content"));
             out.button1 = Str(root.Find("button1"));
             out.button2 = Str(root.Find("button2"));
+            NormalizeFormText(out.title);
+            NormalizeFormText(out.content);
+            NormalizeFormText(out.button1);
+            NormalizeFormText(out.button2);
             return true;
         }
         if (type == "custom_form") {
@@ -285,9 +317,16 @@ namespace perlin::ui {
                     } else {
                         continue;
                     }
+                    NormalizeFormText(el.text);
+                    NormalizeFormText(el.placeholder);
+                    NormalizeFormText(el.value);
+                    for (std::string& option : el.options)
+                        NormalizeFormText(option);
                     out.elements.push_back(std::move(el));
                 }
             }
+            NormalizeFormText(out.title);
+            NormalizeFormText(out.submit);
             return true;
         }
         out.type = FormModel::Type::Simple;
@@ -305,8 +344,11 @@ namespace perlin::ui {
                     fb.imageType = Str(img->Find("type"));
                     fb.imageData = Str(img->Find("data"));
                 }
+                NormalizeFormText(fb.text);
                 out.buttons.push_back(std::move(fb));
             }
+        NormalizeFormText(out.title);
+        NormalizeFormText(out.content);
         return true;
     }
 

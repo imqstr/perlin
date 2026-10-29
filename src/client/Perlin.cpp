@@ -1133,6 +1133,12 @@ namespace perlin {
                 formRml = ui::BuildFormRml(formModel, guiW, guiH, formScroll, contentH, viewH);
             formContentH = contentH;
             formViewH = viewH;
+            {
+                // kept to inspect a server menu's built layout offline
+                std::error_code ec;
+                std::filesystem::create_directories(paths::DataDir() + "/ui_generated", ec);
+                std::ofstream(paths::DataDir() + "/ui_generated/last_form.rml", std::ios::binary | std::ios::trunc) << formRml;
+            }
             if (!hud.Overlay().SetOverlay(formRml, error)) {
                 std::cout << "[form] " << error << std::endl;
                 if (formEngine) {
