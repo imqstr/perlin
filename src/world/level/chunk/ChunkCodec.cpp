@@ -360,6 +360,7 @@ namespace perlin {
         }
         std::vector<std::pair<int, SubChunkData>> parsed;
         size_t offset = 0;
+        int nextY = firstSubY;
         while (offset < size && static_cast<int>(parsed.size()) < slots) {
             // trailing block-entity nbt starts with a compound tag, never a sub-chunk version
             const uint8_t version = data[offset];
@@ -368,13 +369,19 @@ namespace perlin {
             SubChunkData sc;
             size_t used = 0;
             if (!ParseSubChunk(data + offset, size - offset, sc, used, err)) return false;
-            const int64_t y = sc.hasYIndex ? sc.yIndex : static_cast<int64_t>(firstSubY) + parsed.size();
-            if (y > std::numeric_limits<int>::max() || y < firstSubY || y >= static_cast<int64_t>(firstSubY) + slots ||
-                std::any_of(parsed.begin(), parsed.end(), [y](const auto& entry) { return entry.first == y; })) {
-                if (err) *err = "invalid or repeated inline subchunk height";
-                return false;
+            int64_t y;
+            if (sc.hasYIndex) {
+                y = sc.yIndex;
+                nextY = static_cast<int>(y) + 1;
+            } else {
+                y = nextY++;
             }
             offset += used;
+            // some proxies repeat or overshoot heights: skip the entry, keep the column
+            if (y > std::numeric_limits<int>::max() || y < firstSubY || y >= static_cast<int64_t>(firstSubY) + slots)
+                continue;
+            if (std::any_of(parsed.begin(), parsed.end(), [y](const auto& entry) { return entry.first == y; }))
+                continue;
             parsed.emplace_back(static_cast<int>(y), std::move(sc));
         }
         if (parsed.size() < count) {

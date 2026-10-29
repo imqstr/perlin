@@ -869,6 +869,10 @@ namespace perlin::ui {
             modalTree = BuildTree(library, "popup_dialog.modal_dialog_popup", modalVars, modalReport);
             for (const std::string& missing : report.missingControls)
                 std::cout << "[form] missing control " << missing << std::endl;
+            for (const std::string& missing : modalReport.missingControls)
+                std::cout << "[form] modal missing control " << missing << std::endl;
+            if (!modalTree)
+                std::cout << "[form] modal tree is null" << std::endl;
             state = 2;
         });
     }
@@ -886,10 +890,15 @@ namespace perlin::ui {
         FormData data(form);
         const auto started = std::chrono::steady_clock::now();
         anim.now = std::chrono::duration<double>(started - animStart).count();
-        const Node& screen = form.type == FormModel::Type::Modal && modalTree ? *modalTree : *tree;
+        const bool wantModal = form.type == FormModel::Type::Modal;
+        const Node& screen = wantModal && modalTree ? *modalTree : *tree;
+        if (wantModal && !modalTree)
+            std::cout << "[form] modal requested but no modal tree, using simple screen" << std::endl;
         const std::unique_ptr<LNode> root = EvaluateTree(screen, data, services, static_cast<float>(guiW), static_cast<float>(guiH));
-        if (!root)
+        if (!root) {
+            std::cout << "[form] evaluate failed for '" << form.title << "'" << std::endl;
             return false;
+        }
         emitter.SetEditText([&form](const LNode& n, std::string& text, std::string& placeholder, bool& focused) {
             if (n.index < 0 || static_cast<size_t>(n.index) >= form.elements.size())
                 return false;
@@ -949,6 +958,8 @@ namespace perlin::ui {
         const size_t buttons = form.type == FormModel::Type::Modal ? 2 : form.type == FormModel::Type::Custom ? 0 : form.buttons.size();
         if (buttons > 0 && rml.find("id=\"fb:0\"") == std::string::npos) {
             problem = "form buttons were not produced by the ui files";
+            std::cout << "[form] no buttons in rml for '" << form.title << "' (modal=" << wantModal
+                      << " hasModalTree=" << (modalTree != nullptr) << "), rml head: " << rml.substr(0, 600) << std::endl;
             return false;
         }
         return true;
