@@ -1982,8 +1982,13 @@ namespace perlin {
     }
 
     bool BedrockSession::ApplySubChunk(int cx, int cz, int absSubY, const SubChunkData& sc) {
-        if (sc.storages.empty())
-            return false;
+        if (sc.storages.empty()) {
+            // zero-storage sub-chunk: the server means all air, store it so the column fills in
+            static const std::array<uint16_t, ChunkCodec::kCells> air{};
+            netLevel.SetSubChunk(cx, cz, absSubY, air.data());
+            statSubChunksApplied++;
+            return true;
+        }
         if (sc.hasYIndex && sc.yIndex != absSubY) {
             static std::atomic<int> mismatches{0};
             if (mismatches++ < 16)
