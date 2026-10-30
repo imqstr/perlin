@@ -1302,6 +1302,7 @@ namespace perlin {
                 hud.Overlay().ClearOverlay();
                 deathShown = false;
                 deathSignature.clear();
+                platform->SetCursorCaptured(true);
             }
             if (deathTextMode) {
                 deathTextMode = false;
@@ -1314,6 +1315,7 @@ namespace perlin {
         if (!deathShown) {
             deathShown = true;
             deathAt = now;
+            platform->SetCursorCaptured(false);
             std::cout << "[ui] death screen shown: health=" << state.health << " pending=" << (live && live->DeathPending())
                       << " cause='" << (live ? live->DeathCause() : std::string()) << "' hud=" << state.visible << std::endl;
         }
@@ -9295,7 +9297,7 @@ namespace perlin {
                 }
             }
             if ((live || preview) && (!replayCtl.Playing() || replayCtl.cameraMode == replay::CameraMode::Follow) && camera.mode == PerspectiveMode::FirstPerson && options.showHud &&
-                hudState.mode != ui::GameMode::Spectator && ui::UiAssets::Instance().VanillaRoot().size()) {
+                hudState.mode != ui::GameMode::Spectator && !deathShown && !pauseShown && !invShown && ui::UiAssets::Instance().VanillaRoot().size()) {
                 HandRenderer::FrameIn handFrame;
                 handFrame.partial = partial;
                 handFrame.yaw = camera.yaw - 90.0f;
