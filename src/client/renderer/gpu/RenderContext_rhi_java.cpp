@@ -352,7 +352,8 @@ namespace perlin {
         uni.SetI("u_jworldTime", static_cast<int32_t>(worldTick));
         uni.SetI("u_jworldDay", static_cast<int32_t>(worldDay));
 
-        // engine angles are radians around noon; the pack wants a 0..1 day fraction
+        // engine sun angle is eased radians around noon; map to the 0..1 day
+        // fraction Iris hands the pack (dawn .25, dusk .75)
         const float sunFrac = std::fmod(params.sky.sunAngle / kTau + 0.25f, 1.0f);
         uni.Set("u_jsunAngle", &sunFrac, 1);
         uni.Set("u_jshadowAngle", &sunFrac, 1);

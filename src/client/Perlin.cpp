@@ -8743,6 +8743,10 @@ namespace perlin {
                 if (sessionReady && session && session->GetWorldTime(day, tick)) {
                     params.worldDay = static_cast<int>(day);
                     params.worldTick = tick;
+                } else {
+                    // preview/offline: renderer clock stands in for session time
+                    params.worldDay = static_cast<int>(worldTicks / 24000.0);
+                    params.worldTick = static_cast<int>(std::fmod(worldTicks, 24000.0));
                 }
             }
 
