@@ -850,10 +850,17 @@ if(PERLIN_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     add_executable(gpu_level_unload_selftest tests/gpu_context_test.cpp tests/gpu_context_stubs.cpp
         src/client/renderer/Tessellator.cpp src/client/renderer/SkyGeometry.cpp src/client/renderer/MaterialDb.cpp
         src/client/ui/Json.cpp src/util/Paths.cpp src/util/Resources.cpp)
+    target_sources(gpu_level_unload_selftest PRIVATE
+        src/client/javashaders/PackSource.cpp src/client/javashaders/PackSourceZip.cpp
+        src/client/javashaders/Properties.cpp src/client/javashaders/Cond.cpp
+        src/client/resources/TextureLoader.cpp src/world/level/block/BlockPalette.cpp src/util/Json.cpp)
+    target_include_directories(gpu_level_unload_selftest PRIVATE "${stb_SOURCE_DIR}")
+    target_link_libraries(gpu_level_unload_selftest PRIVATE glaze::glaze miniz)
     target_include_directories(gpu_level_unload_selftest BEFORE PRIVATE tests/stubs src "${glm_SOURCE_DIR}")
     target_link_libraries(gpu_level_unload_selftest PRIVATE perlin_gpu)
     add_test(NAME gpu_level_unload_selftest COMMAND gpu_level_unload_selftest "${PERLIN_SHADER_PACK}")
     set_tests_properties(gpu_level_unload_selftest PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME java_to_slang_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/java_to_slang_selftest.py")
     add_executable(ten_font_metrics_selftest tests/ten_font_metrics_selftest.cpp
         src/client/ui/TenFont.cpp src/client/ui/McFont.cpp)
     target_include_directories(ten_font_metrics_selftest PRIVATE src "${stb_SOURCE_DIR}")
