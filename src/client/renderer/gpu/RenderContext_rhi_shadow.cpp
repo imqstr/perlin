@@ -66,7 +66,7 @@ namespace perlin {
         DestroyShadows();
         // the destroy marks the config stale; this call is the one that handles it
         shadowConfigDirty = false;
-        if (!packActive || quality <= 0 || PERLIN_ENV("PERLIN_NO_SHADOWS"))
+        if ((!packActive && !javaActive) || quality <= 0 || PERLIN_ENV("PERLIN_NO_SHADOWS"))
             return;
         if (ProgramIndex(Program::Shadow) < 0 || ProgramIndex(Program::ShadowCutout) < 0)
             return;

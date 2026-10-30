@@ -257,7 +257,7 @@ static float4x4 u_jTextureMatrix0;
 static float4x4 u_jTextureMatrix1;
 #define GetSunVector() normalize((gbufferModelView * vec4(vec3(-sin(overworldAngle), cos(overworldAngle) * SUN_ROTATION_DATA) * 2000.0, 1.0)).xyz)
 #define diagonal3(m) vec3((m)[0].x, (m)[1].y, m[2].z)
-#define projMAD(m, v) (diagonal3(m) * (v) + (m)[3].xyz)
+#define projMAD(m, v) (diagonal3(m) * (v) + transpose(m)[3].xyz)
 #define SUN_ROTATION_DATA vec2(cos(sunPathRotation * 0.01745329251994), -sin(sunPathRotation * 0.01745329251994))
 
 
@@ -2505,9 +2505,9 @@ float4x4 operator*(float4x4 a, float4x4 b) { return mul(a, b); }
 // manual depth compare keeps the pack's own PCF taps; works with the
 // existing non-comparison depth samplers until an RHI compare sampler exists.
 float4 javaShadow2D(Texture2D t, SamplerState s, float3 uvw)
-{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
+{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
 float4 javaShadow2D(Texture2D t, SamplerState s, float4 uvw)
-{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
+{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
 float javaShadow2DProj(Texture2D t, SamplerState s, float4 uvw)
 { float w = max(uvw.w, 1e-6); return step(uvw.z / w, t.Sample(s, uvw.xy / w).r); }
 float javaTextureProj(Texture2D t, SamplerState s, float4 uvw)

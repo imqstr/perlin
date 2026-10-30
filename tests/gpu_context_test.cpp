@@ -93,6 +93,20 @@ int main(int argc, char** argv) {
         return 77;
     }
 
+    for (bool diagonal : {false, true}) {
+        Tessellator tess;
+        const float top[4][3] = {{0, 1, 0}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}};
+        const float colors[4][3] = {{1, 1, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}};
+        const float uv[4][2] = {{0, 0}, {0.01f, 0}, {0.01f, 0.01f}, {0, 0.01f}};
+        tess.Begin();
+        tess.AddQuad(top, colors, uv, diagonal, 0, 15);
+        tess.End();
+        bool upward = true;
+        for (const Vertex& vertex : tess.Vertices())
+            upward &= ((vertex.normal >> 8) & 255) == 255;
+        Check(upward, diagonal ? "alternate triangle diagonal preserves upward normals" : "top face normal points upward");
+    }
+
     std::vector<uint8_t> tile(16 * 16 * 4);
     for (size_t i = 0; i < tile.size(); i += 4) {
         tile[i] = 255;

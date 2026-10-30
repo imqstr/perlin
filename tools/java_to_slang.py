@@ -332,7 +332,7 @@ PACKED_INPUTS = {
     ]),
     # tangent axis index 0..5 (+x,-x,+y,-y,+z,-z), handedness in the low bit
     "a_atTangent": ("float", "a_tPacked", 10, [
-        "{ float ti = {src}; float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;",
+        "{ float ti = floor({src}); float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;",
         "  float3 ax = ix < 0.5 ? float3(1.0, 0.0, 0.0) : ix < 1.5 ? float3(-1.0, 0.0, 0.0) :",
         "      ix < 2.5 ? float3(0.0, 1.0, 0.0) : ix < 3.5 ? float3(0.0, -1.0, 0.0) :",
         "      ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);",
@@ -1034,6 +1034,7 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
                                r"mul(\1, \2)", bodies[stage])
         bodies[stage] = re.sub(r"\b(" + matrix_names + r")\s*\[([^\]]+)\]",
                                r"transpose(\1)[\2]", bodies[stage])
+        bodies[stage] = bodies[stage].replace("(m)[3].xyz", "transpose(m)[3].xyz")
         bodies[stage] = bodies[stage].replace("shadowPos.xy /= distortFactor;", "")
         bodies[stage] = bodies[stage].replace("shadowPos.z *= 0.2;", "")
 
@@ -1166,9 +1167,9 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append("// manual depth compare keeps the pack's own PCF taps; works with the")
     lines.append("// existing non-comparison depth samplers until an RHI compare sampler exists.")
     lines.append("float4 javaShadow2D(Texture2D t, SamplerState s, float3 uvw)")
-    lines.append("{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }")
+    lines.append("{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }")
     lines.append("float4 javaShadow2D(Texture2D t, SamplerState s, float4 uvw)")
-    lines.append("{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }")
+    lines.append("{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }")
     lines.append("float javaShadow2DProj(Texture2D t, SamplerState s, float4 uvw)")
     lines.append("{ float w = max(uvw.w, 1e-6); return step(uvw.z / w, t.Sample(s, uvw.xy / w).r); }")
     lines.append("float javaTextureProj(Texture2D t, SamplerState s, float4 uvw)")
@@ -1198,6 +1199,9 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
                 lines.append(f"    {st.replace('{src}', 'input.' + pnm) if pnm else st}")
         else:
             lines.append(f"    vs_stage::{nm} = input.{nm};")
+    if program in ("gbuffers_terrain", "gbuffers_water"):
+        lines.append("    { float ao = fract(input.a_tPacked) * 16.0; ao = ao > 0.0 ? ao : 1.0;")
+        lines.append("      vs_stage::a_color0.rgb /= max(ao * input.a_nPacked.w, 1.0 / 255.0); vs_stage::a_color0.a = ao; }")
     if program in ("gbuffers_terrain", "gbuffers_water", "shadow"):
         lines.append("    { int id = int(input.a_ePacked + 0.5); vs_stage::a_mcEntity.x = texelFetch(s_javaMaterials, int2(id & 255, id >> 8), 0).r; }")
     for name in sorted(uni):

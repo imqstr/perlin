@@ -2492,9 +2492,9 @@ float4x4 operator*(float4x4 a, float4x4 b) { return mul(a, b); }
 // manual depth compare keeps the pack's own PCF taps; works with the
 // existing non-comparison depth samplers until an RHI compare sampler exists.
 float4 javaShadow2D(Texture2D t, SamplerState s, float3 uvw)
-{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
+{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
 float4 javaShadow2D(Texture2D t, SamplerState s, float4 uvw)
-{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
+{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
 float javaShadow2DProj(Texture2D t, SamplerState s, float4 uvw)
 { float w = max(uvw.w, 1e-6); return step(uvw.z / w, t.Sample(s, uvw.xy / w).r); }
 float javaTextureProj(Texture2D t, SamplerState s, float4 uvw)

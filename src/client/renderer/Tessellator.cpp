@@ -3,6 +3,7 @@
 #include "util/Env.hpp"
 
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
 
 namespace perlin {
@@ -25,7 +26,7 @@ namespace perlin {
     }
 
     void Tessellator::AddQuad(const float v[4][3], const float c[4][3], const float uv[4][2], bool flip,
-                              const float light[4][2]) {
+                              const float light[4][2], const float* ao, float shade) {
         if (!building)
             return;
         if (PERLIN_ENV("PERLIN_JAVA_DBG")) {
@@ -60,6 +61,10 @@ namespace perlin {
             ny = 1.0f;
             nz = 0.0f;
         }
+        // clockwise front faces need the opposite of the right-handed edge cross
+        nx = -nx;
+        ny = -ny;
+        nz = -nz;
         // tangent from uv gradients; axis-aligned faces land exactly on an axis
         float d0u = uv[1][0] - uv[0][0], d0v = uv[1][1] - uv[0][1];
         float d1u = uv[2][0] - uv[0][0], d1v = uv[2][1] - uv[0][1];
@@ -107,7 +112,8 @@ namespace perlin {
         if (along < 0.0f)
             axis++;
         const float tangent = static_cast<float>(axis * 2 + (hand < 0.0f ? 0 : 1));
-        const uint32_t packedNormal = PackColor(nx * 0.5f + 0.5f, ny * 0.5f + 0.5f, nz * 0.5f + 0.5f);
+        // unused normal alpha carries baked shade; tangent fraction carries ao without growing the vertex
+        const uint32_t packedNormal = PackColor(nx * 0.5f + 0.5f, ny * 0.5f + 0.5f, nz * 0.5f + 0.5f, shade);
         const float entity = static_cast<float>(curBlock);
         // array textures use tile-local uvs for both corners and midpoints
         const float midU = (centerU - column - kInset) / kSpan, midV = (centerV - row - kInset) / kSpan;
@@ -116,7 +122,7 @@ namespace perlin {
             const float w = (uv[i][1] * kTiles - row - kInset) / kSpan;
             vertices.push_back({v[i][0], v[i][1], v[i][2], PackColor(c[i][0], c[i][1], c[i][2]), u, w,
                                 PackLight(light[i][0], light[i][1]) | tile, packedNormal, entity, midU, midV,
-                                tangent});
+                                tangent + std::clamp(ao ? ao[i] : 1.0f, 0.0f, 1.0f) / 16.0f});
         }
 
         if (CaptureQuadInfo())

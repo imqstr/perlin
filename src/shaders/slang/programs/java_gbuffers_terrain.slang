@@ -1445,7 +1445,7 @@ static float4x4 u_jProjectionMatrix;
 static float4x4 u_jTextureMatrix0;
 static float4x4 u_jTextureMatrix1;
 #define diagonal3(m) vec3((m)[0].x, (m)[1].y, m[2].z)
-#define projMAD(m, v) (diagonal3(m) * (v) + (m)[3].xyz)
+#define projMAD(m, v) (diagonal3(m) * (v) + transpose(m)[3].xyz)
 
 
 // @included "/program/gbuffers_terrain.glsl"
@@ -6471,9 +6471,9 @@ float4x4 operator*(float4x4 a, float4x4 b) { return mul(a, b); }
 // manual depth compare keeps the pack's own PCF taps; works with the
 // existing non-comparison depth samplers until an RHI compare sampler exists.
 float4 javaShadow2D(Texture2D t, SamplerState s, float3 uvw)
-{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
+{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
 float4 javaShadow2D(Texture2D t, SamplerState s, float4 uvw)
-{ return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
+{ if (u_shadowInfo.w <= 0.0 || any(uvw.xyz < 0.0) || any(uvw.xyz > 1.0)) return float4(1.0); return float4(step(uvw.z, t.Sample(s, uvw.xy).r)); }
 float javaShadow2DProj(Texture2D t, SamplerState s, float4 uvw)
 { float w = max(uvw.w, 1e-6); return step(uvw.z / w, t.Sample(s, uvw.xy / w).r); }
 float javaTextureProj(Texture2D t, SamplerState s, float4 uvw)
@@ -6492,12 +6492,14 @@ VsOut vsMain(VsIn input)
     vs_stage::a_texcoord1 = input.a_texcoord1;
     vs_stage::a_mcEntity = float4(input.a_ePacked, 0.0, 0.0, 0.0);
     vs_stage::a_mcMidTexCoord = float4(input.a_mPacked, 0.0, 0.0);
-    { float ti = input.a_tPacked; float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;
+    { float ti = floor(input.a_tPacked); float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;
       float3 ax = ix < 0.5 ? float3(1.0, 0.0, 0.0) : ix < 1.5 ? float3(-1.0, 0.0, 0.0) :
           ix < 2.5 ? float3(0.0, 1.0, 0.0) : ix < 3.5 ? float3(0.0, -1.0, 0.0) :
           ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);
       vs_stage::a_atTangent = float4(ax, hd); }
     vs_stage::a_mcChunkFade = 1.0;
+    { float ao = fract(input.a_tPacked) * 16.0; ao = ao > 0.0 ? ao : 1.0;
+      vs_stage::a_color0.rgb /= max(ao * input.a_nPacked.w, 1.0 / 255.0); vs_stage::a_color0.a = ao; }
     { int id = int(input.a_ePacked + 0.5); vs_stage::a_mcEntity.x = texelFetch(s_javaMaterials, int2(id & 255, id >> 8), 0).r; }
     vs_stage::aspectRatio = u_jaspectRatio;
     vs_stage::atlasSize = u_jatlasSize;

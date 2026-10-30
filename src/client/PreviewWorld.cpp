@@ -183,6 +183,31 @@ namespace perlin {
                 ServerBlocks::Instance().SetCollision(name, std::move(collision));
             }
         }
+        if (const char* path = std::getenv("PERLIN_PREVIEW_SCENE")) {
+            std::ifstream file(path);
+            const std::string text((std::istreambuf_iterator<char>(file)), {});
+            ui::Json scene;
+            std::string error;
+            if (!ui::Json::Parse(text, scene, error) || !scene.IsArray())
+                return false;
+            Ids ids;
+            for (const auto& box : scene.array) {
+                const auto* name = box.Find("block");
+                const auto* from = box.Find("from");
+                const auto* to = box.Find("to");
+                if (!name || !name->IsString() || !from || !to || from->array.size() != 3 || to->array.size() != 3)
+                    return false;
+                const uint16_t id = name->string == "air" ? 0 : ids.Get(name->string);
+                for (int cz = static_cast<int>(std::floor(from->array[2].number / 16)); cz <= static_cast<int>(std::floor(to->array[2].number / 16)); ++cz)
+                    for (int cx = static_cast<int>(std::floor(from->array[0].number / 16)); cx <= static_cast<int>(std::floor(to->array[0].number / 16)); ++cx)
+                        level.EnsureChunk(cx, cz);
+                for (int y = static_cast<int>(from->array[1].number); y <= static_cast<int>(to->array[1].number); ++y)
+                    for (int z = static_cast<int>(from->array[2].number); z <= static_cast<int>(to->array[2].number); ++z)
+                        for (int x = static_cast<int>(from->array[0].number); x <= static_cast<int>(to->array[0].number); ++x)
+                            level.SetBlock(x, y, z, id);
+            }
+            return true;
+        }
         if (const char* g = std::getenv("PERLIN_PREVIEW_GALLERY"))
             return BuildGallery(level, radius, g);
         Ids ids;

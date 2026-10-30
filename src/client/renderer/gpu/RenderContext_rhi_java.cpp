@@ -98,6 +98,7 @@ namespace perlin {
         }
         javaPackPath = path;
         javaActive = true;
+        shadowConfigDirty = true;
         gpu.ClearPipelines();
         if (!ResolvePrograms() || ProgramIndex(Program::TerrainSolid) < 0) {
             javaActive = false;
@@ -115,6 +116,7 @@ namespace perlin {
         gpu.Dev().WaitIdle();
         DestroyPostTargets();
         javaActive = false;
+        shadowConfigDirty = true;
         javaPackPath.clear();
         gpu.ClearPipelines();
         ResolvePrograms();

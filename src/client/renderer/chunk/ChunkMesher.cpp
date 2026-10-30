@@ -1399,7 +1399,7 @@ namespace perlin {
                             BlockLibrary::TileUV(tile, u0, v0uv, u1, v1uv);
                             const float dirShade = q.shade ? kDirShade[q.shadeDir] : 1.0f;
                             static constexpr int kOrder[4] = {0, 3, 2, 1};
-                            float v[4][3], col[4][3], uv[4][2], lt[4][2];
+                            float v[4][3], col[4][3], uv[4][2], lt[4][2], vertexAo[4];
                             for (int k = 0; k < 4; k++) {
                                 const int i = kOrder[k];
                                 v[k][0] = bx + q.pos[i][0] + mox;
@@ -1419,6 +1419,7 @@ namespace perlin {
                                     bl = std::max(bl, static_cast<float>(q.light));
                                     sk = std::max(sk, static_cast<float>(q.light));
                                 }
+                                vertexAo[k] = ao;
                                 const float kv = ao * dirShade;
                                 col[k][0] = base[0] * kv;
                                 col[k][1] = base[1] * kv;
@@ -1431,7 +1432,7 @@ namespace perlin {
                             tess.SetLayer(ta.translucent ? RenderLayer::TranslucentCull
                                           : ta.holes     ? RenderLayer::CutoutCull
                                                          : RenderLayer::Solid);
-                            tess.AddQuad(v, col, uv, false, lt);
+                            tess.AddQuad(v, col, uv, false, lt, vertexAo, dirShade);
                         };
                         if (modelEntry->direct) {
                             for (const ModelQuad& q : modelEntry->quads)
@@ -1967,7 +1968,7 @@ namespace perlin {
                         const RenderLayer faceLayer = translucent ? RenderLayer::Translucent
                             : holes ? RenderLayer::CutoutCull : RenderLayer::Solid;
                         tess.SetLayer(faceLayer);
-                        tess.AddQuad(v, col, uv, flip, lt);
+                        tess.AddQuad(v, col, uv, flip, lt, aoV, shade);
                         if (ovTile && ny == 0) {
                             float ou0, ov0, ou1, ov1;
                             BlockLibrary::TileUV(ovTile, ou0, ov0, ou1, ov1);
@@ -1983,7 +1984,7 @@ namespace perlin {
                                 col2[i][2] = ovB * kv[i];
                             }
                             tess.SetLayer(RenderLayer::Cutout);
-                            tess.AddQuad(v, col2, uv2, flip, lt);
+                            tess.AddQuad(v, col2, uv2, flip, lt, aoV, shade);
                             tess.SetLayer(faceLayer);
                         }
                     };
