@@ -142,6 +142,7 @@ namespace perlin {
         if (!StartDevice(forced, pack, false))
             return false;
         packData = std::move(pack);
+        offscreen = gpu.OffscreenTexture().value != 0 || settings.offscreen;
 
         initialized = true;
         nativeWindow = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.window));
@@ -192,6 +193,8 @@ namespace perlin {
             s.api = api;
             s.adapterIndex = adapter;
             s.validation = PERLIN_ENV("PERLIN_GPU_VALIDATION") != nullptr;
+            // renders into an owned image instead of a window (software rasteriser captures, offline previews)
+            s.offscreen = PERLIN_ENV("PERLIN_OFFSCREEN") != nullptr;
             s.window = {native.window, native.display, native.wayland};
             s.width = static_cast<uint32_t>(std::max(1, width));
             s.height = static_cast<uint32_t>(std::max(1, height));
@@ -240,6 +243,7 @@ namespace perlin {
         }
         gpu.Dev().WaitIdle();
         FinishReadbacks();
+        jpack.reset();
         DestroyStaticResources();
         meshes.Shutdown();
         DestroyUi();
@@ -458,7 +462,7 @@ namespace perlin {
         k.front = s.front;
         k.depthTest = s.depthTest;
         k.depthWrite = s.depthWrite;
-        k.depthOp = s.depthOp;
+        k.depthOp = view.reversedZ ? ReverseOp(s.depthOp) : s.depthOp;
         k.blend = s.blend;
         k.srcColor = s.srcColor;
         k.dstColor = s.dstColor;
@@ -509,13 +513,20 @@ namespace perlin {
         // builtins that depend on the view and the model transform
         const glm::mat4 viewProj = vd.proj * vd.view;
         const glm::mat4 modelViewProj = modelIdentity ? viewProj : viewProj * model;
-        uni.Mat4("u_modelViewProj", glm::value_ptr(modelViewProj));
-        uni.Mat4("u_viewProj", glm::value_ptr(viewProj));
-        uni.Mat4("u_view", glm::value_ptr(vd.view));
-        uni.Mat4("u_proj", glm::value_ptr(vd.proj));
-        uni.Mat4("u_model", glm::value_ptr(model));
-        uni.Vec4("u_viewRect", static_cast<float>(vd.x), static_cast<float>(vd.y), static_cast<float>(vd.w), static_cast<float>(vd.h));
-        uni.Vec4("u_viewTexel", vd.w ? 1.0f / static_cast<float>(vd.w) : 0.0f, vd.h ? 1.0f / static_cast<float>(vd.h) : 0.0f, 0.0f, 0.0f);
+        if (builtinIds[0] < 0) {
+            static constexpr const char* names[kBuiltinCount] = {"u_modelViewProj", "u_viewProj", "u_view", "u_proj", "u_model", "u_viewRect", "u_viewTexel"};
+            for (int i = 0; i < kBuiltinCount; i++)
+                builtinIds[i] = uni.Id(names[i]);
+        }
+        uni.Mat4(builtinIds[0], glm::value_ptr(modelViewProj));
+        uni.Mat4(builtinIds[1], glm::value_ptr(viewProj));
+        uni.Mat4(builtinIds[2], glm::value_ptr(vd.view));
+        uni.Mat4(builtinIds[3], glm::value_ptr(vd.proj));
+        uni.Mat4(builtinIds[4], glm::value_ptr(model));
+        const float rect[4] = {static_cast<float>(vd.x), static_cast<float>(vd.y), static_cast<float>(vd.w), static_cast<float>(vd.h)};
+        uni.Set(builtinIds[5], rect, 4);
+        const float texel[4] = {vd.w ? 1.0f / static_cast<float>(vd.w) : 0.0f, vd.h ? 1.0f / static_cast<float>(vd.h) : 0.0f, 0.0f, 0.0f};
+        uni.Set(builtinIds[6], texel, 4);
 
         dc = {};
         dc.pipeline = pipeline;
@@ -626,7 +637,35 @@ namespace perlin {
 
     // -- frame ------------------------------------------------------------------------------------------------------
 
-    void RenderContext_rhi::ConvertDepth(const float in[16], float out[16]) const { std::memcpy(out, in, sizeof(float) * 16); }
+    // z' = w - z in clip space: a zero-to-one depth range becomes one-to-zero, so far geometry gets the dense float precision near 0
+    glm::mat4 RenderContext_rhi::ReverseDepth(const glm::mat4& m) {
+        glm::mat4 r = m;
+        for (int col = 0; col < 4; col++)
+            r[col][2] = m[col][3] - m[col][2];
+        return r;
+    }
+
+    rhi::CompareOp RenderContext_rhi::ReverseOp(rhi::CompareOp op) {
+        switch (op) {
+        case rhi::CompareOp::Less: return rhi::CompareOp::Greater;
+        case rhi::CompareOp::LessEqual: return rhi::CompareOp::GreaterEqual;
+        case rhi::CompareOp::Greater: return rhi::CompareOp::Less;
+        case rhi::CompareOp::GreaterEqual: return rhi::CompareOp::LessEqual;
+        default: return op;
+        }
+    }
+
+    bool RenderContext_rhi::StageReversed(const Stage& stage) {
+        for (View v : stage.views)
+            if (v == View::ShadowBuild || v == View::ShadowGlass || v == View::ShadowEntity)
+                return false;
+        return true;
+    }
+
+    void RenderContext_rhi::ConvertDepth(const float in[16], float out[16]) const {
+        const glm::mat4 r = ReverseDepth(glm::make_mat4(in));
+        std::memcpy(out, glm::value_ptr(r), sizeof(float) * 16);
+    }
 
     void RenderContext_rhi::PlanViews(const FrameParams& params) {
         for (ViewData& v : views) {
@@ -636,15 +675,18 @@ namespace perlin {
             v.h = static_cast<uint32_t>(height);
             v.view = glm::mat4(1.0f);
             v.proj = glm::mat4(1.0f);
+            v.reversedZ = true;
             v.colorFormat = gpu.TargetFormat();
             v.depthFormat = rhi::Format::D32Float;
         }
-        const glm::mat4 worldProj = glm::make_mat4(params.viewProjection);
+        for (View v : {View::ShadowBuild, View::ShadowGlass, View::ShadowEntity})
+            views[static_cast<size_t>(v)].reversedZ = false;
+        const glm::mat4 worldProj = ReverseDepth(glm::make_mat4(params.viewProjection));
         for (View v : {View::World, View::Entity, View::Late}) {
             views[static_cast<size_t>(v)].proj = worldProj;
         }
-        views[static_cast<size_t>(View::Hand)].proj = glm::make_mat4(params.handProjection);
-        const glm::mat4 ortho = glm::orthoRH_ZO(0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, -1000.0f, 1000.0f);
+        views[static_cast<size_t>(View::Hand)].proj = ReverseDepth(glm::make_mat4(params.handProjection));
+        const glm::mat4 ortho = ReverseDepth(glm::orthoRH_ZO(0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, -1000.0f, 1000.0f));
         for (View v : {View::Gui, View::Doll, View::Top, View::ExportUi})
             views[static_cast<size_t>(v)].proj = ortho;
     }
@@ -680,9 +722,39 @@ namespace perlin {
             FeedJavaUniforms(params);
     }
 
-    void RenderContext_rhi::BeginFrame(const FrameParams& params) {
+    void RenderContext_rhi::BeginFrame(const FrameParams& paramsIn) {
         if (!initialized)
             return;
+        if (jpack && !jpackReady && !jpackError.size()) {
+            static uint32_t waitFrames = 0;
+            const int left = jpack->WarmUp();
+            if (left == 0 && !jpack->TerrainUsable()) {
+                jpackError = "the shader pack's terrain program failed to compile (see [jshader] lines above)";
+                std::cout << "[javapack] " << jpackError << std::endl;
+            } else if (left == 0) {
+                jpackReady = true;
+                std::cout << "[javapack] shaders ready" << std::endl;
+            } else if (++waitFrames % 120 == 1) {
+                std::cout << "[javapack] compiling shaders, " << left << " left (using the normal renderer meanwhile)" << std::endl;
+            }
+        }
+        // the pack does its own post processing, scaling and shadows
+        FrameParams packParams;
+        const FrameParams* chosen = &paramsIn;
+        if (PackRunning()) {
+            packParams = paramsIn;
+            jpackScale = paramsIn.renderScale;
+            packParams.renderScale = 1.0f;
+            packParams.upscaler = 0;
+            packParams.frameGen = 1;
+            packParams.motionBlur = 0.0f;
+            packParams.bloom = 0.0f;
+            packParams.menuBlur = 0.0f;
+            packParams.shadowQuality = 0;
+            chosen = &packParams;
+        }
+        const FrameParams& params = *chosen;
+        jpackGathered = false;
         {
             std::string request;
             {
@@ -740,6 +812,12 @@ namespace perlin {
                 };
                 cam.view = widen(params.view);
                 cam.proj = widen(params.projection);
+                {
+                    glm::dmat4 rz = cam.proj;
+                    for (int c = 0; c < 4; c++)
+                        rz[c][2] = cam.proj[c][3] - cam.proj[c][2];
+                    cam.proj = rz;
+                }
                 cam.eye = glm::dvec3(params.cameraPosition[0], params.cameraPosition[1], params.cameraPosition[2]);
                 cam.prevTime = cam.time;
                 cam.time = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -757,7 +835,7 @@ namespace perlin {
             InitShadows(params.shadowQuality, params.shadowDistance);
         }
 
-        std::memcpy(mvp, params.viewProjection, sizeof(mvp));
+        ConvertDepth(params.viewProjection, mvp);
         ConvertDepth(params.skyViewProjection, skyMvp);
         // sky at infinity: jitter shimmers clouds against unjittered sky
         if (plan.temporal) {
@@ -796,8 +874,27 @@ namespace perlin {
 
     void RenderContext_rhi::ExecuteFrame() {
         rhi::Swapchain::Image image;
-        if (!gpu.AcquireImage(image))
+        if (!gpu.AcquireImage(image)) {
+            if (!offscreen && platform) {
+                const uint32_t failures = gpu.AcquireFailures();
+                int fw = 0, fh = 0;
+                platform->GetFramebufferSize(fw, fh);
+                if (failures == 20 || failures == 600 || failures % 6000 == 0)
+                    std::cout << "[render] " << rendererName << " has had no image to draw to for " << failures << " frames (window " << fw << "x" << fh << ")"
+                              << std::endl;
+                // a surface that stays dead is replaced: new window surface, new swapchain
+                if (fw > 0 && fh > 0 && (failures == 45 || failures == 360 || failures == 3000)) {
+                    platform->RenewRenderSurface();
+                    const NativeWindowInfo native = platform->GetNativeWindowInfo();
+                    gpu.SetWindow({native.window, native.display, native.wayland});
+                    nativeWindow = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.window));
+                    nativeDisplay = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.display));
+                    const bool healed = gpu.RecreateSurface(static_cast<uint32_t>(fw), static_cast<uint32_t>(fh));
+                    std::cout << "[render] rebuilding the window surface: " << (healed ? "ok" : "failed") << std::endl;
+                }
+            }
             return;
+        }
         rhi::Device& dev = gpu.Dev();
         rhi::CommandList* list = dev.AcquireCommandList(rhi::QueueType::Graphics);
         if (!list)
@@ -818,6 +915,29 @@ namespace perlin {
                 if (!stage.useScreenDepth)
                     stage.target.depth = {};
             }
+        if (PackRunning() && jpackGathered) {
+            gpu::JavaPack::Output po;
+            po.color = image.texture;
+            po.colorFormat = gpu.TargetFormat();
+            po.depth = screenDepth;
+            po.width = gpu.TargetWidth();
+            po.height = gpu.TargetHeight();
+            po.scale = jpackScale;
+            po.lightmap = lightmap.handle;
+            po.sun = sunTex.handle;
+            po.moon = moonTex.handle;
+            // the pack wrote the whole picture and the depth: the world stage draws on top instead of clearing
+            const bool recorded = jpack->Record(*list, frame, po);
+            if (std::getenv("JSHADER_TRACE"))
+                std::fprintf(stderr, "[jshader] pack frame recorded: %d (stages %zu, first views %zu)\n", recorded ? 1 : 0, stages.size(),
+                             stages.empty() ? size_t{0} : stages[0].views.size());
+            if (recorded)
+                for (Stage& stage : stages)
+                    if (stage.toScreen && !stage.views.empty() && stage.views[0] == View::World) {
+                        stage.clearColor = stage.clearDepth = false;
+                        break;
+                    }
+        }
         for (const Stage& stage : shadowStages)
             RunStage(*list, stage);
         for (const Stage& stage : stages)
@@ -1056,7 +1176,12 @@ namespace perlin {
         gpu.Dev().WaitIdle();
         FinishReadbacks();
         ReleaseFrameMeshes();
+        // the pack holds device objects; it is built again on the new device (the meshes keep their extra stream)
+        const bool hadPack = jpack != nullptr;
+        jpack.reset();
+        jpackReady = false;
 
+        const std::vector<gpu::PipelineKey> warmKeys = gpu.PipelineKeys();
         gpu::ChunkMeshStore::Backup chunkBackup = meshes.Save();
         std::vector<gpu::Gpu::BufferSource> uiSources;
         for (UiPage& p : uiPages) {
@@ -1099,6 +1224,22 @@ namespace perlin {
         atlasTiles = 0;
 
         const auto bringUp = [&](const std::string& api) {
+            // the old swapchain is gone; a window that presented through one api can keep showing its last frame under the next
+            if (!offscreen && platform) {
+                platform->RenewRenderSurface();
+                const NativeWindowInfo native = platform->GetNativeWindowInfo();
+                settings.window = {native.window, native.display, native.wayland};
+                nativeWindow = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.window));
+                nativeDisplay = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.display));
+                int fw = 0, fh = 0;
+                platform->GetFramebufferSize(fw, fh);
+                if (fw > 0 && fh > 0) {
+                    width = fw;
+                    height = fh;
+                    settings.width = static_cast<uint32_t>(fw);
+                    settings.height = static_cast<uint32_t>(fh);
+                }
+            }
             settings.api = rhi::ApiFromId(api);
             const bool started = offscreen ? gpu.Init(settings, pack, nullptr) : StartDevice(api, pack, true);
             if (!started) {
@@ -1126,6 +1267,11 @@ namespace perlin {
 
         adapterName = gpu.Caps().adapter.name;
         rendererName = rhi::ApiName(gpu.Api());
+        // temporal filters must not reproject from the other device's frames, and the first frame must not stall on shader compiles
+        cam = CameraHistory{};
+        frameOpen = false;
+        for (const gpu::PipelineKey& key : warmKeys)
+            gpu.Pipeline(key);
         meshes.Load(std::move(chunkBackup));
         size_t blob = 0;
         for (UiPage& p : uiPages) {
@@ -1156,6 +1302,24 @@ namespace perlin {
             UploadCrosshair(iconSaved);
         if (lightmapWas)
             UploadLightmap(lightmapSaved);
+        if (hadPack && !jpackPath.empty()) {
+            auto pack = std::make_unique<gpu::JavaPack>(gpu, meshes);
+            gpu::JavaPack::Config config;
+            config.path = jpackPath;
+            for (const auto& kv : jpackOptions)
+                config.options[kv.first] = kv.second;
+            config.dimension = jpackDimension;
+            config.blockName = blockNames;
+            std::string why;
+            if (pack->Load(config, why)) {
+                pack->SetAtlas(atlasSource.data(), tileSize, atlasTiles);
+                jpack = std::move(pack);
+                AttachJavaPack();
+            } else {
+                jpackError = why;
+                std::cout << "[javapack] not available on " << rhi::ApiName(gpu.Api()) << ": " << why << std::endl;
+            }
+        }
         std::cout << "[render] now on " << rendererName << " (" << adapterName << ")" << std::endl;
         return true;
     }

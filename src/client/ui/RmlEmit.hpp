@@ -31,13 +31,20 @@ namespace perlin::ui {
         float linePadding = 0;
     };
 
+    // mcitem attributes for the durability bar, empty while the item is unworn
+    inline std::string DurabilityAttrs(int damage, int maxDamage) {
+        if (maxDamage <= 0 || damage <= 0)
+            return {};
+        return " dmg=\"" + std::to_string(damage) + "\" max=\"" + std::to_string(maxDamage) + "\"";
+    }
+
     class RmlWriter {
     public:
         explicit RmlWriter(bool comments) : comments(comments) {}
 
         void Image(float ax, float ay, float w, float h, int z, const std::string& texture, const ImageStyle& style);
         void Item(float ax, float ay, float w, float h, int z, const std::string& itemKey, float alpha = 1.0f,
-                  bool glint = false);
+                  bool glint = false, int damage = 0, int maxDamage = 0);
         void Rect(float ax, float ay, float w, float h, int z, float r, float g, float b, float a);
         void Text(float ax, float ay, float w, float h, int z, const std::vector<std::string>& lines, const TextStyle& style);
         void Comment(const std::string& text);

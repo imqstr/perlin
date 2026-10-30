@@ -6,7 +6,10 @@
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
-#include <emscripten/html5_webgpu.h>
+extern "C" {
+// html5_webgpu.h still names WGPUSwapChain, which emdawnwebgpu no longer has, so the one function needed is declared here
+WGPUDevice emscripten_webgpu_get_device(void);
+}
 #else
 #include <webgpu/wgpu.h>
 #endif
@@ -346,7 +349,8 @@ namespace rhi::webgpu {
                 WGPUDevice raw = emscripten_webgpu_get_device();
                 if (!raw)
                     return nullptr;
-                auto device = std::make_unique<WebGpuDevice>(instance, Owned<WGPUAdapter>(), Owned<WGPUDevice>(raw), opts,
+                wgpuInstanceAddRef(instance.Get());
+                auto device = std::make_unique<WebGpuDevice>(Owned<WGPUInstance>(instance.Get()), Owned<WGPUAdapter>(), Owned<WGPUDevice>(raw), opts,
                                                              infos[0], false);
 #else
                 WGPUAdapter adapter = adapters[opts.adapterIndex].Get();

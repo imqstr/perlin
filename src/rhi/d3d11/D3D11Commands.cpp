@@ -40,6 +40,9 @@ namespace rhi::d3d11 {
         boundSrvs = {};
         boundUavs = 0;
         resolves.clear();
+        for (auto& stageMirrors : uploadMirrors)
+            for (UploadMirror& m : stageMirrors)
+                m.valid = false;
     }
 
     ID3D11CommandList* CmdList::Finish() {
@@ -412,8 +415,38 @@ namespace rhi::d3d11 {
                             const uint64_t span = std::min<uint64_t>(AlignUp(size, 256), b->gpuSize - offset);
                             firstConstant = static_cast<UINT>(offset / 16);
                             constants = static_cast<UINT>(std::min<uint64_t>(span, kConstantWindow) / 16);
+                        } else if (!b->shadow.empty() && b->desc.memory != MemoryClass::GpuOnly && b->desc.memory != MemoryClass::Readback) {
+                            // cpu written uniforms (the frame ring): push the bytes into a small buffer that always starts at zero. The data is
+                            // final when the draw is recorded, so this needs neither constant offsetting (unreliable from deferred contexts)
+                            // nor a gpu copy per draw
+                            UploadMirror& um = uploadMirrors[stage][slot.slot];
+                            const uint64_t avail = b->shadow.size() > offset ? b->shadow.size() - offset : 0;
+                            const uint64_t want = (std::min)({size, avail, kConstantWindow});
+                            const UINT n = static_cast<UINT>(want & ~15ull);
+                            if (!n) {
+                                device.ReportError("uniform buffer range is empty at binding " + std::to_string(slot.binding));
+                                return false;
+                            }
+                            if (!um.buffer || um.bytes != n) {
+                                D3D11_BUFFER_DESC md{};
+                                md.ByteWidth = n;
+                                md.Usage = D3D11_USAGE_DEFAULT;
+                                md.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+                                um.buffer = nullptr;
+                                if (FAILED(device.Dev()->CreateBuffer(&md, nullptr, um.buffer.put())))
+                                    return false;
+                                um.bytes = n;
+                                um.valid = false;
+                            }
+                            const uint8_t* src = b->shadow.data() + offset;
+                            if (!um.valid || std::memcmp(um.last.data(), src, n) != 0) {
+                                ctx->UpdateSubresource(um.buffer.get(), 0, nullptr, src, 0, 0);
+                                um.last.assign(src, src + n);
+                                um.valid = true;
+                            }
+                            cb = um.buffer.get();
                         } else {
-                            // no offsetting: copy the range into a buffer that always starts at zero
+                            // no cpu copy and no offsetting: copy the range into a buffer that always starts at zero
                             winrt::com_ptr<ID3D11Buffer>& mirror = mirrors[stage][slot.slot];
                             if (!mirror) {
                                 D3D11_BUFFER_DESC md{};

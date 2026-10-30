@@ -711,6 +711,28 @@ namespace perlin::ui {
                     const float alpha = HasAttribute("alpha") ? GetAttribute<float>("alpha", 1.0f) : 1.0f;
                     Rml::MeshUtilities::GenerateQuad(mesh, {0, 0}, size, Colour(1, 1, 1, alpha), {0, 0}, {1, 1});
                     geometry = manager->MakeGeometry(std::move(mesh));
+                    Rml::Mesh bar = wear.Release(Rml::Geometry::ReleaseMode::ClearMesh);
+                    bar.vertices.clear();
+                    bar.indices.clear();
+                    const int max = GetAttribute<int>("max", 0), damage = GetAttribute<int>("dmg", 0);
+                    if (max > 0 && damage > 0) {
+                        // the game's bar: 13x2 black at (2, 13) of the 16px icon, a 1px line coloured green to red by wear
+                        const float px = size.x / 16.0f;
+                        const double left = std::clamp(static_cast<double>(max - damage) / max, 0.0, 1.0);
+                        const float fill = static_cast<float>(std::lround(13.0 * left));
+                        const double hue = left / 3.0 * 6.0;
+                        const double f = hue - std::floor(hue);
+                        float r = 0, g = 0, b = 0;
+                        switch (static_cast<int>(hue) % 6) {
+                        case 0: r = 1; g = static_cast<float>(f); break;
+                        case 1: r = static_cast<float>(1 - f); g = 1; break;
+                        default: g = 1; b = static_cast<float>(f); break;
+                        }
+                        Rml::MeshUtilities::GenerateQuad(bar, {2 * px, 13 * px}, {13 * px, 2 * px}, Colour(0, 0, 0, alpha));
+                        if (fill > 0)
+                            Rml::MeshUtilities::GenerateQuad(bar, {2 * px, 13 * px}, {fill * px, px}, Colour(r, g, b, alpha));
+                    }
+                    wear = manager->MakeGeometry(std::move(bar));
                 }
                 if (geometry) {
                     geometry.Render(GetAbsoluteOffset(Rml::BoxArea::Border), texture);
@@ -720,10 +742,13 @@ namespace perlin::ui {
                         gGlintPass = false;
                     }
                 }
+                if (wear)
+                    wear.Render(GetAbsoluteOffset(Rml::BoxArea::Border));
             }
 
         private:
             Rml::Geometry geometry;
+            Rml::Geometry wear;
             Rml::Texture texture;
             bool loaded = false;
             bool dirty = true;

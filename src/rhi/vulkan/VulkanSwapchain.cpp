@@ -120,15 +120,39 @@ namespace rhi::vk {
         }
 
         bool Acquire(Image& out) override {
-            if (needsRebuild) {
-                needsRebuild = false;
-                Build(desc.width, desc.height);
+            if (surfaceLost) {
+                // the window system took the surface away (display change, driver reset): start from a fresh one
+                surfaceLost = false;
+                dev.fn.vkDeviceWaitIdle(dev.device);
+                Destroy();
+                if (surface)
+                    vkDestroySurfaceKHR(dev.inst->instance, surface, nullptr);
+                surface = CreateSurface(dev.inst->instance, desc.window);
+                if (!surface)
+                    return false;
+                needsRebuild = true;
+            }
+            if (swapchain && !needsRebuild) {
+                // some drivers (nvidia especially) keep handing out images of a stale size without ever reporting out-of-date
+                VkSurfaceCapabilitiesKHR caps{};
+                if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev.physical, surface, &caps) == VK_SUCCESS && caps.currentExtent.width != 0xFFFFFFFFu) {
+                    if (!caps.currentExtent.width || !caps.currentExtent.height)
+                        return false;
+                    if (caps.currentExtent.width != extent.width || caps.currentExtent.height != extent.height)
+                        needsRebuild = true;
+                }
             }
             if (!swapchain)
-                return false;
+                needsRebuild = true;
+            if (needsRebuild) {
+                needsRebuild = false;
+                if (!Build(desc.width, desc.height))
+                    return false;
+            }
             for (int attempt = 0; attempt < 2; attempt++) {
                 VkSemaphore sem = acquireSems[ring];
-                const VkResult r = dev.fn.vkAcquireNextImageKHR(dev.device, swapchain, UINT64_MAX, sem, VK_NULL_HANDLE, &index);
+                // bounded: a window that is hidden or occluded must not hang the whole game loop
+                const VkResult r = dev.fn.vkAcquireNextImageKHR(dev.device, swapchain, 250'000'000ull, sem, VK_NULL_HANDLE, &index);
                 if (r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR) {
                     if (r == VK_SUBOPTIMAL_KHR)
                         needsRebuild = true;
@@ -138,7 +162,17 @@ namespace rhi::vk {
                     out.index = index;
                     return true;
                 }
-                if (r != VK_ERROR_OUT_OF_DATE_KHR || !Build(desc.width, desc.height))
+                if (r == VK_TIMEOUT || r == VK_NOT_READY)
+                    return false;
+                if (r == VK_ERROR_SURFACE_LOST_KHR) {
+                    surfaceLost = true;
+                    return false;
+                }
+                if (r != VK_ERROR_OUT_OF_DATE_KHR) {
+                    dev.ReportError("vkAcquireNextImageKHR failed (" + std::to_string(r) + ")");
+                    return false;
+                }
+                if (!Build(desc.width, desc.height))
                     return false;
             }
             return false;
@@ -159,11 +193,14 @@ namespace rhi::vk {
             const VkResult r = dev.fn.vkQueuePresentKHR(dev.PresentQueue(), &pi);
             if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR)
                 needsRebuild = true;
+            else if (r == VK_ERROR_SURFACE_LOST_KHR)
+                surfaceLost = true;
             else if (r != VK_SUCCESS)
                 dev.ReportError("vkQueuePresentKHR failed (" + std::to_string(r) + ")");
         }
 
         bool Resize(uint32_t width, uint32_t height) override {
+            const bool same = desc.width == width && desc.height == height;
             desc.width = width;
             desc.height = height;
             if (!width || !height) {
@@ -171,7 +208,8 @@ namespace rhi::vk {
                 Destroy();
                 return false;
             }
-            if (swapchain && width == extent.width && height == extent.height && !needsRebuild)
+            // judged against what was asked for, not what came back: a clamped or rounded extent must not rebuild every frame
+            if (swapchain && same && !needsRebuild)
                 return true;
             needsRebuild = false;
             return Build(width, height);
@@ -360,6 +398,7 @@ namespace rhi::vk {
         PresentMode activeMode = PresentMode::Fifo;
         bool hdrActive = false;
         bool needsRebuild = false;
+        bool surfaceLost = false;
         std::vector<VkImage> images;
         std::vector<TextureHandle> handles;
         std::vector<VkSemaphore> renderDone;

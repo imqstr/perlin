@@ -278,12 +278,11 @@ jobs:
           cp build-web/*.data site/ 2>/dev/null || true
           cp build-web/perlin-*.js build-web/coi-sw.js build-web/perlin.css build-web/assets-manifest.json site/
           cp tools/web/serve.py tools/web/HOSTING.txt site/
-          mkdir dist
-          (cd site && zip -qr ../dist/Perlin-web.zip .)
+      # the artifact is zipped by the action itself; the release job makes Perlin-web.zip from it
       - uses: actions/upload-artifact@v4
         with:
           name: Perlin-web
-          path: dist/Perlin-web.zip
+          path: site/
           if-no-files-found: error
 
   android:
@@ -405,7 +404,7 @@ jobs:
           for dir in */; do
             name="${dir%/}"
             case "$name" in
-              Perlin-web|Perlin-android) cp "$name"/* ../release/ ;;
+              Perlin-android) cp "$name"/* ../release/ ;;
               *) (cd "$name" && zip -qr "../../release/$name.zip" .) ;;
             esac
           done

@@ -142,4 +142,14 @@ namespace perlin::jshader {
         }
         return out;
     }
+
+    void WriteJavaPackOptions(const std::string& path, const std::map<std::string, std::string>& options) {
+        std::string file = path;
+        if (file.size() > 4 && file.compare(file.size() - 4, 4, ".zip") == 0)
+            file.resize(file.size() - 4);
+        file += ".txt";
+        std::ofstream out(file, std::ios::trunc);
+        for (const auto& kv : options)
+            out << kv.first << '=' << kv.second << '\n';
+    }
 }

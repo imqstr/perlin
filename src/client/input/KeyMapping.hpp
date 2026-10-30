@@ -38,6 +38,7 @@ namespace perlin {
         PlayerList,
         Inventory,
         Pause,
+        Fullscreen,
         Count
     };
 

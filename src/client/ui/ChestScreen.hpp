@@ -39,4 +39,5 @@ namespace perlin::ui {
     };
 
     std::string ChestScreenName(const std::string& titleKey, int rows);
+    std::string ContainerScreenName(int container);
 }

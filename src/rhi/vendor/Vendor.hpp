@@ -39,7 +39,7 @@ namespace rhi::vendor {
         float farPlane = 1000.0f;
         float fovY = 1.2f;
         float aspect = 16.0f / 9.0f;
-        bool reverseZ = false;
+        bool reverseZ = true;
     };
 
     struct UpscaleDesc {

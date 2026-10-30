@@ -44,6 +44,7 @@ namespace perlin::jshader {
         const MacroMap& Macros() const { return macros; }
         const MacroMap& EngineMacros() const { return engineMacros; }
         const std::vector<ShaderOption>& Options() const { return options; }
+        const OptionValues& Overrides() const { return overrides; }
         const std::string& Name() const { return packName; }
 
         void SetDimension(const std::string& folder);

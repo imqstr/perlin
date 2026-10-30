@@ -208,7 +208,9 @@ vec2 v_texcoord0 : TEXCOORD0;
 #define StarsColor u_modulator
 '''
     for base, family, render_pass, inputs, color, position, texcoord in [
-        ('sky', 'Sky', 'Opaque', 'a_position', 'mix(u_modulator, u_fogColor, linearFog(length(a_position), 0.0, u_fogSky.x) * u_fogColor.a)', 'a_position', 'vec2_splat(0.0)'),
+        # the sky disc is a handful of huge triangles: the position travels to the fragment stage so the fog blend is exact
+        # per pixel instead of piecewise linear (which draws faint spokes and rings across the sky)
+        ('sky', 'Sky', 'Opaque', 'a_position', 'vec4(a_position, 0.0)', 'a_position', 'vec2_splat(0.0)'),
         ('star', 'Stars', 'Transparent', 'a_position', 'vec4_splat(1.0)', 'a_position', 'vec2_splat(0.0)'),
         ('celestial', 'SunMoon', 'Transparent', 'a_position, a_texcoord0', 'vec4_splat(1.0)', 'a_position', 'a_texcoord0'),
         ('cloud', 'Clouds', 'Transparent', 'a_position, a_texcoord0', 'vec4(a_texcoord0.x * u_cloudColor.rgb, u_cloudColor.a * clamp(1.0 - max(length(a_position + u_cloudOffset.xyz) / max(u_fogSky.y, 1.0) - 0.9, 0.0), 0.0, 1.0))', 'a_position + u_cloudOffset.xyz', 'vec2_splat(0.0)'),
@@ -218,7 +220,16 @@ vec2 v_texcoord0 : TEXCOORD0;
         prefix = sky_uniforms
         if base == 'celestial':
             prefix += 'vec4 rdSky(vec2 uv) { return texture2D(s_sky, uv); }\n'
-        fragment('fs_' + base, family, render_pass, sky_io, sky_args, prefix, sky_io,
+        call = sky_io
+        suffix = ''
+        if base == 'sky':
+            call = 'mix(u_modulator, u_fogColor, linearFog(length(v_color0.xyz), 0.0, u_fogSky.x) * u_fogColor.a), v_texcoord0'
+            # dark gradients quantise into visible contour lines in 8 bits: triangular dither of one step hides them
+            suffix = ('vec2 ditherPos = gl_FragCoord.xy;\n'
+                      'float ditherA = fract(52.9829189 * fract(dot(ditherPos, vec2(0.06711056, 0.00583715))));\n'
+                      'float ditherB = fract(52.9829189 * fract(dot(ditherPos + vec2(17.0, 31.0), vec2(0.06711056, 0.00583715))));\n'
+                      'color.rgb += vec3_splat((ditherA + ditherB - 1.0) / 255.0);')
+        fragment('fs_' + base, family, render_pass, sky_io, sky_args, prefix, call, suffix,
                  samples={'s_SunMoonTexture': 'rdSky'})
     for base, inputs, color in [('sunrise', 'a_position, a_color0', 'a_color0 * u_modulator'), ('screen', 'a_position', 'u_modulator')]:
         write('varying_' + base + '.def.sc', sky_varying)

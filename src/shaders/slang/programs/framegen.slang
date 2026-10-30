@@ -67,7 +67,7 @@ float linearDepth(float d)
 {
     float n = u_gen.x;
     float f = u_gen.y;
-    return n * f / (f - d * (f - n));
+    return n * f / (n + d * (f - n));
 }
 
 void stageMain()

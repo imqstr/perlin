@@ -153,6 +153,8 @@ namespace perlin {
         tileSize = tilePx;
         atlasTiles = count;
         atlasSource.assign(rgba, rgba + tileBytes * static_cast<size_t>(count));
+        if (jpack)
+            jpack->SetAtlas(rgba, tilePx, count);
     }
 
     void RenderContext_rhi::UpdateAtlasRegion(int tile, const uint8_t* rgba) {
@@ -167,6 +169,8 @@ namespace perlin {
         const auto& mips = it->second;
         if (tile < atlasTiles)
             std::memcpy(atlasSource.data() + static_cast<size_t>(tile) * tileSize * tileSize * 4, mips[0].data(), mips[0].size());
+        if (jpack)
+            jpack->UpdateTile(tile, mips[0].data());
         for (size_t l = 0; l < mips.size(); l++) {
             const uint32_t w = static_cast<uint32_t>(std::max(1, tileSize >> static_cast<int>(l)));
             gpu.WriteTexture(atlas.handle, static_cast<uint32_t>(tile), 0, 0, w, w, mips[l].data(), 0, static_cast<uint32_t>(l));
@@ -397,10 +401,15 @@ namespace perlin {
     void RenderContext_rhi::DrawChunkMeshes(const Frustum& frustum, float camX, float camZ) {
         if (!initialized || !frameOpen)
             return;
-        if (!packActive)
+        const bool pack = PackRunning();
+        if (!pack)
             DrawSky();
         meshes.ReleaseEmptyPages();
         if (meshes.Empty()) {
+            if (pack) {
+                jpack->ClearGeometry();
+                jpackGathered = true;
+            }
             DrawClouds();
             DrawScreenTint();
             return;
@@ -418,6 +427,15 @@ namespace perlin {
             }
         }
         meshes.Select(frustum, camX, frame.cameraPosition[1], camZ, chunkCullRadius, caveCulling, frame.timeSeconds);
+        if (pack) {
+            // the pack draws terrain, sky and shadows itself when the frame executes
+            jpack->GatherGeometry(camX, camZ);
+            jpackGathered = true;
+            if (jpack->VanillaClouds())
+                DrawClouds();
+            DrawScreenTint();
+            return;
+        }
         RenderShadows(frame.cameraPosition[0], frame.cameraPosition[1], frame.cameraPosition[2]);
         DrawLayer(RenderLayer::Solid, Program::TerrainSolid, View::World);
         DrawLayer(RenderLayer::Cutout, Program::TerrainCutout, View::World);

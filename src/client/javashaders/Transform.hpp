@@ -11,6 +11,7 @@ namespace perlin::jshader {
     constexpr int kAttribPosition = 0, kAttribNormal = 1, kAttribTangent = 2, kAttribColor0 = 4;
     constexpr int kAttribTexCoord0 = 10, kAttribTexCoord1 = 11, kAttribTexCoord2 = 12, kAttribTexCoord3 = 13;
     constexpr int kAttribTexCoord4 = 14, kAttribTexCoord5 = 15, kAttribTexCoord6 = 16, kAttribTexCoord15 = 25;
+    constexpr uint32_t AttribBit(int attrib) { return 1u << attrib; }
 
     struct UniformDecl {
         std::string name;
@@ -62,6 +63,11 @@ namespace perlin::jshader {
         bool flipVertexY = false;
         bool flipFragCoordY = false;
         bool zeroToOneDepth = true;
+        // the rhi binds textures and samplers separately (set 1: texture 2n, sampler 2n+1): declare them that way and
+        // let the pack's sampler names stand for the combined pair
+        bool splitSamplers = false;
+        // sample plain texture() / texture2D() calls at level 0 (full screen passes whose buffers have no mips)
+        bool explicitLod = false;
     };
 
     struct ProgramResult {

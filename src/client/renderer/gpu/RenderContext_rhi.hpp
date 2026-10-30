@@ -3,9 +3,11 @@
 #include "client/renderer/SkyGeometry.hpp"
 #include "client/renderer/Tessellator.hpp"
 #include "client/renderer/gpu/ChunkMeshStore.hpp"
+#include "client/renderer/gpu/JavaPack.hpp"
 #include "client/renderer/gpu/GpuCore.hpp"
 #include "client/renderer/gpu/UniformStore.hpp"
 
+#include <array>
 #include <glm/glm.hpp>
 
 #include <atomic>
@@ -115,11 +117,15 @@ namespace perlin {
         std::string GpuDescription() const override;
         void SetVsync(bool enabled) override;
         bool ReloadShaders() override;
-        bool PackShadowsActive() const override { return packActive; }
-        bool SetJavaShaderPack(const std::string& path, const std::map<std::string, std::string>& options,
-                               std::string& error) override;
+        bool PackShadowsActive() const override { return packActive || javaActive; }
+        bool SetJavaShaderPack(const std::string& path, const std::map<std::string, std::string>& options, std::string& error) override;
         void ClearJavaShaderPack() override;
-        bool JavaShaderPackActive() const override { return javaActive; }
+        bool JavaShaderPackActive() const override { return javaActive || jpack != nullptr; }
+        std::vector<JavaPackOption> JavaShaderPackOptions() const override;
+        bool JavaPackReady() const { return PackRunning(); }
+        std::string JavaShaderPackError() const override { return jpackError; }
+        void SetJavaShaderPackDimension(const std::string& folder) override;
+        void SetBlockNameLookup(std::function<std::string(uint16_t)> lookup) override { blockNames = std::move(lookup); }
 
         void BeginFrame(const FrameParams& params) override;
         void EndFrame() override;
@@ -212,6 +218,8 @@ namespace perlin {
         struct ViewData {
             glm::mat4 view{1.0f};
             glm::mat4 proj{1.0f};
+            // scene passes use reversed depth (1 at the near plane, 0 at the far plane, cleared to 0); shadow maps stay conventional
+            bool reversedZ = true;
             uint32_t x = 0, y = 0, w = 0, h = 0;
             // attachments the draws of this view render into; the pipelines are built for them
             rhi::Format colorFormat = rhi::Format::BGRA8Unorm;
@@ -421,6 +429,9 @@ namespace perlin {
         gpu::PipelineKey KeyFor(const ViewData& view, const DrawState& state) const;
 
         void ConvertDepth(const float in[16], float out[16]) const;
+        static glm::mat4 ReverseDepth(const glm::mat4& clipFromWorld);
+        static rhi::CompareOp ReverseOp(rhi::CompareOp op);
+        static bool StageReversed(const Stage& stage);
         void UploadLightmap(const uint8_t* pixels);
         bool MakeTexture(TexRec& rec, uint32_t w, uint32_t h, uint32_t layers, uint32_t mips, rhi::Format format, gpu::SamplerKind sampler,
                          const char* name);
@@ -430,6 +441,8 @@ namespace perlin {
         gpu::Gpu gpu;
         gpu::GpuSettings settings;
         gpu::UniformStore uni;
+        static constexpr int kBuiltinCount = 7;
+        std::array<int, kBuiltinCount> builtinIds = {-1, -1, -1, -1, -1, -1, -1};
         gpu::ChunkMeshStore meshes;
         AppPlatform* platform = nullptr;
         bool initialized = false;
@@ -462,6 +475,8 @@ namespace perlin {
         };
         std::unordered_map<std::string, std::vector<JavaMaterialRule>> javaMaterialRules;
         size_t javaMaterialCount = 0;
+        bool SetBakedJavaShaderPack(const std::string& path, const std::map<std::string, std::string>& options, std::string& error);
+        void ClearBakedJavaShaderPack();
         bool EnsureJavaMaterials();
         bool javaTexReady = false;
         bool EnsureJavaSamplers();
@@ -474,6 +489,17 @@ namespace perlin {
         void BuildJavaChainStages();
         void RecordJavaChain();
         void JavaChainBinds();
+
+        // java shader pack: loaded as soon as it is set, drawn once its programs have compiled
+        std::unique_ptr<gpu::JavaPack> jpack;
+        std::string jpackPath, jpackError, jpackDimension = "world0";
+        std::map<std::string, std::string> jpackOptions;
+        bool jpackReady = false;
+        bool jpackGathered = false;
+        float jpackScale = 1.0f;
+        std::function<std::string(uint16_t)> blockNames;
+        bool PackRunning() const { return jpack && jpackReady; }
+        bool AttachJavaPack();
         bool ResolvePrograms();
         std::array<int, static_cast<size_t>(Program::Count)> programIds{};
         std::array<gpu::VertexLayout, static_cast<size_t>(Program::Count)> programLayouts{};

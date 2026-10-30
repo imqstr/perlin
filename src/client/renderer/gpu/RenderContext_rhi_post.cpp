@@ -351,7 +351,7 @@ namespace perlin {
         plan.bloom = params.bloom > 0.001f && !noBloom && ProgramIndex(Program::Bloom) >= 0;
         plan.blur = (params.motionBlur > 0.001f || params.menuBlur > 0.01f) && !noBlur && ProgramIndex(Program::Post) >= 0;
         ShaderPack& pack = ShaderPack::Instance();
-        plan.sceneCopy = packActive && pack.Flag("sceneCopy", false) && !noSsr;
+        plan.sceneCopy = packActive && pack.Flag("sceneCopy", false) && !noSsr && !PackRunning();
         plan.active = !post.failed && (plan.blur || plan.sceneCopy || plan.bloom || plan.scaled || plan.temporal) && ProgramIndex(Program::Post) >= 0;
         // java MRT needs the offscreen chain even with every effect off
         if (javaActive && !post.failed && ProgramIndex(Program::Post) >= 0)
@@ -817,7 +817,7 @@ namespace perlin {
             rd.depth.texture = target.depth;
             rd.depth.load = stage.clearDepth ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
             rd.depth.store = rhi::StoreOp::Store;
-            rd.depth.clearDepth = 1.0f;
+            rd.depth.clearDepth = StageReversed(stage) ? 0.0f : 1.0f;
         }
         rd.name = "pass";
         list.BeginRendering(rd);

@@ -1037,6 +1037,9 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
         bodies[stage] = bodies[stage].replace("(m)[3].xyz", "transpose(m)[3].xyz")
         bodies[stage] = bodies[stage].replace("shadowPos.xy /= distortFactor;", "")
         bodies[stage] = bodies[stage].replace("shadowPos.z *= 0.2;", "")
+        bodies[stage] = bodies[stage].replace("shadowpos.xy *= 1.0 / distortFactor;", "")
+        bodies[stage] = bodies[stage].replace("shadowpos.z = shadowpos.z * 0.2;", "")
+        bodies[stage] = bodies[stage].replace("vec3(vec2(wpos.xy / distortFactor), wpos.z * 0.2)", "wpos")
 
     import json as _json
     try:

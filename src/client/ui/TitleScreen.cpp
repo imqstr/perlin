@@ -29,6 +29,8 @@ div { display: block; position: absolute; }
 mcimg { display: block; position: absolute; }
 .btn { height: 20px; z-index: 5; }
 .btn .h { display: none; }
+.btn .tip { display: none; }
+.btn:hover .tip { display: block; }
 .btn:hover .h { display: block; }
 .btn .lbl { left: 0px; top: 6px; height: 9px; font-family: minecraft-shadow; font-size: 8px; line-height: 9px; text-align: center; color: #ffffff; white-space: nowrap; }
 .btn.off .lbl { color: #a0a0a0; }
@@ -62,13 +64,46 @@ mcimg { display: block; position: absolute; }
 )";
         const ScreenTemplateDefault kTitleDefault("title_screen.rml", kStyle);
 
-        std::string Btn(const std::string& id, int x, int y, int w, const std::string& label, bool off = false) {
+        // a hover note above a button: wrapped by hand since layout here is absolute; lives inside the button so hovering it shows it
+        std::string Tip(int buttonW, const std::string& text) {
+            std::vector<std::string> lines;
+            std::string line;
+            const size_t perLine = static_cast<size_t>(std::max(12, (buttonW - 10) / 5));
+            size_t at = 0;
+            while (at < text.size()) {
+                const size_t sp = text.find(' ', at);
+                const std::string word = text.substr(at, sp == std::string::npos ? std::string::npos : sp - at);
+                if (!line.empty() && line.size() + 1 + word.size() > perLine) {
+                    lines.push_back(line);
+                    line.clear();
+                }
+                line += (line.empty() ? "" : " ") + word;
+                if (sp == std::string::npos)
+                    break;
+                at = sp + 1;
+            }
+            if (!line.empty())
+                lines.push_back(line);
+            const int th = static_cast<int>(lines.size()) * 10 + 5;
+            const int tw = buttonW;
+            std::string d = "<div class=\"tip\" style=\"left:0px;top:" + N(-th - 3) + "px;width:" + N(tw) + "px;height:" + N(th) + "px;z-index:60;\">"
+                            "<div style=\"left:0px;top:0px;width:" + N(tw) + "px;height:" + N(th) + "px;background-color:#2d0a63;\"></div>"
+                            "<div style=\"left:1px;top:1px;width:" + N(tw - 2) + "px;height:" + N(th - 2) + "px;background-color:#100010;\"></div>";
+            for (size_t i = 0; i < lines.size(); i++)
+                d += "<div class=\"txt ctr\" style=\"left:3px;top:" + N(3 + static_cast<int>(i) * 10) + "px;width:" + N(tw - 6) + "px;height:9px;color:#ffff55;\">" + EscapeRml(lines[i]) + "</div>";
+            return d + "</div>";
+        }
+
+        std::string Btn(const std::string& id, int x, int y, int w, const std::string& label, bool off = false, const std::string& tip = {}) {
             std::string d = "<div" + std::string(off ? "" : " id=\"" + id + "\"") + " class=\"btn" + (off ? " off" : "") + "\" style=\"left:" + N(x) + "px;top:" + N(y) +
                             "px;width:" + N(w) + "px;\">";
             d += "<mcimg src=\"mcres:ui_menu_btn" + std::string(off ? "_off" : "") + ".png\" nine=\"3 3 3 3\" style=\"left:0px;top:0px;width:" + N(w) + "px;height:20px;\"></mcimg>";
             if (!off)
                 d += "<mcimg class=\"h\" src=\"mcres:ui_menu_btn_hi.png\" nine=\"3 3 3 3\" style=\"left:0px;top:0px;width:" + N(w) + "px;height:20px;\"></mcimg>";
-            d += "<div class=\"lbl\" style=\"width:" + N(w) + "px;\">" + EscapeRml(label) + "</div></div>\n";
+            d += "<div class=\"lbl\" style=\"width:" + N(w) + "px;\">" + EscapeRml(label) + "</div>";
+            if (!tip.empty())
+                d += Tip(w, tip);
+            d += "</div>\n";
             return d;
         }
 
@@ -357,7 +392,7 @@ mcimg { display: block; position: absolute; }
                 d += "<mcimg src=\"mcres:ui_menu_logo.png\" style=\"left:" + N(cx - 128) + "px;top:30px;width:256px;height:64px;z-index:3;\"></mcimg>\n";
             }
             const int j = h / 4 + 48;
-            d += Btn("", cx - 100, j, 200, "Singleplayer", true);
+            d += Btn(kTitleSingle, cx - 100, j, 200, "Singleplayer", false, kSingleplayerTip);
             d += Btn(kTitleMulti, cx - 100, j + 24, 200, "Multiplayer");
             d += Btn(kTitleMods, cx - 100, j + 48, 200, "Mods");
             d += IconBtn(kTitleWardrobe, cx + 104, j + 48, "textures/ui/glyph_skin_pack.png");

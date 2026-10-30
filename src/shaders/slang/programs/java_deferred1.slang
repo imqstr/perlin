@@ -2630,7 +2630,7 @@ float InterleavedGradientNoiseForClouds() {
         vec3 wpos = PlayerToShadow(tracePos - cameraPos);
         float distb = sqrt(wpos.x * wpos.x + wpos.y * wpos.y);
         float distortFactor = 1.0 - shadowMapBias + distb * shadowMapBias;
-        vec3 shadowPosition = vec3(vec2(wpos.xy / distortFactor), wpos.z * 0.2);
+        vec3 shadowPosition = wpos;
         return shadowPosition * 0.5 + 0.5;
     }
 

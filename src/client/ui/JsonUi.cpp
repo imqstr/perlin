@@ -491,6 +491,7 @@ namespace perlin::ui {
                 std::vector<Layer> layers;
                 if (!ref.empty())
                     ResolveChain(ref, ns, layers, 0);
+                const size_t referenced = layers.size();
                 layers.push_back({&overrides, ns});
 
                 // "a/b/c" defs patch nested controls: bare name lands here, path routed to the named child at build
@@ -543,11 +544,18 @@ namespace perlin::ui {
                     return *ownVars;
                 };
                 std::unordered_set<std::string> chainDefaults;
-                for (const Layer& layer : layers) {
+                for (size_t li = 0; li < layers.size(); li++) {
+                    const Layer& layer = layers[li];
                     if (!layer.json->IsObject())
                         continue;
                     for (const auto& member : layer.json->object) {
                         if (member.first.empty() || member.first[0] != '$')
+                            continue;
+                        // a referenced definition's "|default" never replaces a value handed down by the parent (the
+                        // furnace cell image keeps container_item's 18x18); defaults written at the use site still can
+                        if (li < referenced && member.first.size() > 8 && member.first.ends_with("|default") &&
+                            parentVars.count(member.first.substr(0, member.first.size() - 8)) &&
+                            !chainDefaults.count(member.first.substr(0, member.first.size() - 8)))
                             continue;
                         AssignVariable(writable(), member.first, member.second, &chainDefaults);
                     }

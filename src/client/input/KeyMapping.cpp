@@ -107,6 +107,8 @@ namespace perlin {
             return "key.pause";
         case Action::PlayerList:
             return "key.playerlist";
+        case Action::Fullscreen:
+            return "key.fullscreen";
         default:
             return "";
         }
@@ -139,6 +141,7 @@ namespace perlin {
         set(Action::Inventory, Binding::KeyboardKey('E'));
         set(Action::Pause, Binding::KeyboardKey(Key::Escape));
         set(Action::PlayerList, Binding::KeyboardKey(Key::Tab));
+        set(Action::Fullscreen, Binding::KeyboardKey(Key::F1 + 10));
         return b;
     }
 

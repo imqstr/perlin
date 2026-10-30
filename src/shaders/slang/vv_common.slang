@@ -410,24 +410,25 @@ vec4 vvClouds(vec3 origin, vec3 dir, float maxDistance)
     float tm = clamp((base + CLOUD_THICKNESS * 0.5 - origin.y) / dy, t0, max(t1, t0));
     float inside;
     float edge = cloudEdgeDistance(cloudCoord(origin.xz + dir.xz * tm), inside);
-    float rim = inside * exp(-edge / 1.4) * S_CLOUD_GLOW;
-    float halo = (1.0 - inside) * exp(-edge / 1.0) * S_CLOUD_GLOW;
+    // wide soft falloffs: a one block wide rim reads as a thin outline once the cloud body is close to the sky colour
+    float rim = inside * exp(-edge / 3.0) * S_CLOUD_GLOW * 0.55;
+    float halo = (1.0 - inside) * exp(-edge / 2.2) * S_CLOUD_GLOW * 0.30;
 
     float rain = vvRain();
-    float opticalDepth = (inCloud * mix(0.24, 0.42, rain) + rim * 1.8) * S_CLOUD_OPACITY;
+    float opticalDepth = (inCloud * mix(0.24, 0.42, rain) + rim * 0.9) * S_CLOUD_OPACITY;
     float trans = exp(-opticalDepth);
 
     vec3 body, rimColor;
     vvCloudColors(body, rimColor);
     float toLight = max(dot(dir, lightDirection()), 0.0);
     body += vvSunGlow(dir) * 0.6 + vec3_splat(vvPow(toLight, 8.0) * 0.08 * vvDay());
-    vec3 color = mix(body, rimColor, clamp(rim * 1.2, 0.0, 1.0));
+    vec3 color = mix(body, rimColor, clamp(rim * 0.9, 0.0, 1.0));
 
     float cloudDist = first >= 0.0 ? first : t0;
     float fade = (1.0 - smoothstep(700.0, 1800.0, cloudDist)) * smoothstep(0.0, 0.035, abs(dir.y));
-    vec3 scatter = color * (1.0 - trans) + rimColor * halo * 0.30;
+    vec3 scatter = color * (1.0 - trans) + rimColor * halo * 0.20;
     trans = mix(1.0, trans, fade);
-    result = vec4(scatter * fade, trans * (1.0 - halo * 0.30 * fade));
+    result = vec4(scatter * fade, trans * (1.0 - halo * 0.20 * fade));
     }
     return result;
 }

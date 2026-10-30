@@ -3,6 +3,7 @@
 #include "client/renderer/Tessellator.hpp"
 #include "client/renderer/gpu/GpuCore.hpp"
 
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -64,6 +65,13 @@ namespace perlin::gpu {
         void CollectRuns(RenderLayer layer, bool farToNear, std::vector<Run>& out);
         bool SectionReached(int sx, int sy, int sz, bool caveCulling) const;
 
+        // a second vertex stream parallel to the main one (same vertex offsets), filled by `convert` for every mesh. changing it
+        // drops all meshes: the caller re-meshes. zero bytes turns it off
+        using ExtendFn = std::function<void(const Tessellator&, std::vector<uint8_t>&)>;
+        void SetExtension(uint32_t bytesPerVertex, ExtendFn convert);
+        uint32_t ExtensionBytes() const { return extBytes; }
+        rhi::BufferHandle Extension(uint32_t page) const { return pages[page].ext.Buffer(); }
+
         rhi::BufferHandle Vertices(uint32_t page) const { return pages[page].vb.Buffer(); }
         rhi::BufferHandle Indices(uint32_t page, RenderLayer layer) const { return pages[page].ib[static_cast<size_t>(layer)].Buffer(); }
         size_t Pages() const { return pages.size(); }
@@ -78,6 +86,7 @@ namespace perlin::gpu {
     private:
         struct Page {
             Arena vb;
+            Arena ext;
             std::array<Arena, kRenderLayerCount> ib;
             int emptyFrames = 0;
             bool live = false;
@@ -89,7 +98,18 @@ namespace perlin::gpu {
         void Upload(std::unordered_map<int64_t, Chunk>& target, bool lod, int cx, int cz, int size, const Tessellator& tess,
                     uint64_t version);
         void UpdateCave(float camX, float camY, float camZ, double now);
+        // lod tiles in 8x8 groups: one box test rejects (or accepts) a whole group before any tile is looked at
+        struct LodGroup {
+            float x0 = 0, z0 = 0, x1 = 0, z1 = 0, minY = 0, maxY = 0;
+            std::vector<const Chunk*> members;
+        };
+        void LodAdd(const Chunk& chunk);
+        void LodDrop(const Chunk& chunk);
+        static void Recalc(LodGroup& group);
+        std::unordered_map<int64_t, LodGroup> lodGroups;
 
+        uint32_t extBytes = 0;
+        ExtendFn extConvert;
         Gpu* gpu = nullptr;
         std::vector<Page> pages;
         std::unordered_map<int64_t, Chunk> chunks;

@@ -23,6 +23,7 @@ public:
 
     NativeWindowInfo GetNativeWindowInfo() override;
     void GetFramebufferSize(int& width, int& height) override;
+    void RenewRenderSurface() override;
     void SetTitle(const std::string& title) override;
     bool HasProgressWindow() const override { return !progFailed; }
     void SetProgressWindow(bool visible, const std::string& title, const std::string& line1, const std::string& line2, float fraction) override;
@@ -52,6 +53,8 @@ private:
     bool PickFile(const std::string& kind) override;
     bool TakeSurfaceChanged() override { return surfaceChanged.exchange(false); }
     void SetCursorCaptured(bool captured) override;
+    void SetFullscreen(bool fullscreen) override;
+    bool IsFullscreen() const override;
     bool cursorCaptured = false;
     bool textActive = false;
     bool keyboardShown = false;
@@ -66,6 +69,8 @@ private:
 
     SDL_Window* window = nullptr;
     void* metalView = nullptr;
+    void* renderSurface = nullptr; // windows: child window the swapchain lives on once a backend switch has happened
+    void ResizeRenderSurface();
     NativeWindowInfo native;
     std::unique_ptr<perlin::Perlin> game;
     std::atomic<int> framebufferWidth{1280};

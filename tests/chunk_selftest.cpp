@@ -49,17 +49,27 @@ int main() {
         ChunkCodec::CellIds expanded;
         CHECK(ChunkCodec::Expand(parsed[1].second.storages[0], expanded));
         CHECK(expanded == second);
-        for (size_t cut = firstSize; cut < column.size(); ++cut) {
+        // the payload decides, not the count: a column cut cleanly after the first sub-chunk holds one
+        CHECK(ChunkCodec::ParseColumn(column.data(), firstSize, 2, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 1 && parsed[0].first == -4 && consumed == firstSize);
+        // a cut inside a sub-chunk is still rejected, with nothing half-applied
+        for (size_t cut = firstSize + 1; cut < column.size(); ++cut) {
             CHECK(!ChunkCodec::ParseColumn(column.data(), cut, 2, -4, 24, parsed, consumed));
             CHECK(parsed.empty() && consumed == 0);
         }
+        // proxies repeat heights: the first entry wins and the repeat is skipped
         std::vector<uint8_t> duplicate;
         ChunkCodec::WriteSubChunk(duplicate, -4, first);
         ChunkCodec::WriteSubChunk(duplicate, -4, second);
-        CHECK(!ChunkCodec::ParseColumn(duplicate.data(), duplicate.size(), 2, -4, 24, parsed, consumed));
-        CHECK(parsed.empty());
-        CHECK(!ChunkCodec::ParseColumn(column.data(), column.size(), 25, -4, 24, parsed, consumed));
-        CHECK(!ChunkCodec::ParseColumn(column.data(), column.size(), 2, 0, 24, parsed, consumed));
+        CHECK(ChunkCodec::ParseColumn(duplicate.data(), duplicate.size(), 2, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 1 && parsed[0].first == -4 && consumed == duplicate.size());
+        // a count above the dimension height or a raised floor no longer rejects a payload that fits the union
+        CHECK(ChunkCodec::ParseColumn(column.data(), column.size(), 25, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 2);
+        CHECK(ChunkCodec::ParseColumn(column.data(), column.size(), 2, 0, 24, parsed, consumed));
+        CHECK(parsed.size() == 2);
+        // a count with no payload at all is still an error
+        CHECK(!ChunkCodec::ParseColumn(nullptr, 0, 2, -4, 24, parsed, consumed));
         CHECK(ChunkCodec::ParseColumn(nullptr, 0, 0, -4, 24, parsed, consumed));
         CHECK(parsed.empty() && consumed == 0);
     }

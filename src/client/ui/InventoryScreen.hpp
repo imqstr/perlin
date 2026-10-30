@@ -33,6 +33,24 @@ namespace perlin::ui {
         std::array<HudItem, 17> horseItems;
         int chestRows = 0;
         std::array<HudItem, 54> chestItems;
+        // the open container: BedrockSession::ContainerKind order (0 none, 1 chest, 2 hopper ... 15 beacon)
+        int container = 0;
+        int resultCell = -1;
+        std::array<int, 8> props{};
+        int level = 0;
+        bool creative = false;
+        std::string anvilName;
+        bool anvilFocused = false;
+        int anvilCost = 0;
+        struct EnchantRow {
+            int cost = 0;
+            std::string name;
+        };
+        std::vector<EnchantRow> enchants;
+        std::vector<HudItem> stones;
+        std::vector<std::string> patterns;
+        int stationPick = -1;
+        int beaconLevel = 0, beaconPrimary = 0, beaconSecondary = 0;
         bool advancedTooltips = false;
     };
 

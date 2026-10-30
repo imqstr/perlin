@@ -10,6 +10,7 @@ namespace perlin {
         bool ok = false;
         int tagCount = 0;
         int damage = -1;
+        int repairCost = 0;
         bool hasColor = false;
         int32_t color = 0;
         std::string customName;

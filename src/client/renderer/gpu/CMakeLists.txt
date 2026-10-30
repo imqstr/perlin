@@ -9,22 +9,43 @@ if(NOT TARGET perlin_gpu)
         set(PERLIN_GPU_STANDALONE ON)
         add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE)
         set(PERLIN_GLM_DIR "" CACHE PATH "glm checkout for standalone builds")
+        set(PERLIN_GLSLANG_DIR "" CACHE PATH "glslang checkout (java shader packs)")
+        set(PERLIN_SPIRV_CROSS_DIR "" CACHE PATH "SPIRV-Cross checkout (java shader packs)")
+        set(PERLIN_MINIZ_DIR "" CACHE PATH "miniz checkout (zipped java shader packs)")
+        set(PERLIN_STB_DIR "" CACHE PATH "stb checkout (pack textures)")
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../rhi" rhi)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../render" render)
         enable_testing()
+        set(glslang_SOURCE_DIR "${PERLIN_GLSLANG_DIR}")
+        set(SPIRV-Cross_SOURCE_DIR "${PERLIN_SPIRV_CROSS_DIR}")
+        set(stb_SOURCE_DIR "${PERLIN_STB_DIR}")
+        include("${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/PerlinJavaShaders.cmake")
+        # the app build gets miniz from its package manager
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/miniz_gen/miniz_export.h" "#pragma once\n#define MINIZ_EXPORT\n")
+        add_library(miniz STATIC "${PERLIN_MINIZ_DIR}/miniz.c" "${PERLIN_MINIZ_DIR}/miniz_tdef.c" "${PERLIN_MINIZ_DIR}/miniz_tinfl.c"
+                    "${PERLIN_MINIZ_DIR}/miniz_zip.c")
+        target_include_directories(miniz PUBLIC "${PERLIN_MINIZ_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/miniz_gen")
     endif()
 
+    # the java shader pack frontend (glsl transform, pack files, uniforms) lives with the renderer that runs it
+    file(GLOB PERLIN_JSHADER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../javashaders/*.cpp")
     add_library(perlin_gpu STATIC
+        ${PERLIN_JSHADER_SOURCES}
+        JavaPack.cpp
         GpuCore.cpp
         ChunkMeshStore.cpp
         RenderContext_rhi.cpp
         RenderContext_rhi_java.cpp
+        RenderContext_rhi_pack.cpp
         RenderContext_rhi_post.cpp
         RenderContext_rhi_shadow.cpp
         RenderContext_rhi_ui.cpp
         RenderContext_rhi_world.cpp)
     target_include_directories(perlin_gpu PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
-    target_link_libraries(perlin_gpu PUBLIC perlin_rhi)
+    target_link_libraries(perlin_gpu PUBLIC perlin_rhi perlin_glslang perlin_spirv_cross miniz)
+    if(stb_SOURCE_DIR)
+        target_include_directories(perlin_gpu PRIVATE "${stb_SOURCE_DIR}")
+    endif()
     if(PERLIN_GLM_DIR)
         target_include_directories(perlin_gpu PUBLIC "${PERLIN_GLM_DIR}")
     endif()

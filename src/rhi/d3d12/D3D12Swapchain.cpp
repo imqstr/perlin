@@ -100,6 +100,8 @@ namespace rhi::d3d12 {
                     hr = chain->Present(interval, flagsOut);
                 }
                 device.CheckRemoved(hr, "Present");
+                if (FAILED(hr) && hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET)
+                    pendingResize = true;
             }
 
             bool Resize(uint32_t w, uint32_t h) override {
@@ -125,12 +127,30 @@ namespace rhi::d3d12 {
             bool IsHdr() const override { return hdr; }
 
         private:
+            static std::string HexString(uint32_t v) {
+                static const char* digits = "0123456789abcdef";
+                std::string out(8, '0');
+                for (int i = 7; i >= 0; i--, v >>= 4)
+                    out[i] = digits[v & 15];
+                return out;
+            }
+
             bool DoResize() {
                 // buffers may still be in flight and every reference must be gone before ResizeBuffers
                 device.WaitIdle();
                 ReleaseBuffers();
-                if (FAILED(chain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, flags)))
-                    return false;
+                const HRESULT hr = chain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, flags);
+                if (FAILED(hr)) {
+                    device.ReportError("swapchain ResizeBuffers failed (0x" + HexString(static_cast<uint32_t>(hr)) + "); building a new swapchain");
+                    // a chain that refuses to resize is replaced rather than left dead
+                    chain = nullptr;
+                    waitable.close();
+                    desc.width = width;
+                    desc.height = height;
+                    acquired = false;
+                    pendingResize = !Init();
+                    return !pendingResize;
+                }
                 pendingResize = false;
                 acquired = false;
                 return WrapBuffers();

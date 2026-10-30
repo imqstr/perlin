@@ -1,3 +1,4 @@
+#include <functional>
 #include "client/ui/UiLayout.hpp"
 #include "client/ui/TenFont.hpp"
 #include "client/ui/UiExpr.hpp"
@@ -268,6 +269,29 @@ namespace perlin::ui {
                            node.type != "grid") {
                     scoped = outerCollections;
                     scoped.push_back({cn->string, -1});
+                }
+                // a lone item slot outside any collection is item 0 of the collection its bindings name
+                const auto cellSized = [&]() {
+                    const Json* size = node.props.Find("size");
+                    return size && size->IsArray() && size->array.size() == 2 && size->array[0].IsNumber() && size->array[1].IsNumber() &&
+                           size->array[0].number <= 32 && size->array[1].number <= 32;
+                };
+                if (scoped.empty() && node.type == "input_panel" && (outerCollections.empty() || outerCollections.back().index < 0) && cellSized()) {
+                    const std::function<std::string(const Node&, int)> named = [&](const Node& at, int depth) -> std::string {
+                        for (const Json& b : at.bindings)
+                            if (const Json* c = b.IsObject() ? b.Find("binding_collection_name") : nullptr;
+                                c && c->IsString() && !c->string.empty() && c->string[0] != '#' && c->string[0] != '$')
+                                return c->string;
+                        if (depth < 6)
+                            for (const auto& kid : at.children)
+                                if (std::string found = named(*kid, depth + 1); !found.empty())
+                                    return found;
+                        return {};
+                    };
+                    if (std::string name = named(node, 0); !name.empty()) {
+                        scoped = outerCollections;
+                        scoped.push_back({name, 0});
+                    }
                 }
                 const std::vector<Collection>& collections = scoped.empty() ? outerCollections : scoped;
                 if (!collections.empty()) {
@@ -1327,6 +1351,24 @@ namespace perlin::ui {
             void PlaceGrid(LNode& n, std::vector<LNode*>& live, float ax, float ay) {
                 int cols = 1, rows = 1;
                 GridShape(n, live, n.w, n.h, cols, rows);
+                // fixed children with grid_position: equal cells (grid size / dimensions), each child centred in its cell
+                if (std::any_of(live.begin(), live.end(), [](const LNode* k) { return k->Get("grid_position") != nullptr; })) {
+                    const float cellW = n.w / static_cast<float>(cols), cellH = n.h / static_cast<float>(rows);
+                    for (size_t i = 0; i < live.size(); i++) {
+                        LNode& k = *live[i];
+                        int gx = static_cast<int>(i % static_cast<size_t>(cols)), gy = static_cast<int>(i / static_cast<size_t>(cols));
+                        if (const Json* gp = k.Get("grid_position"); gp && gp->IsArray() && gp->array.size() >= 2) {
+                            gx = static_cast<int>(gp->array[0].NumberOr(gx));
+                            gy = static_cast<int>(gp->array[1].NumberOr(gy));
+                        }
+                        float ox = 0, oy = 0;
+                        Offset(k, cellW, cellH, ox, oy);
+                        k.x = static_cast<float>(gx) * cellW + (cellW - k.w) * 0.5f + ox;
+                        k.y = static_cast<float>(gy) * cellH + (cellH - k.h) * 0.5f + oy;
+                        Place(k, ax + k.x, ay + k.y);
+                    }
+                    return;
+                }
                 std::vector<float> colWidth(static_cast<size_t>(cols), 0.0f), rowHeight(static_cast<size_t>(rows), 0.0f);
                 for (size_t i = 0; i < live.size(); i++) {
                     const size_t c = i % static_cast<size_t>(cols), r = i / static_cast<size_t>(cols);

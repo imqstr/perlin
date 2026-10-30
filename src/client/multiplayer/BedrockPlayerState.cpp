@@ -154,8 +154,25 @@ namespace perlin {
     }
 
     BedrockSession::InventoryView BedrockSession::GetInventory() const {
+        std::map<int, int> data;
+        int window = -1;
+        {
+            std::lock_guard lock(statusMutex);
+            window = inventory.chestOpen ? chestWindow : -1;
+        }
+        if (window >= 0) {
+            std::lock_guard lk(worldExtraMutex);
+            if (const auto it = windowData.find(window); it != windowData.end())
+                data = it->second;
+        }
         std::lock_guard lock(statusMutex);
-        return inventory;
+        InventoryView v = inventory;
+        for (const auto& [key, value] : data)
+            if (key >= 0 && key < 8)
+                v.props[key] = value;
+        v.level = vitals.level;
+        v.creative = gameType == 1;
+        return v;
     }
 
     std::vector<BedrockSession::ServerMovementEffect> BedrockSession::TakeMovementEffects() {
@@ -310,6 +327,7 @@ namespace perlin {
                         info.customName = parsed.customName;
                     if (parsed.damage >= 0)
                         info.damage = parsed.damage;
+                    info.repairCost = parsed.repairCost;
                 }
                 info.enchanted = !info.enchants.empty() || Contains(*nbt, "ench") || Contains(*nbt, "Enchantments") || Contains(*nbt, "StoredEnchantments") ||
                                  Contains(*nbt, "minecraft:enchantments");
@@ -340,12 +358,12 @@ namespace perlin {
                                   type == ContainerSlotType::CraftingOutput || type == ContainerSlotType::CreativeOutput;
             const bool horseWin = inventory.horseOpen && horseWindow > 0 && static_cast<int>(window) == horseWindow;
             const bool chestWin = inventory.chestOpen && chestWindow >= 0 && static_cast<int>(window) == chestWindow;
-            if (chestWin && whole)
+            if (chestWin && whole && inventory.kind == ContainerKind::Chest)
                 inventory.chestSlots = std::clamp(static_cast<int>(items.size()), 0, kInvChestCount);
             for (size_t i = 0; i < items.size(); i++) {
                 if (chestWin) {
                     const int c = firstSlot + static_cast<int>(i);
-                    if (c >= 0 && c < kInvChestCount) {
+                    if (c >= 0 && c < kInvChestCount && !containerCells[c].ui && c < std::max(inventory.chestSlots, kInvChestCount)) {
                         inventory.chest[c] = convert(items[i]);
                         chestRaw[c] = items[i];
                     }
@@ -364,6 +382,19 @@ namespace perlin {
                 }
                 const int slot = firstSlot + static_cast<int>(i) + (type == ContainerSlotType::Inventory && !whole && firstSlot < 27 ? 9 : 0);
                 const ItemStackInfo info = convert(items[i]);
+                if (inventory.chestOpen && (window == WindowIDVarint::Ui || container)) {
+                    int cell = -1;
+                    for (int c = 0; c < inventory.chestSlots && cell < 0; c++)
+                        if (containerCells[c].ui && containerCells[c].slot == slot && c != inventory.resultCell &&
+                            (window == WindowIDVarint::Ui || containerCells[c].type == type))
+                            cell = c;
+                    if (cell >= 0) {
+                        inventory.chest[cell] = info;
+                        chestRaw[cell] = items[i];
+                        InvRecomputeStationLocked();
+                        continue;
+                    }
+                }
                 if (uiWindow) {
                     int addr = -1;
                     if (type == ContainerSlotType::Cursor || (window == WindowIDVarint::Ui && !container && slot == 0))
@@ -491,13 +522,15 @@ namespace perlin {
                         case ContainerSlotType::CraftingOutput:
                         case ContainerSlotType::CreativeOutput: slot = kInvOutput; break;
                         case ContainerSlotType::Cursor: slot = kInvCursor; break;
-                        case ContainerSlotType::Container:
-                        case ContainerSlotType::Shulker:
-                        case ContainerSlotType::Barrel:
-                            if (inventory.chestOpen && s.slot < kInvChestCount)
-                                slot = kInvChest0 + s.slot;
+                        default:
+                            if (!inventory.chestOpen)
+                                break;
+                            for (int c = 0; c < inventory.chestSlots; c++)
+                                if (containerCells[c].type == type && containerCells[c].slot == s.slot && c != inventory.resultCell) {
+                                    slot = kInvChest0 + c;
+                                    break;
+                                }
                             break;
-                        default: break;
                         }
                         if (slot < 0 || (slot >= kInvSlots && slot < kInvChest0) || slot >= kInvTotal)
                             continue;
@@ -524,6 +557,7 @@ namespace perlin {
                     }
                 }
                 InvRecomputeOutputLocked();
+                InvRecomputeStationLocked();
             }
             }
             for (const auto& r : retries)
@@ -576,6 +610,14 @@ namespace perlin {
             }
             next.version = creative.version + 1;
             creative = std::move(next);
+        });
+
+        On<PlayerEnchantOptionsPacket>([this](const PlayerEnchantOptionsPacket& p) {
+            std::lock_guard lock(statusMutex);
+            enchantOptions.clear();
+            for (const EnchantOption& o : p.options)
+                enchantOptions.push_back({static_cast<int>(o.cost), o.optionId, o.name});
+            inventory.enchants = enchantOptions;
         });
 
         On<CraftingDataPacket>([this](const CraftingDataPacket& p) {
@@ -634,10 +676,56 @@ namespace perlin {
                 ri.netId = r.networkId;
                 list.push_back(std::move(ri));
             }
+            std::vector<StationRecipe> stations;
+            for (const ShapelessRecipe& r : p.shapelessRecipes) {
+                if (r.block != "stonecutter" || r.input.size() != 1 || r.output.empty())
+                    continue;
+                StationRecipe sr;
+                sr.block = r.block;
+                sr.in.push_back(ingredient(r.input[0]));
+                sr.out = outRaw(r.output[0]);
+                sr.outInfo = outInfo(r.output[0]);
+                sr.netId = r.networkId;
+                stations.push_back(std::move(sr));
+            }
+            for (const SmithingTransformRecipe& r : p.smithingTransformRecipes) {
+                StationRecipe sr;
+                sr.block = "smithing_table";
+                sr.in = {ingredient(r.template_), ingredient(r.base), ingredient(r.addition)};
+                sr.out = outRaw(r.result);
+                sr.outInfo = outInfo(r.result);
+                sr.netId = r.networkId;
+                stations.push_back(std::move(sr));
+            }
+            for (const SmithingTrimRecipe& r : p.smithingTrimRecipes) {
+                StationRecipe sr;
+                sr.block = "smithing_table";
+                sr.in = {ingredient(r.template_), ingredient(r.input), ingredient(r.addition)};
+                sr.netId = r.networkId;
+                sr.trim = true;
+                stations.push_back(std::move(sr));
+            }
             std::lock_guard lock(statusMutex);
             craftedRecipe = -1;
-            if (p.clearRecipes)
+            if (p.clearRecipes) {
                 recipes.clear();
+                stationRecipes.clear();
+                repairRecipe = 0;
+            }
+            for (auto& r : stations)
+                stationRecipes.push_back(std::move(r));
+            // the anvil's repair recipe is the multi recipe with this fixed uuid
+            for (const MultiRecipe& m : p.multiRecipes) {
+                int nonZero = 0, at = -1;
+                for (int i = 0; i < 16; i++)
+                    if (m.uuid.bytes[static_cast<size_t>(i)] != 0) {
+                        nonZero++;
+                        at = i;
+                    }
+                // 00000000-0000-0000-0000-000000000001, in either half order on the wire
+                if (nonZero == 1 && (at == 8 || at == 15) && m.uuid.bytes[static_cast<size_t>(at)] == 1)
+                    repairRecipe = m.networkId;
+            }
             for (auto& r : list)
                 recipes.push_back(std::move(r));
             std::cout << "[inventory] " << recipes.size() << " crafting-table recipes" << std::endl;
@@ -663,31 +751,149 @@ namespace perlin {
                 inventory.horseOpen = false;
             }
             inventory.chestOpen = false;
+            inventory.kind = ContainerKind::None;
+            inventory.resultCell = -1;
             chestWindow = -1;
-            // plain chests on boats and minecarts arrive as their own window types
+            using C = ContainerSlotType;
+            using K = ContainerKind;
             const auto wt = p.windowType;
-            const bool plainContainer = wt == WindowType::Container || wt == WindowType::MinecartChest ||
-                wt == WindowType::ChestBoat || wt == WindowType::Hopper || wt == WindowType::Dropper ||
-                wt == WindowType::Dispenser;
-            if (wt != WindowType::Container && wt != WindowType::Horse && wt != WindowType::Workbench)
+            bool loaded = false;
+            const std::string name = BlockPalette::Instance().Name(netLevel.GetBlock(p.coordinates.x, p.coordinates.y, p.coordinates.z, loaded));
+            const auto has = [&](const char* s) { return name.find(s) != std::string::npos; };
+            // block containers keep their cells in the block's window; stations keep them in the player's ui inventory
+            struct Cell { C type; int slot; bool ui; };
+            std::vector<Cell> cells;
+            K kind = K::None;
+            std::string title;
+            const auto run = [&](C type, int n) { for (int i = 0; i < n; i++) cells.push_back({type, i, false}); };
+            const auto at = [&](C type, int slot) { cells.push_back({type, slot, false}); };
+            const auto ui = [&](C type, int slot) { cells.push_back({type, slot, true}); };
+            switch (wt) {
+            case WindowType::Container:
+            case WindowType::MinecartChest:
+            case WindowType::ChestBoat:
+                kind = K::Chest;
+                chestSlotType = has("shulker_box") ? C::Shulker : has("barrel") ? C::Barrel : C::Container;
+                title = has("ender_chest") ? "container.enderchest" : has("shulker_box") ? "container.shulkerBox"
+                      : has("barrel")      ? "container.barrel"
+                                           : "container.chest";
+                run(chestSlotType, 54);
+                break;
+            case WindowType::Hopper:
+            case WindowType::MinecartHopper: kind = K::Hopper; title = "container.hopper"; run(C::Container, 5); break;
+            case WindowType::Dispenser: kind = K::Dispenser; title = "container.dispenser"; run(C::Container, 9); break;
+            case WindowType::Dropper: kind = K::Dropper; title = "container.dropper"; run(C::Container, 9); break;
+            case WindowType::Furnace:
+            case WindowType::BlastFurnace:
+            case WindowType::Smoker:
+                kind = wt == WindowType::Furnace ? K::Furnace : wt == WindowType::Smoker ? K::Smoker : K::BlastFurnace;
+                title = wt == WindowType::Furnace ? "container.furnace" : wt == WindowType::Smoker ? "tile.smoker.name" : "tile.blast_furnace.name";
+                at(wt == WindowType::Furnace ? C::FurnaceIngredient : wt == WindowType::Smoker ? C::SmokerIngredient : C::BlastFurnaceIngredient, 0);
+                at(C::FurnaceFuel, 1);
+                at(C::FurnaceOutput, 2);
+                break;
+            case WindowType::BrewingStand:
+                kind = K::Brewing;
+                title = "container.brewing";
+                at(C::BrewingInput, 0);
+                at(C::BrewingResult, 1);
+                at(C::BrewingResult, 2);
+                at(C::BrewingResult, 3);
+                at(C::BrewingFuel, 4);
+                break;
+            case WindowType::Anvil:
+                kind = K::Anvil;
+                title = "container.repair";
+                ui(C::AnvilInput, 1);
+                ui(C::AnvilMaterial, 2);
+                ui(C::CreativeOutput, 50);
+                break;
+            case WindowType::Grindstone:
+                kind = K::Grindstone;
+                title = "container.grindstone_title";
+                ui(C::GrindstoneInput, 16);
+                ui(C::GrindstoneAdditional, 17);
+                ui(C::CreativeOutput, 50);
+                break;
+            case WindowType::SmithingTable:
+                kind = K::Smithing;
+                title = "container.smithing_table";
+                ui(C::SmithingTableTemplate, 53);
+                ui(C::SmithingTableInput, 51);
+                ui(C::SmithingTableMaterial, 52);
+                ui(C::CreativeOutput, 50);
+                break;
+            case WindowType::Enchantment:
+                kind = K::Enchanting;
+                title = "container.enchant";
+                ui(C::EnchantingInput, 14);
+                ui(C::EnchantingLapis, 15);
+                break;
+            case WindowType::Stonecutter:
+                kind = K::Stonecutter;
+                title = "container.stonecutter";
+                ui(C::StonecutterInput, 3);
+                ui(C::CreativeOutput, 50);
+                break;
+            case WindowType::Loom:
+                kind = K::Loom;
+                title = "container.loom";
+                ui(C::LoomInput, 9);
+                ui(C::LoomDye, 10);
+                ui(C::LoomMaterial, 11);
+                ui(C::CreativeOutput, 50);
+                break;
+            case WindowType::Beacon:
+                kind = K::Beacon;
+                title = "container.beacon";
+                ui(C::BeaconPayment, 27);
+                break;
+            default: break;
+            }
+            if (kind == K::None && wt != WindowType::Horse && wt != WindowType::Workbench)
                 std::cout << "[bedrock] container open window " << static_cast<int>(p.windowId) << " type "
                           << static_cast<int>(wt) << " (unhandled)" << std::endl;
-            if (plainContainer) {
-                bool loaded = false;
-                const std::string name = BlockPalette::Instance().Name(netLevel.GetBlock(p.coordinates.x, p.coordinates.y, p.coordinates.z, loaded));
-                const auto has = [&](const char* s) { return name.find(s) != std::string::npos; };
-                chestSlotType = has("shulker_box") ? ContainerSlotType::Shulker : has("barrel") ? ContainerSlotType::Barrel : ContainerSlotType::Container;
-                inventory.chestTitle = has("ender_chest") ? "container.enderchest" : has("shulker_box") ? "container.shulkerBox"
-                                     : has("barrel")      ? "container.barrel"
-                                                          : "container.chest";
+            if (kind != K::None) {
+                inventory.kind = kind;
+                inventory.chestTitle = title;
                 inventory.chestOpen = true;
-                inventory.chestSlots = 27;
-                chestWindow = static_cast<int>(p.windowId);
-                chestJustOpened = true;
+                inventory.chestSlots = kind == K::Chest ? 27 : static_cast<int>(cells.size());
                 for (int c = 0; c < kInvChestCount; c++) {
+                    containerCells[c] = ContainerCell{};
+                    if (c < static_cast<int>(cells.size()))
+                        containerCells[c] = ContainerCell{cells[static_cast<size_t>(c)].type, cells[static_cast<size_t>(c)].slot, cells[static_cast<size_t>(c)].ui};
+                    if (cells.size() > static_cast<size_t>(c) && cells[static_cast<size_t>(c)].slot == 50 && cells[static_cast<size_t>(c)].ui)
+                        inventory.resultCell = c;
                     inventory.chest[c] = ItemStackInfo{};
                     chestRaw[c] = ItemV4{};
                 }
+                inventory.beaconLevel = 0;
+                if (kind == K::Beacon) {
+                    // pyramid tiers under the beacon, each a full square of mineral blocks
+                    for (int tier = 1; tier <= 4; tier++) {
+                        bool full = true;
+                        for (int dx = -tier; dx <= tier && full; dx++)
+                            for (int dz = -tier; dz <= tier && full; dz++) {
+                                bool l = false;
+                                const std::string b = BlockPalette::Instance().Name(netLevel.GetBlock(p.coordinates.x + dx, p.coordinates.y - tier, p.coordinates.z + dz, l));
+                                full = l && (b == "minecraft:iron_block" || b == "minecraft:gold_block" || b == "minecraft:diamond_block" ||
+                                             b == "minecraft:emerald_block" || b == "minecraft:netherite_block");
+                            }
+                        if (!full)
+                            break;
+                        inventory.beaconLevel = tier;
+                    }
+                }
+                containerPos[0] = p.coordinates.x;
+                containerPos[1] = p.coordinates.y;
+                containerPos[2] = p.coordinates.z;
+                inventory.anvilName.clear();
+                inventory.anvilNameEdited = false;
+                inventory.stationPick = -1;
+                enchantOptions.clear();
+                chestWindow = static_cast<int>(p.windowId);
+                chestJustOpened = true;
+                InvRecomputeStationLocked();
             }
             if (workbenchOpen) {
                 workbenchJustOpened = true;
@@ -704,6 +910,10 @@ namespace perlin {
             inventory.horseOpen = false;
             horseWindow = -1;
             inventory.chestOpen = false;
+            inventory.kind = ContainerKind::None;
+            inventory.resultCell = -1;
+            enchantOptions.clear();
+            inventory.enchants.clear();
             chestWindow = -1;
             for (auto& w : inventory.work)
                 w = ItemStackInfo{};

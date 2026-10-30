@@ -120,6 +120,13 @@ SAMPLER2D(s_depth, 34, 35);
 struct VsIn
 {
     [[vk::location(0)]] float3 a_position : TEXCOORD0;
+    [[vk::location(1)]] float4 a_nPacked : TEXCOORD1;
+    [[vk::location(2)]] float4 a_color0 : TEXCOORD2;
+    [[vk::location(4)]] float2 a_texcoord0 : TEXCOORD4;
+    [[vk::location(5)]] float4 a_texcoord1 : TEXCOORD5;
+    [[vk::location(8)]] float a_ePacked : TEXCOORD8;
+    [[vk::location(9)]] float2 a_mPacked : TEXCOORD9;
+    [[vk::location(10)]] float a_tPacked : TEXCOORD10;
 };
 struct VsOut
 {
@@ -128,6 +135,7 @@ struct VsOut
     [[vk::location(1)]] nointerpolation float3 v_sunVec : TEXCOORD1;
     [[vk::location(2)]] nointerpolation float4 v_glColor : TEXCOORD2;
     [[vk::location(3)]] nointerpolation float v_vanillaStars : TEXCOORD3;
+    [[vk::location(4)]] float v_jLayer : TEXCOORD4;
 };
 struct FsIn
 {
@@ -136,6 +144,7 @@ struct FsIn
     [[vk::location(1)]] nointerpolation float3 v_sunVec : TEXCOORD1;
     [[vk::location(2)]] nointerpolation float4 v_glColor : TEXCOORD2;
     [[vk::location(3)]] nointerpolation float v_vanillaStars : TEXCOORD3;
+    [[vk::location(4)]] float v_jLayer : TEXCOORD4;
 };
 struct FsOut
 {
@@ -158,6 +167,7 @@ static float3 upVec;
 static float3 sunVec;
 static float4 glColor;
 static float vanillaStars;
+static float jLayer;
 static float aspectRatio;
 static int2 atlasSize;
 static float blindness;
@@ -1157,6 +1167,7 @@ static float3 upVec;
 static float3 sunVec;
 static float4 glColor;
 static float vanillaStars;
+static float jLayer;
 static float aspectRatio;
 static int2 atlasSize;
 static float blindness;
@@ -2507,8 +2518,18 @@ float4 javaLightCoord(float4 t) { return float4((t.xy * 255.0 + 8.0) / 256.0, t.
 VsOut vsMain(VsIn input)
 {
     vs_stage::a_position = input.a_position;
-    vs_stage::a_texcoord0 = vec2(input.a_position.x * 0.5 + 0.5, 0.5 - input.a_position.y * 0.5);
-    vs_stage::a_texcoord1 = vec4(0.5, 0.5, 0.0, 1.0);
+    vs_stage::a_normal = normalize(input.a_nPacked.xyz * 2.0 - 1.0);
+    vs_stage::a_color0 = input.a_color0;
+    vs_stage::a_texcoord0 = input.a_texcoord0;
+    vs_stage::a_texcoord1 = input.a_texcoord1;
+    vs_stage::a_mcEntity = float4(input.a_ePacked, 0.0, 0.0, 0.0);
+    vs_stage::a_mcMidTexCoord = float4(input.a_mPacked, 0.0, 0.0);
+    { float ti = floor(input.a_tPacked); float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;
+      float3 ax = ix < 0.5 ? float3(1.0, 0.0, 0.0) : ix < 1.5 ? float3(-1.0, 0.0, 0.0) :
+          ix < 2.5 ? float3(0.0, 1.0, 0.0) : ix < 3.5 ? float3(0.0, -1.0, 0.0) :
+          ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);
+      vs_stage::a_atTangent = float4(ax, hd); }
+    vs_stage::a_mcChunkFade = 1.0;
     vs_stage::aspectRatio = u_jaspectRatio;
     vs_stage::atlasSize = u_jatlasSize;
     vs_stage::blindness = u_jblindness;
@@ -2591,13 +2612,15 @@ VsOut vsMain(VsIn input)
     vs_stage::u_jModelViewMatrix = u_jModelViewMatrix;
     vs_stage::u_jProjectionMatrix = u_jProjectionMatrix;
     vs_stage::u_jTextureMatrix1 = u_jTextureMatrix1;
+    vs_stage::jLayer = floor(input.a_texcoord1.z * 255.0 + 0.5) + floor(input.a_texcoord1.w * 255.0 + 0.5) * 256.0;
     vs_stage::stageMain();
     VsOut output;
-    output.clipPosition = float4(input.a_position.xy, 0.0, 1.0);
+    output.clipPosition = vs_stage::gl_Position;
     output.v_upVec = vs_stage::upVec;
     output.v_sunVec = vs_stage::sunVec;
     output.v_glColor = vs_stage::glColor;
     output.v_vanillaStars = vs_stage::vanillaStars;
+    output.v_jLayer = vs_stage::jLayer;
     return output;
 }
 
@@ -2609,6 +2632,7 @@ FsOut fsMain(FsIn input)
     fs_stage::sunVec = input.v_sunVec;
     fs_stage::glColor = input.v_glColor;
     fs_stage::vanillaStars = input.v_vanillaStars;
+    fs_stage::jLayer = input.v_jLayer;
     fs_stage::aspectRatio = u_jaspectRatio;
     fs_stage::atlasSize = u_jatlasSize;
     fs_stage::blindness = u_jblindness;

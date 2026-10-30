@@ -54,6 +54,9 @@ namespace perlin {
         void OnChar(int codepoint);
         void SetTextMode(bool on) { textMode = on; }
         void SetFreeCursor(bool on) { freeCursor = on; }
+        // a gui just opened: the platform moves the freed pointer to the window centre once, after it releases the grab
+        void RequestCursorCenter() { centerRequested = true; }
+        bool TakeCursorCenter() { return centerRequested.exchange(false); }
         bool FreeCursor() const { return freeCursor; }
         bool TextMode() const { return textMode; }
         void SetKeyboard(bool on) { keyboard = on; }
@@ -80,6 +83,7 @@ namespace perlin {
         std::atomic<float> wheel{0};
         std::atomic<bool> captured{false};
         std::atomic<bool> freeCursor{false};
+        std::atomic<bool> centerRequested{false};
         std::atomic<bool> textMode{false};
         std::atomic<bool> keyboard{false};
     };

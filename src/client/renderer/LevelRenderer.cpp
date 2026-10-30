@@ -431,7 +431,8 @@ namespace perlin {
         int LodStride(int tx, int tz, int ccx, int ccz) {
             const int d = std::max(std::abs(tx * LodStore::kTileChunks + 2 - ccx),
                                    std::abs(tz * LodStore::kTileChunks + 2 - ccz));
-            return d > 64 ? 2 : 1;
+            // a cell stays a few pixels wide at every range: 4 blocks to 64 chunks, then 8, 16 and 32
+            return d > 256 ? 8 : d > 128 ? 4 : d > 64 ? 2 : 1;
         }
     }
 
@@ -482,7 +483,8 @@ namespace perlin {
 
         const int radius = std::max(2, options.renderDistance);
         const int ccx = static_cast<int>(std::floor(camX / 16.0f)), ccz = static_cast<int>(std::floor(camZ / 16.0f));
-        if (lodScanForced || std::abs(ccx - lodScanX) >= 2 || std::abs(ccz - lodScanZ) >= 2) {
+        const int scanStep = radius > 128 ? 4 : 2;
+        if (lodScanForced || std::abs(ccx - lodScanX) >= scanStep || std::abs(ccz - lodScanZ) >= scanStep) {
             lodScanForced = false;
             lodScanX = ccx;
             lodScanZ = ccz;
@@ -491,13 +493,16 @@ namespace perlin {
             for (const ChunkPos& p : evicted)
                 lodDirty.insert(TileKey(LodStore::TileOf(p.x), LodStore::TileOf(p.z)));
             std::unordered_map<int64_t, int> wanted;
-            for (const auto& entry : lod.All()) {
-                const ChunkPos& p = entry.first;
-                const int dist = std::max(std::abs(p.x - ccx), std::abs(p.z - ccz));
-                if (dist > radius + 2 || dist <= LodStore::kRealChunks)
+            // tiles, not columns: a 512 chunk radius holds around a million columns but only tens of thousands of tiles
+            for (const auto& [key, count] : lod.Tiles()) {
+                const int tx = static_cast<int>(key >> 32), tz = static_cast<int>(static_cast<uint32_t>(key));
+                const int a = tx * LodStore::kTileChunks, b = a + LodStore::kTileChunks - 1;
+                const int c0 = tz * LodStore::kTileChunks, c1 = c0 + LodStore::kTileChunks - 1;
+                const int nearest = std::max(a > ccx ? a - ccx : (b < ccx ? ccx - b : 0), c0 > ccz ? c0 - ccz : (c1 < ccz ? ccz - c1 : 0));
+                const int farthest = std::max(std::max(std::abs(a - ccx), std::abs(b - ccx)), std::max(std::abs(c0 - ccz), std::abs(c1 - ccz)));
+                if (nearest > radius + 2 || farthest <= LodStore::kRealChunks)
                     continue;
-                const int tx = LodStore::TileOf(p.x), tz = LodStore::TileOf(p.z);
-                wanted[TileKey(tx, tz)] = LodStride(tx, tz, ccx, ccz);
+                wanted[key] = LodStride(tx, tz, ccx, ccz);
             }
             for (const auto& [key, stride] : wanted) {
                 const int tx = static_cast<int>(key >> 32), tz = static_cast<int>(static_cast<uint32_t>(key));
@@ -542,7 +547,7 @@ namespace perlin {
             const float dx = tx * 64.0f + 32.0f - camX, dz = tz * 64.0f + 32.0f - camZ;
             order.push_back({dx * dx + dz * dz, key});
         }
-        const size_t budget = std::min<size_t>(order.size(), 48);
+        const size_t budget = std::min<size_t>(order.size(), 192);
         std::partial_sort(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(budget), order.end());
         for (size_t i = 0; i < budget && elapsed() < 4.0; i++) {
             const int64_t key = order[i].second;

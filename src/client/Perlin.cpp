@@ -14,6 +14,8 @@
 #include "client/Perlin.hpp"
 #include "util/Relaunch.hpp"
 #include "client/resources/ServerPacks.hpp"
+#include "util/Resources.hpp"
+#include <fstream>
 #include "client/ui/ServerLayer.hpp"
 #include "client/i18n/Lang.hpp"
 #include "client/multiplayer/SkinLoader.hpp"
@@ -297,7 +299,8 @@ namespace perlin {
     }
 
     bool Perlin::AcceptEula() {
-        if (options.eulaAccepted)
+        // previews never stop on the dialog, and never store an answer
+        if (options.eulaAccepted || PERLIN_ENV("PERLIN_PREVIEW"))
             return true;
         if (args.acceptEula) {
             options.eulaAccepted = true;
@@ -462,11 +465,14 @@ namespace perlin {
         if (friendLease) {
             host = friendLease->worldName.empty() ? "friend" : friendLease->worldName;
             port = 0;
+        } else if (pendingSingleplayer) {
+            host = "singleplayer";
+            port = 1;
         } else if (!ParseServer(serverText, host, port)) {
             std::cout << "[perlin] invalid server address '" << options.server << "'" << std::endl;
             return;
         }
-        if (!friendLease && secureSignaling && serverText.rfind(':') == std::string::npos)
+        if (!friendLease && !pendingSingleplayer && secureSignaling && serverText.rfind(':') == std::string::npos)
             port = 443;
 
         particleLevel = nullptr;
@@ -475,6 +481,8 @@ namespace perlin {
             retiredSessions.push_back(std::move(session));
         FinishReplayRecording("the connection was reset");
         session = std::make_unique<BedrockSession>();
+        if (pendingSingleplayer)
+            session->SetInjectedTransport(std::move(pendingSingleplayer));
         session->SetRecordTap(replayCtl.NewSessionTap());
         if (connectsInFlight.load() == 0)
             std::erase_if(retiredSessions, [](const std::unique_ptr<BedrockSession>& s) { return !s->Transferring(); });
@@ -740,6 +748,7 @@ namespace perlin {
         if (!javaPackPending.empty() && levelRenderer && levelRenderer->Blocks().Complete()) {
             std::string error;
             const std::string path = javaPackPending;
+            renderer->SetBlockNameLookup([](uint16_t id) { return BlockPalette::Instance().Name(id); });
             if (renderer->SetJavaShaderPack(path, jshader::ReadJavaPackOptions(path), error)) {
                 javaPackPending.clear();
                 levelRenderer->RemeshAll();
@@ -960,7 +969,7 @@ namespace perlin {
             data.toastTitle = lastToastTitle;
             data.toastMessage = lastToastMessage;
         }
-        const bool jsonBossBars = hud.Ready() && (options.bedrockMenus || hud.Overrides("hud"));
+        const bool jsonBossBars = hud.Ready() && hud.Overrides("hud");
         if (!jsonBossBars)
             for (const auto& b : live->BossBars())
                 data.bars.push_back({b.title, b.progress, b.color, b.overlay});
@@ -968,7 +977,7 @@ namespace perlin {
         if (data.bars.size() > 8)
             data.bars.resize(8);
         const auto sb = live->Scoreboard();
-        if (sb.visible && !pauseShown && !(hud.Ready() && (options.bedrockMenus || hud.Overrides("scoreboard")))) {
+        if (sb.visible && !pauseShown && !(hud.Ready() && hud.Overrides("scoreboard"))) {
             data.scoreboard = true;
             data.scoreboardTitle = sb.title;
             for (const auto& r : sb.rows)
@@ -1090,6 +1099,7 @@ namespace perlin {
             formOpenedAt = now;
             formLeftDown = true;
             input.SetTextMode(true);
+            CenterCursorForGui();
         }
         bool cancel = false;
         for (const auto& t : inputManager.TakeTyped()) {
@@ -1714,6 +1724,7 @@ namespace perlin {
             invSignature.clear();
             inputManager.TakeTyped();
             input.SetTextMode(true);
+            CenterCursorForGui();
         }
         if (!invShown && canOpen && (inputManager.Pressed(Action::Inventory) || (preview && !invPreviewOpened))) {
             invPreviewOpened = true;
@@ -1723,6 +1734,7 @@ namespace perlin {
             invSignature.clear();
             inputManager.TakeTyped();
             input.SetTextMode(true);
+            CenterCursorForGui();
             if (live) {
                 if (live->RidingUid() != 0 && live->OpenMountInventory())
                     invMountAsk = now;
@@ -1743,7 +1755,7 @@ namespace perlin {
         invWorkbench = live ? live->WorkbenchOpen() : (preview && PERLIN_ENV("PERLIN_PREVIEW_WORKBENCH") != nullptr);
         invHorse = live && live->HorseOpen();
         const char* previewChest = preview ? PERLIN_ENV("PERLIN_PREVIEW_CHEST") : nullptr;
-        invChest = (live && live->ChestOpen()) || previewChest;
+        invChest = (live && live->ChestOpen()) || previewChest || (preview && PERLIN_ENV("PERLIN_PREVIEW_CONTAINER"));
         static bool bookInit = false;
         if (preview && !bookInit && PERLIN_ENV("PERLIN_PREVIEW_BOOK")) {
             bookInit = true;
@@ -1767,6 +1779,12 @@ namespace perlin {
             if (!t.character && t.key == Key::Escape)
                 close = true;
             else if (searching && ui::TextEdit::Focused().Apply(t, creativeSearch, ui::TextLimits{50})) {
+            }
+            else if (anvilFocused && invChest) {
+                const std::string before = anvilName;
+                ui::TextEdit::Focused().Apply(t, anvilName, ui::TextLimits{50});
+                if (live && anvilName != before)
+                    live->InvAnvilName(anvilName);
             }
             else if (typedIs(t, Action::Inventory) && !searching)
                 close = true;
@@ -1819,11 +1837,44 @@ namespace perlin {
             for (int i = 0; i < 17; i++)
                 v.horseItems[static_cast<size_t>(i)] = ToHudItem(inv.horse[i]);
             if (inv.chestOpen) {
-                v.chestRows = inv.chestSlots > 27 ? 6 : 3;
+                v.container = static_cast<int>(inv.kind);
                 for (int i = 0; i < 54; i++)
                     v.chestItems[static_cast<size_t>(i)] = ToHudItem(inv.chest[i]);
-                v.title = i18n::Tr(v.chestRows == 6 && inv.chestTitle == "container.chest" ? "container.chestDouble" : inv.chestTitle);
-                invChestScreen = ui::ChestScreenName(inv.chestTitle, v.chestRows);
+                if (v.container != invContainerSeen) {
+                    invContainerSeen = v.container;
+                    anvilFocused = false;
+                    beaconPrimary = beaconSecondary = 0;
+                }
+                if (v.container <= 1) {
+                    v.chestRows = inv.chestSlots > 27 ? 6 : 3;
+                    v.title = i18n::Tr(v.chestRows == 6 && inv.chestTitle == "container.chest" ? "container.chestDouble" : inv.chestTitle);
+                    invChestScreen = ui::ChestScreenName(inv.chestTitle, v.chestRows);
+                } else {
+                    v.title = i18n::Tr(inv.chestTitle);
+                    invChestScreen = ui::ContainerScreenName(v.container);
+                }
+                // the name field follows the item until the player edits it
+                if (inv.kind == BedrockSession::ContainerKind::Anvil && !inv.anvilNameEdited)
+                    anvilName = inv.chest[0].Empty() ? std::string() : !inv.chest[0].customName.empty() ? inv.chest[0].customName
+                                                                                                     : ui::PrettyItemName(inv.chest[0].name);
+                v.resultCell = inv.resultCell;
+                std::copy(std::begin(inv.props), std::end(inv.props), v.props.begin());
+                v.level = inv.level;
+                v.creative = inv.creative;
+                v.anvilName = anvilName;
+                v.anvilFocused = anvilFocused;
+                v.anvilCost = inv.anvilCost;
+                for (const auto& e : inv.enchants)
+                    v.enchants.push_back({e.cost, e.name});
+                for (const auto& s : inv.stones)
+                    v.stones.push_back(ToHudItem(s.out));
+                v.patterns = inv.patterns;
+                v.stationPick = inv.stationPick;
+                v.beaconLevel = inv.beaconLevel;
+                v.beaconPrimary = beaconPrimary;
+                v.beaconSecondary = beaconSecondary;
+            } else {
+                invContainerSeen = 0;
             }
             v.offhand = ToHudItem(inv.offhand);
             v.output = ToHudItem(inv.output);
@@ -1847,6 +1898,44 @@ namespace perlin {
                 }
                 v.title = i18n::Tr(v.chestRows == 6 ? "container.chestDouble" : "container.chest");
                 invChestScreen = ui::ChestScreenName("container.chest", v.chestRows);
+            }
+            if (const char* pc = PERLIN_ENV("PERLIN_PREVIEW_CONTAINER")) {
+                // offline station screens with stand-in contents
+                v.container = std::atoi(pc);
+                invChestScreen = ui::ContainerScreenName(v.container);
+                static const char* const kTitles[] = {"", "", "container.hopper", "container.dispenser", "container.dropper", "container.furnace",
+                                                      "tile.blast_furnace.name", "tile.smoker.name", "container.brewing", "container.repair",
+                                                      "container.grindstone_title", "container.smithing_table", "container.enchant",
+                                                      "container.stonecutter", "container.loom", "container.beacon"};
+                v.title = i18n::Tr(v.container >= 0 && v.container < 16 ? kTitles[v.container] : "");
+                const auto put = [&](int cell, const char* name, int count) {
+                    v.chestItems[static_cast<size_t>(cell)].name = name;
+                    v.chestItems[static_cast<size_t>(cell)].count = count;
+                };
+                v.props = {120, 900, 1600, 0, 0, 0, 0, 0};
+                v.level = 30;
+                switch (v.container) {
+                case 2: put(0, "minecraft:iron_ingot", 12); put(3, "minecraft:bread", 4); break;
+                case 3: case 4: put(0, "minecraft:arrow", 32); put(4, "minecraft:tnt", 2); break;
+                case 5: case 6: case 7: put(0, "minecraft:iron_ore", 8); put(1, "minecraft:coal", 5); put(2, "minecraft:iron_ingot", 3); break;
+                case 8: put(0, "minecraft:nether_wart", 3); put(1, "minecraft:potion", 1); put(2, "minecraft:potion", 1); put(4, "minecraft:blaze_powder", 2); v.props = {300, 12, 20, 0, 0, 0, 0, 0}; break;
+                case 9: put(0, "minecraft:diamond_sword", 1); put(1, "minecraft:diamond", 2); put(2, "minecraft:diamond_sword", 1); v.resultCell = 2; v.anvilName = anvilName.empty() ? "Diamond Sword" : anvilName; v.anvilFocused = anvilFocused; v.anvilCost = 3; break;
+                case 10: put(0, "minecraft:iron_pickaxe", 1); put(2, "minecraft:iron_pickaxe", 1); v.resultCell = 2; break;
+                case 11: put(0, "minecraft:netherite_upgrade_smithing_template", 1); put(1, "minecraft:diamond_chestplate", 1); put(2, "minecraft:netherite_ingot", 1); put(3, "minecraft:netherite_chestplate", 1); v.resultCell = 3; break;
+                case 12: put(0, "minecraft:diamond_pickaxe", 1); put(1, "minecraft:lapis_lazuli", 3); v.enchants = {{3, "Efficiency I"}, {14, "Unbreaking II"}, {30, "Fortune III"}}; break;
+                case 13:
+                    put(0, "minecraft:stone", 16); put(1, "minecraft:normal_stone_slab", 2); v.resultCell = 1; v.stationPick = 1;
+                    for (const char* n : {"minecraft:stone_bricks", "minecraft:normal_stone_slab", "minecraft:normal_stone_stairs", "minecraft:chiseled_stone_bricks"}) {
+                        ui::HudItem it;
+                        it.name = n;
+                        it.count = 1;
+                        v.stones.push_back(it);
+                    }
+                    break;
+                case 14: put(0, "minecraft:banner", 1); put(1, "minecraft:red_dye", 4); put(3, "minecraft:banner", 1); v.resultCell = 3; v.patterns = {"bs", "ts", "ls", "rs", "cs", "ms", "drs", "dls"}; v.stationPick = 2; break;
+                case 15: put(0, "minecraft:iron_ingot", 1); v.beaconLevel = 4; v.beaconPrimary = beaconPrimary ? beaconPrimary : 1; v.beaconSecondary = beaconSecondary; break;
+                default: break;
+                }
             }
         }
 
@@ -1964,10 +2053,20 @@ namespace perlin {
         for (const auto& it : v.armor) sig(it);
         for (const auto& it : v.craft) sig(it);
         for (const auto& it : v.work) sig(it);
-        if (v.chestRows) {
+        if (v.chestRows || v.container > 1) {
             chestUi.Warm(ServerPacks::Instance().Directories());
-            signature += "K" + std::to_string(v.chestRows) + v.title + (chestUi.Ready() ? "J" : "j");
+            // a preview capture must show the built screen, not the fallback drawn while it builds
+            if (preview && PERLIN_ENV("PERLIN_PREVIEW_SHOT"))
+                chestUi.WaitReady(20000);
+            signature += "K" + std::to_string(v.chestRows) + "/" + std::to_string(v.container) + v.title + (chestUi.Ready() ? "J" : "j");
             for (const auto& it : v.chestItems) sig(it);
+            for (int p : v.props) signature += std::to_string(p) + ",";
+            signature += v.anvilName + (v.anvilFocused ? "F" : "f") + std::to_string(v.anvilCost) + "|" + std::to_string(v.level) + "|" +
+                         std::to_string(v.stationPick) + "|" + std::to_string(v.beaconLevel) + ":" + std::to_string(v.beaconPrimary) + ":" +
+                         std::to_string(v.beaconSecondary);
+            for (const auto& e : v.enchants) signature += std::to_string(e.cost) + e.name;
+            for (const auto& it : v.stones) sig(it);
+            for (const auto& p : v.patterns) signature += p;
         }
         if (v.horse) { signature += "H" + std::to_string(v.horseChest); for (const auto& it : v.horseItems) sig(it); }
         for (const auto& c : v.recipes) { signature += c.craftable ? "c" : "n"; sig(c.out); }
@@ -1978,8 +2077,9 @@ namespace perlin {
             invSignature = signature;
             std::string error;
             std::string chestRml;
-            invJsonPanel = v.chestRows > 0 && chestUi.Build(v, invChestScreen, guiW, guiH, chestRml, invPanel);
-            if (v.chestRows > 0 && !invJsonPanel && chestUi.Problem() != invChestProblem) {
+            const bool containerUi = v.chestRows > 0 || v.container > 1;
+            invJsonPanel = containerUi && chestUi.Build(v, invChestScreen, guiW, guiH, chestRml, invPanel);
+            if (containerUi && !invJsonPanel && chestUi.Problem() != invChestProblem) {
                 invChestProblem = chestUi.Problem();
                 if (!invChestProblem.empty())
                     std::cout << "[chest] json ui: " << invChestProblem << ", using the built-in layout" << std::endl;
@@ -2018,8 +2118,35 @@ namespace perlin {
                                                   : gx < px || gy < py || gx > px + ui::kInvPanelW || gy > py + panelH;
                 const bool isRight = !leftEdge;
                 const bool overBook = invBook && gx >= (guiW - 147) / 2 - 86 && gx < (guiW - 147) / 2 + 61;
+                if (invHoverId != "anvil_name")
+                    anvilFocused = false;
                 if (invHoverId == "close") {
                     invCloseClicked = true;
+                } else if (invHoverId == "anvil_name") {
+                    anvilFocused = true;
+                } else if (invHoverId.rfind("b:", 0) == 0) {
+                    // station buttons: b:<collection>:<index>
+                    const size_t colon = invHoverId.rfind(':');
+                    const std::string collection = invHoverId.substr(2, colon - 2);
+                    const int index = std::atoi(invHoverId.c_str() + colon + 1);
+                    static const char* const kBeacon[] = {"speed", "haste", "resist", "jump", "strength", "regen", "extra", "confirm"};
+                    static const int kEffects[] = {1, 3, 11, 8, 5, 10};
+                    if (collection == "stones" || collection == "patterns")
+                        live->InvStationPick(index);
+                    else if (collection == "#enchant_buttons")
+                        live->InvEnchant(index);
+                    for (int b = 0; b < 8; b++) {
+                        if (collection != kBeacon[b])
+                            continue;
+                        if (b < 5)
+                            beaconPrimary = kEffects[b];
+                        else if (b == 5)
+                            beaconSecondary = 10;
+                        else if (b == 6)
+                            beaconSecondary = beaconPrimary;
+                        else if (beaconPrimary != 0)
+                            live->InvBeacon(beaconPrimary, beaconSecondary);
+                    }
                 } else if (invHoverId == "rb") {
                     invBook = !invBook;
                     invRecipeAt = {};
@@ -2083,6 +2210,7 @@ namespace perlin {
                 pauseLeftDown = true;
                 inputManager.TakeTyped();
                 input.SetTextMode(true);
+                CenterCursorForGui();
             }
             pauseView = modOpenView;
             optionsPage = modOpenPage;
@@ -2120,6 +2248,7 @@ namespace perlin {
             pauseSignature.clear();
             inputManager.TakeTyped();
             input.SetTextMode(true);
+            CenterCursorForGui();
         } else if (!pauseShown && !live && !preview && inputManager.Pressed(Action::Pause)) {
             platform->SetCursorCaptured(false);
         }
@@ -2233,7 +2362,7 @@ namespace perlin {
                                {Action::Hotbar9, "Hotbar Slot 9"}, {Action::Inventory, "Open/Close Inventory"}}},
                 {"Multiplayer", {{Action::PlayerList, "List Players"}, {Action::Chat, "Open Chat"}, {Action::Command, "Open Command"}}},
                 {"Miscellaneous", {{Action::DebugScreen, "Debug Screen"}, {Action::ToggleHud, "Hide GUI"}, {Action::Screenshot, "Take Screenshot"},
-                                   {Action::CyclePerspective, "Toggle Perspective"}, {Action::Zoom, "Zoom"}}}};
+                                   {Action::CyclePerspective, "Toggle Perspective"}, {Action::Zoom, "Zoom"}, {Action::Fullscreen, "Toggle Fullscreen"}}}};
             const auto keyText = [](const Binding& b) {
                 std::string v = b.Serialize();
                 for (const char* prefix : {"key.keyboard.", "key.mouse.", "pad."}) {
@@ -3465,14 +3594,7 @@ namespace perlin {
                            options.maxFps = steps >= 25 ? 0 : 10 + steps * 10;
                        });
                 toggle(tr("options.vsync", "VSync"), options.vsync);
-                model.push_back({std::string("Menu Style"), options.bedrockMenus ? std::string("Bedrock") : std::string("Java"), -1.0f,
-                                 [this](float, bool click) {
-                                     if (!click)
-                                         return;
-                                     options.bedrockMenus = !options.bedrockMenus;
-                                     pauseSignature.clear();
-                                     titleSignature.clear();
-                                 }});
+                toggle(tr("options.fullscreen", "Fullscreen"), options.fullscreen);
                 model.push_back({std::string("GUI Scale"), options.guiScale == 0 ? tr("options.guiScale.auto", "Auto") : std::to_string(options.guiScale), -1.0f,
                                  [this](float, bool click) {
                                      if (!click)
@@ -3724,6 +3846,7 @@ namespace perlin {
                     slider(tr("options.sensitivity", "Sensitivity"), percent(options.mouseSensitivity / 0.15f), options.mouseSensitivity / 0.30f,
                            [this](float f) { options.mouseSensitivity = std::round(std::clamp(f, 0.0f, 1.0f) * 200.0f) / 100.0f * 0.15f; });
                     toggle(tr("options.invertMouse", "Invert Mouse"), options.invertMouse);
+                    toggle(tr("perlin.options.centerCursor", "Center Cursor"), options.centerCursor);
                     choice(tr("key.sprint", "Sprint"), options.sprintMode, {{"hold", tr("options.key.hold", "Hold")}, {"toggle", tr("options.key.toggle", "Toggle")}});
                     choice(tr("key.sneak", "Sneak"), options.sneakMode, {{"hold", tr("options.key.hold", "Hold")}, {"toggle", tr("options.key.toggle", "Toggle")}});
                     bindsRow(tr("controls.keybinds", "Key Binds..."), 0);
@@ -3878,6 +4001,63 @@ namespace perlin {
                                          if (click)
                                              mods::ModManager::Instance().ResetSettings(owner);
                                      }});
+                }
+            } else if (optionsPage == 10 && renderer && renderer->JavaShaderPackActive()) {
+                title = tr("perlin.shaders.settings.title", "Shader Pack Settings");
+                static std::map<std::string, std::string> javaEdits;
+                static std::string javaEditsPack;
+                static bool javaDirty = false;
+                if (javaEditsPack != options.shaderPack) {
+                    javaEditsPack = options.shaderPack;
+                    javaEdits.clear();
+                    javaDirty = false;
+                }
+                const std::string packPath = paths::DataDir() + "/shaderpacks/" + options.shaderPack;
+                model.push_back({javaDirty ? "Apply Changes (reloads shaders)" : "Reload Shaders", "", -1.0f, [this, packPath](float, bool click) {
+                                     if (!click)
+                                         return;
+                                     javaDirty = false;
+                                     javaPackPending = packPath;
+                                 }});
+                model.push_back({"Reset All to Defaults", "", -1.0f, [this, packPath](float, bool click) {
+                                     if (!click)
+                                         return;
+                                     javaEdits.clear();
+                                     jshader::WriteJavaPackOptions(packPath, {});
+                                     javaDirty = true;
+                                     javaPackPending = packPath;
+                                 }});
+                std::string lastGroup = "\x01";
+                for (const JavaPackOption& o : renderer->JavaShaderPackOptions()) {
+                    if (o.group != lastGroup) {
+                        lastGroup = o.group;
+                        OptRow h{o.group.empty() ? std::string("Shader Options") : o.group, "", -1.0f, [](float, bool) {}};
+                        h.header = true;
+                        model.push_back(h);
+                    }
+                    const auto edited = javaEdits.find(o.name);
+                    const std::string current = edited != javaEdits.end() ? edited->second : o.current;
+                    std::string shown = current;
+                    if (o.toggle)
+                        shown = current == "true" ? tr("options.on", "ON") : tr("options.off", "OFF");
+                    model.push_back({o.label, shown, -1.0f, [this, o, current, packPath](float, bool click) {
+                                         if (!click || o.values.empty())
+                                             return;
+                                         size_t at = 0;
+                                         for (size_t i = 0; i < o.values.size(); i++)
+                                             if (o.values[i] == current)
+                                                 at = i;
+                                         javaEdits[o.name] = o.values[(at + 1) % o.values.size()];
+                                         auto all = jshader::ReadJavaPackOptions(packPath);
+                                         for (const auto& kv : javaEdits)
+                                             all[kv.first] = kv.second;
+                                         jshader::WriteJavaPackOptions(packPath, all);
+                                         javaDirty = true;
+                                     }});
+                    if (!o.comment.empty()) {
+                        modRowTips.resize(model.size());
+                        modRowTips[model.size() - 1] = o.comment;
+                    }
                 }
             } else if (optionsPage == 10) {
                 title = tr("perlin.shaders.settings.title", "Shader Pack Settings");
@@ -4266,78 +4446,6 @@ namespace perlin {
             return;
         }
 
-        if (options.bedrockMenus) {
-            ui::JsonScreens& screens = ui::JsonScreens::Instance();
-            screens.Warm(ServerPacks::Instance().Directories());
-            if (screens.Ready()) {
-                ui::PauseModel pm;
-                pm.playerName = live ? live->PlayerName() : options.playerName;
-                pm.listTitle = tr("gui.playerList", "Player List");
-                pm.multiplayer = live != nullptr && !preview;
-                if (live)
-                    for (const BedrockSession::TabPlayer& p : live->PlayerList())
-                        pm.players.push_back({p.name, p.perm < 0 ? 1 : p.perm, p.name == pm.playerName});
-                // head follows the cursor, as on bedrock; only the doll image swaps while it moves
-                float headYaw = 0.0f, headPitch = 0.0f;
-                if (float dx, dy, dw, dh; screens.PaperDollRect(dx, dy, dw, dh)) {
-                    const float gx = mx / static_cast<float>(scale), gy = my / static_cast<float>(scale);
-                    headYaw = std::clamp(std::atan2(gx - (dx + dw * 0.5f), 90.0f) * 57.29578f, -55.0f, 55.0f);
-                    headPitch = std::clamp(std::atan2(gy - (dy + dh * 0.12f), 90.0f) * 57.29578f, -45.0f, 45.0f);
-                }
-                const std::string dollKey = SkinDollKey(options.skin, options.cape, options.skinParts.cape, headYaw, headPitch);
-                screens.SetPaperDoll(dollKey);
-                const ui::ScreenData data = ui::PauseScreenData(pm);
-                const std::string signature = "json:" + std::to_string(screens.Generation()) + ":" + std::to_string(guiW) + "x" +
-                                              std::to_string(guiH) + data.Signature();
-                bool shown = signature == pauseSignature && hud.Overlay().HasOverlay();
-                if (!shown) {
-                    std::string rml, error;
-                    if (screens.Build("pause.pause_screen", data, guiW, guiH, 0.0f, rml) && hud.Overlay().SetOverlay(rml, error)) {
-                        pauseSignature = signature;
-                        shown = true;
-                    } else if (!error.empty()) {
-                        std::cout << "[screens] pause.pause_screen: " << error << std::endl;
-                    }
-                }
-                if (shown) {
-                    hud.Overlay().SetOverlayAttribute("paper_doll", "src", "mchead:" + dollKey);
-                    hud.Overlay().MouseMove(mx / static_cast<float>(scale), my / static_cast<float>(scale));
-                    hud.UpdateOverlay(fbW, fbH, options.guiScale);
-                    ui::JsonButton button;
-                    const std::string hover = hud.Overlay().OverlayHover();
-                    if (!down && pauseLeftDown && clickReady && (hover == "close" || ui::ParseJsonButton(hover, button))) {
-                        const std::string& id = hover == "close" ? std::string("button.menu_continue") : button.id;
-                        if (id == "button.menu_continue") {
-                            hud.Overlay().ClearOverlay();
-                            pauseShown = false;
-                            input.SetTextMode(false);
-                        } else if (id == "button.menu_quit" && !preview) {
-                            LeaveToServerList(hud);
-                        } else if (id == "button.menu_settings") {
-                            pauseView = 1;
-                            optionsPage = 0;
-                            optionsSub = 0;
-                            optionsSignature.clear();
-                            hud.Overlay().ClearOverlay();
-                        } else if (id == "button.to_profile_or_skins_screen") {
-                            pauseView = 5;
-                            optionsSignature.clear();
-                            hud.Overlay().ClearOverlay();
-                        } else if (id == "button.menu_store") {
-                            pauseView = 4;  // our mods screen stands in for the marketplace
-                            optionsSignature.clear();
-                            hud.Overlay().ClearOverlay();
-                        } else if (id == "button.feedback") {
-                            platform->OpenUrl("https://github.com/theselauraproject/perlin/issues");
-                        } else {
-                            std::cout << "[screens] pause: no handler for " << id << std::endl;
-                        }
-                    }
-                    pauseLeftDown = down;
-                    return;
-                }
-            }
-        }
 
         ui::PauseScreenText t;
         t.title = i18n::Tr("menu.game");
@@ -4816,6 +4924,49 @@ namespace perlin {
                 pingResults[address] = std::move(r);
             });
         }
+    }
+
+    void Perlin::JoinSingleplayer() {
+#ifdef PERLIN_SINGLEPLAYER
+        ReleaseFriendLease();
+        if (!singleplayerServer)
+            singleplayerServer = std::make_unique<EmbeddedServer>();
+        if (!singleplayerServer->Running()) {
+            const std::string dir = paths::DataDir() + "/singleplayer";
+            paths::EnsureDir(dir);
+            // the server reads its block tables from files: write the copies the client carries
+            for (const char* name : {"block_states.json", "block_destroy.tsv"}) {
+                std::string bytes;
+                const std::string path = dir + "/" + name;
+                std::error_code ec;
+                if (resources::Read(name, bytes) && (!std::filesystem::exists(path, ec) || std::filesystem::file_size(path, ec) != bytes.size()))
+                    std::ofstream(path, std::ios::binary) << bytes;
+            }
+#if defined(_WIN32)
+            const char* library = "perlin_server.dll";
+#elif defined(__APPLE__)
+            const char* library = "libperlin_server.dylib";
+#else
+            const char* library = "libperlin_server.so";
+#endif
+            const std::string config = "{\"view_distance\":" + std::to_string(std::clamp(options.renderDistance, 2, 32)) + ",\"block_data_dir\":\"" + dir + "\"}";
+            std::string error;
+            if (!singleplayerServer->Start(paths::ExeDir() + "/" + library, dir, config, error)) {
+                std::cout << "[singleplayer] " << error << std::endl;
+                SetStatusHint("Singleplayer could not start: " + error);
+                return;
+            }
+        }
+        pendingSingleplayer = singleplayerServer->Connect();
+        if (!pendingSingleplayer) {
+            SetStatusHint("Singleplayer could not open a connection.");
+            return;
+        }
+        titleActive = false;
+        Connect();
+#else
+        SetStatusHint("This build has no singleplayer: it was built without PERLIN_BUILD_SERVER.");
+#endif
     }
 
     void Perlin::JoinServer(const std::string& address) {
@@ -5838,7 +5989,7 @@ namespace perlin {
         else
             title.accountUser = options.playerName;
         title.accountLabel = "Logged in as " + title.accountUser;
-        title.oreUi = options.bedrockMenus;
+        title.oreUi = false;
         title.playerName = title.accountUser;
         if (title.oreUi && title.page == ui::TitlePage::Main) {
             const std::string doll = SkinDollKey(options.skin, options.cape, options.skinParts.cape);
@@ -6081,6 +6232,8 @@ namespace perlin {
             } else if (const int acc = rowOf(ui::kAccountRowPrefix); acc >= 0) {
                 if (acc < static_cast<int>(title.accounts.size()) && accounts.SetActive(title.accounts[static_cast<size_t>(acc)].id))
                     ApplyActiveAccount();
+            } else if (hover == ui::kTitleSingle) {
+                JoinSingleplayer();
             } else if (hover == ui::kTitleMulti) {
                 title.page = ui::TitlePage::Servers;
                 title.tab = ui::ServerTab::Lan;
@@ -8226,7 +8379,7 @@ namespace perlin {
                 dbgBlock = handBlock;
             }
             if (hud)
-                hud->SetJavaStyle(!options.bedrockMenus);
+                hud->SetJavaStyle(true);
             FillHudState(hudState, live, preview);
             hudState.bossBars.clear();
             if (live)
@@ -8239,8 +8392,8 @@ namespace perlin {
             if (live) {
                 // sidebar is part of the json ui hud: server packs restyling scoreboards.json apply
                 const auto sb = live->Scoreboard();
-                // json ui sidebar when the server restyles it (or bedrock menus are on); else the java one
-                hudState.sidebarVisible = sb.visible && !pauseShown && hud && (options.bedrockMenus || hud->Overrides("scoreboard"));
+                // json ui sidebar when the server restyles it; else the java one
+                hudState.sidebarVisible = sb.visible && !pauseShown && hud && hud->Overrides("scoreboard");
                 hudState.sidebarTitle = sb.title;
                 for (const auto& r : sb.rows)
                     hudState.sidebar.push_back({r.name, r.score});
@@ -8473,7 +8626,7 @@ namespace perlin {
             {
                 camera.farPlane = std::max(static_cast<float>(options.renderDistance * 16) * 1.6f,
                                            static_cast<float>(GraphicsSettings::From(options).cloudRange * 16));
-                camera.nearPlane = std::clamp(0.05f + (camera.farPlane - 1500.0f) * 0.00004f, 0.05f, 0.25f);
+                camera.nearPlane = std::clamp(0.05f + (camera.farPlane - 1500.0f) * 0.00004f, 0.05f, camera.farPlane > 8000.0f ? 0.4f : 0.25f);
             }
             if (replayCtl.Playing()) {
                 if (replayUi.fovOverride > 0)
@@ -8777,7 +8930,9 @@ namespace perlin {
                 { ProfScope p(2); levelRenderer->Render(frustum, camera.x, camera.z); }
                 if (!previewShot.empty() && previewShotFrames < 0) {
                     const size_t meshed = levelRenderer->MeshedChunks();
-                    if (meshed != previewLastMeshed) {
+                    // a container screen covers the world: no need to wait for its meshing
+                    static const bool screenOnly = PERLIN_ENV("PERLIN_PREVIEW_CONTAINER") != nullptr;
+                    if (meshed != previewLastMeshed && !screenOnly) {
                         previewLastMeshed = meshed;
                         previewReadyAt = frameStart;
                     }
@@ -9297,7 +9452,7 @@ namespace perlin {
                 }
             }
             if ((live || preview) && (!replayCtl.Playing() || replayCtl.cameraMode == replay::CameraMode::Follow) && camera.mode == PerspectiveMode::FirstPerson && options.showHud &&
-                hudState.mode != ui::GameMode::Spectator && !deathShown && !pauseShown && !invShown && ui::UiAssets::Instance().VanillaRoot().size()) {
+                hudState.mode != ui::GameMode::Spectator && !deathShown && ui::UiAssets::Instance().VanillaRoot().size()) {
                 HandRenderer::FrameIn handFrame;
                 handFrame.partial = partial;
                 handFrame.yaw = camera.yaw - 90.0f;
@@ -9625,6 +9780,27 @@ namespace perlin {
             }
 
 #ifndef __EMSCRIPTEN__
+            {
+                // fullscreen: the option is the intent; the window can also change on its own (os shortcut), so adopt that once settled
+                static int appliedFullscreen = -1;
+                static Clock::time_point fullscreenSettle{};
+                if (inputManager.Pressed(Action::Fullscreen)) {
+                    options.fullscreen = !options.fullscreen;
+                    options.Save();
+                }
+                const bool windowFullscreen = platform->IsFullscreen();
+                const auto fsNow = Clock::now();
+                if (appliedFullscreen < 0 || static_cast<bool>(appliedFullscreen) != options.fullscreen) {
+                    if (windowFullscreen != options.fullscreen)
+                        platform->SetFullscreen(options.fullscreen);
+                    appliedFullscreen = options.fullscreen;
+                    fullscreenSettle = fsNow + std::chrono::milliseconds(1500);
+                } else if (fsNow >= fullscreenSettle && windowFullscreen != options.fullscreen) {
+                    options.fullscreen = windowFullscreen;
+                    appliedFullscreen = windowFullscreen;
+                    options.Save();
+                }
+            }
             const bool wantVsync = options.vsync && !exportJob.active;
             if (appliedVsync != wantVsync) {
                 appliedVsync = wantVsync;

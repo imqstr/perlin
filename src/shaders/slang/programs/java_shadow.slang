@@ -2526,7 +2526,7 @@ VsOut vsMain(VsIn input)
     vs_stage::a_texcoord1 = input.a_texcoord1;
     vs_stage::a_mcEntity = float4(input.a_ePacked, 0.0, 0.0, 0.0);
     vs_stage::a_mcMidTexCoord = float4(input.a_mPacked, 0.0, 0.0);
-    { float ti = input.a_tPacked; float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;
+    { float ti = floor(input.a_tPacked); float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;
       float3 ax = ix < 0.5 ? float3(1.0, 0.0, 0.0) : ix < 1.5 ? float3(-1.0, 0.0, 0.0) :
           ix < 2.5 ? float3(0.0, 1.0, 0.0) : ix < 3.5 ? float3(0.0, -1.0, 0.0) :
           ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);

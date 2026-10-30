@@ -53,7 +53,7 @@ namespace perlin {
         }
     } // namespace
 
-    bool RenderContext_rhi::SetJavaShaderPack(const std::string& path, const std::map<std::string, std::string>&,
+    bool RenderContext_rhi::SetBakedJavaShaderPack(const std::string& path, const std::map<std::string, std::string>&,
                                               std::string& error) {
         if (!jshader::LooksLikeJavaPack(path)) {
             error = "not a java shader pack: " + path;
@@ -110,7 +110,7 @@ namespace perlin {
         return true;
     }
 
-    void RenderContext_rhi::ClearJavaShaderPack() {
+    void RenderContext_rhi::ClearBakedJavaShaderPack() {
         if (!javaActive)
             return;
         gpu.Dev().WaitIdle();
@@ -272,8 +272,6 @@ namespace perlin {
         glm::mat4 glProj = proj;
         for (int c = 0; c < 4; ++c)
             glProj[c][2] = 2.0f * proj[c][2] - proj[c][3];
-        for (int c = 0; c < 4; ++c)
-            glProj[c][1] = -glProj[c][1];
         const glm::mat4 viewInv = glm::inverse(playerView);
         const glm::mat4 projInv = glm::inverse(glProj);
         uni.Mat4("u_jgbufferModelView", glm::value_ptr(playerView));
@@ -285,8 +283,6 @@ namespace perlin {
         glm::mat4 prevProj = cam.havePrev ? ToFloat(cam.prevProj) : proj;
         for (int c = 0; c < 4; ++c)
             prevProj[c][2] = 2.0f * prevProj[c][2] - prevProj[c][3];
-        for (int c = 0; c < 4; ++c)
-            prevProj[c][1] = -prevProj[c][1];
         uni.Mat4("u_jgbufferPreviousModelView", glm::value_ptr(prevView));
         uni.Mat4("u_jgbufferPreviousProjection", glm::value_ptr(prevProj));
         uni.Mat4("u_jModelViewMatrix", glm::value_ptr(view));

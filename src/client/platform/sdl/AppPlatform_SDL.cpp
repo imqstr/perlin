@@ -166,6 +166,107 @@ NativeWindowInfo AppPlatform_SDL::GetNativeWindowInfo() {
     return native;
 }
 
+#if defined(SDL_PLATFORM_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+namespace {
+    LRESULT CALLBACK RenderSurfaceProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+        HWND parent = GetParent(hwnd);
+        switch (message) {
+        case WM_NCHITTEST:
+            // clicks, moves and the cursor all belong to the game window underneath
+            return HTTRANSPARENT;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_SETFOCUS:
+            if (parent)
+                SetFocus(parent);
+            return 0;
+        case WM_SETCURSOR:
+            if (parent)
+                return SendMessageW(parent, message, reinterpret_cast<WPARAM>(parent), lParam);
+            break;
+        default:
+            // should a driver or an odd window order route input here anyway, hand it straight to the game window
+            if (parent && ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || (message >= WM_KEYFIRST && message <= WM_KEYLAST) ||
+                           message == WM_MOUSEHWHEEL))
+                return SendMessageW(parent, message, wParam, lParam);
+            break;
+        }
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+}
+
+void AppPlatform_SDL::RenewRenderSurface() {
+    if (!window)
+        return;
+    HWND parent = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    if (!parent)
+        return;
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    static ATOM surfaceClass = 0;
+    if (!surfaceClass) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = RenderSurfaceProc;
+        wc.hInstance = instance;
+        wc.lpszClassName = L"PerlinRenderSurface";
+        surfaceClass = RegisterClassExW(&wc);
+    }
+    if (renderSurface) {
+        DestroyWindow(static_cast<HWND>(renderSurface));
+        renderSurface = nullptr;
+    }
+    RECT rect{};
+    GetClientRect(parent, &rect);
+    HWND child = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY, L"PerlinRenderSurface", L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                 0, 0, std::max<LONG>(1, rect.right), std::max<LONG>(1, rect.bottom), parent, nullptr, instance, nullptr);
+    if (!child) {
+        std::cout << "[sdl] could not create a render surface (" << GetLastError() << "); keeping the game window" << std::endl;
+        return;
+    }
+    SetWindowPos(child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    renderSurface = child;
+    native.window = child;
+    // creating a window must not move keyboard focus off the game window
+    if (GetFocus() != parent && GetForegroundWindow() == parent)
+        SetFocus(parent);
+    std::cout << "[sdl] new render surface for the next backend" << std::endl;
+}
+
+void AppPlatform_SDL::ResizeRenderSurface() {
+    if (!renderSurface || !window)
+        return;
+    HWND parent = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    RECT rect{};
+    if (parent && GetClientRect(parent, &rect))
+        SetWindowPos(static_cast<HWND>(renderSurface), nullptr, 0, 0, std::max<LONG>(1, rect.right), std::max<LONG>(1, rect.bottom),
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+}
+#elif defined(SDL_PLATFORM_MACOS)
+void AppPlatform_SDL::RenewRenderSurface() {
+    if (!window)
+        return;
+    if (metalView)
+        SDL_Metal_DestroyView(static_cast<SDL_MetalView>(metalView));
+    metalView = SDL_Metal_CreateView(window);
+    native.window = metalView ? SDL_Metal_GetLayer(static_cast<SDL_MetalView>(metalView)) : nullptr;
+}
+
+void AppPlatform_SDL::ResizeRenderSurface() {}
+#else
+void AppPlatform_SDL::RenewRenderSurface() {}
+void AppPlatform_SDL::ResizeRenderSurface() {}
+#endif
+
 void AppPlatform_SDL::GetFramebufferSize(int& width, int& height) {
     width = framebufferWidth;
     height = framebufferHeight;
@@ -557,6 +658,24 @@ bool AppPlatform_SDL::Initialize() {
     return true;
 }
 
+void AppPlatform_SDL::SetFullscreen(bool fullscreen) {
+#ifdef SDL_PLATFORM_ANDROID
+    (void)fullscreen;
+#else
+    if (!window || args.hidden || touchMode)
+        return;
+    SDL_SetWindowFullscreen(window, fullscreen);
+#endif
+}
+
+bool AppPlatform_SDL::IsFullscreen() const {
+#ifdef SDL_PLATFORM_ANDROID
+    return false;
+#else
+    return window && !args.hidden && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+#endif
+}
+
 void AppPlatform_SDL::SetCursorCaptured(bool captured) {
     if (args.hidden) {
         cursorCaptured = captured && args.controlPort != 0;
@@ -614,6 +733,7 @@ void AppPlatform_SDL::HandleEvent(const SDL_Event& e) {
         if (e.window.data1 > 0 && e.window.data2 > 0) {
             framebufferWidth = e.window.data1;
             framebufferHeight = e.window.data2;
+            ResizeRenderSurface();
         }
         break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
@@ -915,6 +1035,12 @@ void AppPlatform_SDL::PumpFrame() {
                     SetCursorCaptured(true);
                 recaptureAfterText = false;
             }
+        }
+        // after the grab is released above: warping while captured does nothing
+        if (in.TakeCursorCenter() && !cursorCaptured && !touchMode && !args.hidden) {
+            int w = 0, h = 0;
+            SDL_GetWindowSize(window, &w, &h);
+            SDL_WarpMouseInWindow(window, static_cast<float>(w) * 0.5f, static_cast<float>(h) * 0.5f);
         }
         if (touchMode) {
             const bool keyboard = in.Keyboard();

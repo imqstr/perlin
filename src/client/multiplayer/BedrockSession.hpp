@@ -66,6 +66,8 @@ namespace perlin {
         const std::string& PlayerName() const { return playerName; }
         void SetPlayerName(const std::string& name) { playerName = name.empty() ? std::string("Perlin") : name; }
         void SetTransport(const std::string& mode) { transportMode = mode; }
+        // a ready transport (the embedded server's) used by the next Connect instead of dialling out
+        void SetInjectedTransport(std::unique_ptr<Transport> transport) { injectedTransport = std::move(transport); }
         void SetFriendLease(std::shared_ptr<friendworld::Lease> lease) { friendLease = std::move(lease); }
         void SetSkin(LoadedSkin loaded) { skin = std::move(loaded); }
         const LoadedSkin& Skin() const { return skin; }
@@ -561,6 +563,7 @@ void RequestRespawn();
             std::vector<std::pair<int, int>> enchants;
             std::vector<std::string> lore;
             int networkId = 0;
+            int repairCost = 0;
             bool Empty() const { return name.empty() || count <= 0; }
         };
         struct Vitals {
@@ -572,6 +575,17 @@ void RequestRespawn();
             bool poison = false, wither = false, regeneration = false, hungerEffect = false;
             bool onFire = false;
             bool known = false;
+        };
+        enum class ContainerKind { None, Chest, Hopper, Dispenser, Dropper, Furnace, BlastFurnace, Smoker, Brewing, Anvil, Grindstone,
+                                   Smithing, Enchanting, Stonecutter, Loom, Beacon };
+        struct EnchantChoice {
+            int cost = 0;
+            int32_t optionId = 0;
+            std::string name;
+        };
+        struct StationChoice {
+            ItemStackInfo out;
+            uint32_t netId = 0;
         };
         struct InventoryView {
             ItemStackInfo hotbar[9];
@@ -591,6 +605,19 @@ void RequestRespawn();
             bool chestOpen = false;
             int chestSlots = 0;
             std::string chestTitle;
+            ContainerKind kind = ContainerKind::None;
+            int resultCell = -1;  // chest[] index the station's crafted item shows in
+            int props[8] = {};    // ContainerSetData of the window
+            int level = 0;        // player xp level, for anvil and enchanting costs
+            bool creative = false;
+            std::string anvilName;
+            bool anvilNameEdited = false;
+            int anvilCost = 0;
+            std::vector<EnchantChoice> enchants;
+            std::vector<StationChoice> stones;  // stonecutter recipes for the input
+            std::vector<std::string> patterns;  // loom patterns for the banner and dye
+            int stationPick = -1;               // stonecutter recipe or loom pattern index
+            int beaconLevel = 0;
         };
         static constexpr int kInvArmor0 = 36, kInvOffhand = 40, kInvCraft0 = 41, kInvOutput = 45, kInvCursor = 46, kInvWork0 = 47, kInvSlots = 56, kInvHorse0 = 56, kInvHorseCount = 17, kInvChest0 = 73, kInvChestCount = 54,
                              kInvTotal = 127;
@@ -684,6 +711,10 @@ void RequestRespawn();
         struct RecipeEntry { int index = 0; bool craftable = false; ItemStackInfo out; };
         std::vector<RecipeEntry> GetRecipes(int side) const;
         void InvFillRecipe(int index);
+        void InvStationPick(int index);
+        void InvAnvilName(const std::string& name);
+        void InvEnchant(int option);
+        void InvBeacon(int primary, int secondary);
         void InvSpread(const std::vector<int>& slots, int mode);
         void InvCreativeClone(int addr);
         void InvCreativePlace(int addr);
@@ -853,6 +884,7 @@ void RequestRespawn();
         void SetDisconnectInfo(int reason, const std::string& message, bool lost);
         void SetOutdated(int who);
         bool usedRak = false;
+        std::unique_ptr<Transport> injectedTransport;
 
         std::unique_ptr<Transport> net;
         std::unique_ptr<PacketCipher> cipher;
@@ -1104,8 +1136,30 @@ void RequestRespawn();
         int chestWindow = -1;
         bool chestJustOpened = false;
         proto::ContainerSlotType chestSlotType = proto::ContainerSlotType::Container;
-        std::chrono::steady_clock::time_point invServerAt[36]{};
         struct RecipeIngredientInfo { bool empty = true; std::string name, tag; int meta = 0; };
+        struct ContainerCell {
+            proto::ContainerSlotType type = proto::ContainerSlotType::Container;
+            int slot = 0;
+            bool ui = false;  // lives in the player's ui inventory (window 124), not the block's window
+        };
+        ContainerCell containerCells[54];
+        int containerPos[3] = {};
+        std::vector<EnchantChoice> enchantOptions;
+        uint32_t repairRecipe = 0;
+        struct StationRecipe {
+            std::string block;  // stonecutter / smithing_table
+            std::vector<RecipeIngredientInfo> in;
+            proto::ItemV4 out;
+            ItemStackInfo outInfo;
+            uint32_t netId = 0;
+            bool trim = false;
+        };
+        std::vector<StationRecipe> stationRecipes;
+        void InvRecomputeStationLocked();
+        bool InvStationCraftLocked(proto::ItemStackRequest& r, bool toInventory);
+        std::vector<std::pair<int, int>> InvStationTargetsLocked(const ItemStackInfo& item) const;
+        bool StationIngMatches(const RecipeIngredientInfo& ing, const ItemStackInfo& it) const;
+        std::chrono::steady_clock::time_point invServerAt[36]{};
         struct RecipeInfo {
             bool shaped = false; int w = 0, h = 0;
             std::vector<RecipeIngredientInfo> in;

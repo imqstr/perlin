@@ -152,17 +152,34 @@ namespace perlin {
             return true;
         }
         columns.emplace(pos, col);
+        tiles[TileKeyOf(TileOf(pos.x), TileOf(pos.z))]++;
         return true;
     }
 
     void LodStore::Evict(int centreX, int centreZ, int radius, std::vector<ChunkPos>& removed) {
-        for (auto it = columns.begin(); it != columns.end();) {
-            if (std::abs(it->first.x - centreX) > radius || std::abs(it->first.z - centreZ) > radius) {
-                removed.push_back(it->first);
-                it = columns.erase(it);
-            } else {
-                ++it;
-            }
+        // whole tiles outside the square go without touching their columns one by one in the map scan
+        std::vector<int64_t> outside;
+        for (const auto& [key, count] : tiles) {
+            const int tx = static_cast<int>(key >> 32), tz = static_cast<int>(static_cast<uint32_t>(key));
+            const int x0 = tx * kTileChunks, z0 = tz * kTileChunks;
+            const bool inside = x0 >= centreX - radius && x0 + kTileChunks - 1 <= centreX + radius && z0 >= centreZ - radius &&
+                                z0 + kTileChunks - 1 <= centreZ + radius;
+            if (inside)
+                continue;
+            outside.push_back(key);
+        }
+        for (int64_t key : outside) {
+            const int tx = static_cast<int>(key >> 32), tz = static_cast<int>(static_cast<uint32_t>(key));
+            for (int dz = 0; dz < kTileChunks; dz++)
+                for (int dx = 0; dx < kTileChunks; dx++) {
+                    const ChunkPos p{tx * kTileChunks + dx, tz * kTileChunks + dz};
+                    if (std::abs(p.x - centreX) <= radius && std::abs(p.z - centreZ) <= radius)
+                        continue;
+                    if (columns.erase(p)) {
+                        removed.push_back(p);
+                        DropFromTile(p);
+                    }
+                }
         }
     }
 
@@ -212,6 +229,29 @@ namespace perlin {
                 col[i][2] = c.b / 255.0f * k;
             }
         };
+        // tops first: a run of cells with the same height, water flag and (near enough) colour is one quad. Oceans and
+        // plains collapse to a few quads, which is most of what far tiles contain
+        const auto similar = [](const Cell& a, const Cell& b) {
+            return b.present && a.y == b.y && a.water == b.water && std::abs(a.r - b.r) <= 2 && std::abs(a.g - b.g) <= 2 && std::abs(a.b - b.b) <= 2;
+        };
+        for (int gz = 0; gz < cellsPerSide; gz++)
+            for (int gx = 0; gx < cellsPerSide;) {
+                const Cell& c = grid[static_cast<size_t>(gz) * cellsPerSide + gx];
+                if (!c.present) {
+                    gx++;
+                    continue;
+                }
+                int run = 1;
+                while (gx + run < cellsPerSide && similar(c, grid[static_cast<size_t>(gz) * cellsPerSide + gx + run]))
+                    run++;
+                const float xa = x0 + gx * size, xb = xa + size * static_cast<float>(run), za = z0 + gz * size, zb = za + size;
+                const float y = static_cast<float>(c.y) - (c.water ? 0.11f : 0.0f);
+                float col[4][3];
+                const float v[4][3] = {{xa, y, za}, {xb, y, za}, {xb, y, zb}, {xa, y, zb}};
+                shade(c, 1.0f, col);
+                out.AddQuad(v, col, uv, false, 0.0f, 15.0f);
+                gx += run;
+            }
         for (int gz = 0; gz < cellsPerSide; gz++)
             for (int gx = 0; gx < cellsPerSide; gx++) {
                 const Cell& c = grid[static_cast<size_t>(gz) * cellsPerSide + gx];
@@ -220,11 +260,6 @@ namespace perlin {
                 const float xa = x0 + gx * size, xb = xa + size, za = z0 + gz * size, zb = za + size;
                 const float y = static_cast<float>(c.y) - (c.water ? 0.11f : 0.0f);
                 float col[4][3];
-                {
-                    const float v[4][3] = {{xa, y, za}, {xb, y, za}, {xb, y, zb}, {xa, y, zb}};
-                    shade(c, 1.0f, col);
-                    out.AddQuad(v, col, uv, false, 0.0f, 15.0f);
-                }
                 static const int kDir[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
                 static const float kShade[4] = {0.8f, 0.8f, 0.65f, 0.65f};
                 for (int d = 0; d < 4; d++) {

@@ -107,7 +107,7 @@ mcimg { display: block; position: absolute; }
                 s += "<mcitem key=\"" + EscapeRml(item.Key()) + "\" style=\"left:1px;top:1px;width:16px;height:16px;\"";
                 if (item.enchanted)
                     s += " glint=\"1\"";
-                s += "/>";
+                s += DurabilityAttrs(item.aux, item.maxDamage) + "/>";
                 if (item.count > 1)
                     s += "<div class=\"cnt\" style=\"left:-1px;top:10px;width:19px;height:9px;\">" + std::to_string(item.count) + "</div>";
             }
@@ -182,7 +182,7 @@ mcimg { display: block; position: absolute; }
         if (!v.cursor.Empty()) {
             cursor = "  <div id=\"cursor\" style=\"left:" + std::to_string(static_cast<int>(v.mouseX) - 8) + "px;top:" +
                      std::to_string(static_cast<int>(v.mouseY) - 8) + "px;\"><mcitem key=\"" + EscapeRml(v.cursor.Key()) +
-                     "\" style=\"left:0px;top:0px;width:16px;height:16px;\"" + (v.cursor.enchanted ? " glint=\"1\"" : "") + "/>";
+                     "\" style=\"left:0px;top:0px;width:16px;height:16px;\"" + (v.cursor.enchanted ? " glint=\"1\"" : "") + DurabilityAttrs(v.cursor.aux, v.cursor.maxDamage) + "/>";
             if (v.cursor.count > 1)
                 cursor += "<div class=\"cnt\" style=\"left:-3px;top:9px;width:19px;height:9px;\">" + std::to_string(v.cursor.count) + "</div>";
             cursor += "</div>\n";

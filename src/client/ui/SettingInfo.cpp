@@ -20,6 +20,8 @@ namespace perlin::ui {
             {"Brightness", "options.gamma", "options.gamma.description", "Overall screen brightness.", 0},
             {"Max Framerate", "options.framerateLimit", "", "Caps how many frames per second the game renders. Lower caps save power and heat.", 1},
             {"VSync", "options.vsync", "", "Synchronizes frames with your monitor's refresh rate to prevent screen tearing.", 1},
+            {"Fullscreen", "options.fullscreen", "", "Fills the whole screen without window borders. F11 toggles it.", 1},
+            {"Center Cursor", "perlin.options.centerCursor", "", "Moves the pointer to the middle of the window when the inventory, a menu or a form opens.", 0},
             {"GUI Scale", "options.guiScale.optionName", "options.guiScale.optionName.description", "Size of the HUD and menus.", 1},
             {"Fancy Graphics", "options.graphics.fancy", "", "Enables higher quality leaves, water and other visual details.", 2},
             {"Motion Blur", "options.motionBlur", "", "Blurs the screen while you turn the camera quickly.", 2},

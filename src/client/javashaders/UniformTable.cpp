@@ -554,6 +554,25 @@ namespace perlin::jshader {
         Add("currentRenderedItemId", 1, [=](C c, float* o) { o[0] = static_cast<float>(D(c).overrideEntity ? D(c).currentRenderedItemId : F(c).currentRenderedItemId); });
         Add("renderStage", 1, [=](C c, float* o) { o[0] = static_cast<float>(D(c).renderStage); });
         Add("atlasSize", 2, [=](C c, float* o) { o[0] = static_cast<float>(F(c).atlasSize[0]); o[1] = static_cast<float>(F(c).atlasSize[1]); });
+        // iris uniforms the engine has no live source for: constants that match what a pack sees in a plain overworld
+        Add("alphaTestRef", 1, [=](C, float* o) { o[0] = 0.1f; });
+        Add("bedrockLevel", 1, [=](C, float* o) { o[0] = -64.0f; });
+        Add("heightLimit", 1, [=](C, float* o) { o[0] = 384.0f; });
+        Add("logicalHeightLimit", 1, [=](C, float* o) { o[0] = 384.0f; });
+        Add("hasSkylight", 1, [=](C, float* o) { o[0] = 1.0f; });
+        Add("hasCeiling", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("constantMood", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("currentColorSpace", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("currentSelectedBlockId", 1, [=](C, float* o) { o[0] = -1.0f; });
+        Add("currentSelectedBlockPos", 3, [=](C, float* o) { o[0] = o[1] = o[2] = 0.0f; });
+        Add("endFlashIntensity", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("endFlashPosition", 3, [=](C, float* o) { o[0] = 0.0f; o[1] = 1.0f; o[2] = 0.0f; });
+        Add("dhFarPlane", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("dhNearPlane", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("dhRenderDistance", 1, [=](C, float* o) { o[0] = 0.0f; });
+        Add("heldBlockLightColor", 3, [=](C, float* o) { o[0] = o[1] = o[2] = 1.0f; });
+        Add("heldBlockLightColor2", 3, [=](C, float* o) { o[0] = o[1] = o[2] = 1.0f; });
+        Add("maxBlindnessDarkness", 1, [=](C c, float* o) { o[0] = F(c).blindness; });
         Add("cloudTime", 1, [=](C c, float* o) { o[0] = F(c).cloudTime; });
         Add("terrainIconSize", 1, [=](C c, float* o) { o[0] = F(c).terrainIconSize; });
         Add("blendFunc", 4, [=](C c, float* o) { for (int i = 0; i < 4; i++) o[i] = static_cast<float>(F(c).blendFunc[i]); });

@@ -20,6 +20,7 @@ namespace perlin::jshader {
 
     bool LooksLikeJavaPack(const std::string& path);
     std::map<std::string, std::string> ReadJavaPackOptions(const std::string& path);
+    void WriteJavaPackOptions(const std::string& path, const std::map<std::string, std::string>& options);
 
     std::string NormalizePath(const std::string& path);
     std::string DirectoryOf(const std::string& path);

@@ -253,40 +253,7 @@ endif()
 # Java (OptiFine / Iris) shader packs: GLSL -> SPIR-V (glslang) -> GLSL / HLSL (SPIRV-Cross).
 CPMAddPackage(NAME glslang GITHUB_REPOSITORY KhronosGroup/glslang GIT_TAG e2bb10631198bc9d73daf752d9170608d5e2c8bd GIT_SHALLOW NO DOWNLOAD_ONLY YES)
 CPMAddPackage(NAME SPIRV-Cross GITHUB_REPOSITORY KhronosGroup/SPIRV-Cross GIT_TAG 300681bbcb8365a8d1eacdacdbdd0249bbf1d6b1 GIT_SHALLOW NO DOWNLOAD_ONLY YES)
-set(PERLIN_GLSLANG_GEN "${CMAKE_BINARY_DIR}/perlin_glslang_gen")
-file(WRITE "${PERLIN_GLSLANG_GEN}/glslang/build_info.h" "#pragma once\n#define GLSLANG_VERSION_MAJOR 16\n#define GLSLANG_VERSION_MINOR 6\n#define GLSLANG_VERSION_PATCH 0\n#define GLSLANG_VERSION_FLAVOR \"\"\n#define GLSLANG_VERSION_GREATER_THAN(major, minor, patch) ((GLSLANG_VERSION_MAJOR) > (major) || ((major) == GLSLANG_VERSION_MAJOR && ((GLSLANG_VERSION_MINOR) > (minor) || ((minor) == GLSLANG_VERSION_MINOR && (GLSLANG_VERSION_PATCH) > (patch)))))\n#define GLSLANG_VERSION_GREATER_OR_EQUAL_TO(major, minor, patch) (GLSLANG_VERSION_GREATER_THAN(major, minor, patch) || ((major) == GLSLANG_VERSION_MAJOR && (minor) == GLSLANG_VERSION_MINOR && (patch) == GLSLANG_VERSION_PATCH))\n#define GLSLANG_VERSION_LESS_THAN(major, minor, patch) (!GLSLANG_VERSION_GREATER_OR_EQUAL_TO(major, minor, patch))\n#define GLSLANG_VERSION_LESS_OR_EQUAL_TO(major, minor, patch) (!GLSLANG_VERSION_GREATER_THAN(major, minor, patch))\n")
-file(GLOB PERLIN_GLSLANG_SOURCES
-    "${glslang_SOURCE_DIR}/glslang/GenericCodeGen/*.cpp"
-    "${glslang_SOURCE_DIR}/glslang/MachineIndependent/*.cpp"
-    "${glslang_SOURCE_DIR}/glslang/MachineIndependent/preprocessor/*.cpp"
-    "${glslang_SOURCE_DIR}/glslang/ResourceLimits/*.cpp"
-    "${glslang_SOURCE_DIR}/glslang/CInterface/*.cpp"
-    "${glslang_SOURCE_DIR}/SPIRV/*.cpp")
-if(WIN32)
-    list(APPEND PERLIN_GLSLANG_SOURCES "${glslang_SOURCE_DIR}/glslang/OSDependent/Windows/ossource.cpp")
-else()
-    list(APPEND PERLIN_GLSLANG_SOURCES "${glslang_SOURCE_DIR}/glslang/OSDependent/Unix/ossource.cpp")
-endif()
-add_library(perlin_glslang STATIC ${PERLIN_GLSLANG_SOURCES})
-target_include_directories(perlin_glslang PUBLIC "${glslang_SOURCE_DIR}" "${PERLIN_GLSLANG_GEN}")
-target_compile_definitions(perlin_glslang PRIVATE ENABLE_OPT=0)
-set_target_properties(perlin_glslang PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 17)
-if(MSVC)
-    target_compile_options(perlin_glslang PRIVATE /w /EHsc)
-else()
-    target_compile_options(perlin_glslang PRIVATE -w)
-endif()
-add_library(perlin_spirv_cross STATIC
-    "${SPIRV-Cross_SOURCE_DIR}/spirv_cross.cpp" "${SPIRV-Cross_SOURCE_DIR}/spirv_cfg.cpp"
-    "${SPIRV-Cross_SOURCE_DIR}/spirv_cross_parsed_ir.cpp" "${SPIRV-Cross_SOURCE_DIR}/spirv_parser.cpp"
-    "${SPIRV-Cross_SOURCE_DIR}/spirv_glsl.cpp" "${SPIRV-Cross_SOURCE_DIR}/spirv_hlsl.cpp")
-target_include_directories(perlin_spirv_cross PUBLIC "${SPIRV-Cross_SOURCE_DIR}")
-set_target_properties(perlin_spirv_cross PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 17)
-if(MSVC)
-    target_compile_options(perlin_spirv_cross PRIVATE /w /EHsc)
-else()
-    target_compile_options(perlin_spirv_cross PRIVATE -w)
-endif()
+include(cmake/PerlinJavaShaders.cmake)
 
 # graphics apis per platform: the first one the device supports is picked at run time, the others stay switchable in game
 function(perlin_default_api name value)
@@ -324,9 +291,6 @@ else()
     perlin_default_api(PERLIN_RHI_D3D11 OFF)
     perlin_default_api(PERLIN_RHI_METAL OFF)
     perlin_default_api(PERLIN_RHI_WEBGPU OFF)
-endif()
-if(PERLIN_RHI_METAL)
-    enable_language(OBJCXX)
 endif()
 
 include(cmake/PerlinShaders.cmake)
@@ -452,10 +416,11 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PERLIN_RESOURCE
 
 file(GLOB_RECURSE PERLIN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/network/Nbt\\.cpp")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/(bgfx|shader)/") # stale leftovers from the pre-RHI tree
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/renderer/gpu/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/rhi/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/render/")
-list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/javashaders/Pipeline\\.cpp")
+list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/javashaders/") # built into perlin_gpu
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/mods/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/(src|tests)/")
 list(FILTER PERLIN_SOURCES EXCLUDE REGEX "/src/client/mods/WasmEdgeStop\\.cpp$")
@@ -1378,3 +1343,19 @@ foreach(PERLIN_LOCAL_TARGET IN LISTS PERLIN_LOCAL_TARGETS)
         target_include_directories(${PERLIN_LOCAL_TARGET} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
     endif()
 endforeach()
+
+# perlin server: dedicated exe, shared library for singleplayer, plugins; see server/README.md
+option(PERLIN_BUILD_SERVER "Build the Perlin server (dedicated executable and perlin_server library)" OFF)
+if(PERLIN_BUILD_SERVER AND NOT EMSCRIPTEN AND NOT ANDROID)
+    add_subdirectory(server)
+    # singleplayer: the client loads perlin_server beside the executable and joins it in process
+    if(TARGET Perlin AND TARGET perlin_server)
+        target_sources(Perlin PRIVATE server/client_bridge/EmbeddedServer.cpp)
+        target_include_directories(Perlin PRIVATE server/client_bridge server/include)
+        target_compile_definitions(Perlin PRIVATE PERLIN_SINGLEPLAYER=1 PERLIN_SERVER_STATIC)
+        add_dependencies(Perlin perlin_server)
+        add_custom_command(TARGET perlin_server POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:perlin_server> $<TARGET_FILE_DIR:Perlin>
+            VERBATIM)
+    endif()
+endif()

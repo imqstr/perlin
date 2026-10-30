@@ -2,6 +2,7 @@
 #include "client/multiplayer/BedrockSession.hpp"
 #include "client/player/PerlinStatusEffect.hpp"
 #include "client/resources/ServerBlocks.hpp"
+#include "client/ui/ItemData.hpp"
 
 #include <algorithm>
 #include <iterator>
@@ -112,7 +113,8 @@ namespace perlin {
             return static_cast<uint8_t>(v >= 7 ? v + 2 : v);
         }
 
-        ContainerSlotType gChestSlotType = ContainerSlotType::Container;
+        // the open container's cells, copied when a request is built
+        std::pair<ContainerSlotType, int> gCells[BedrockSession::kInvChestCount];
 
         void Address(StackRequestSlotInfo& s, int a, const ItemV4& raw) {
             using C = ContainerSlotType;
@@ -124,7 +126,7 @@ namespace perlin {
             else if (a >= BedrockSession::kInvWork0 && a < BedrockSession::kInvSlots) { type = C::CraftingInput; slot = 32 + a - BedrockSession::kInvWork0; }
             else if (a == BedrockSession::kInvOutput) { type = C::CreativeOutput; slot = 50; }
             else if (a == BedrockSession::kInvCursor) { type = C::Cursor; slot = 0; }
-            else if (a >= BedrockSession::kInvChest0 && a < BedrockSession::kInvTotal) { type = gChestSlotType; slot = a - BedrockSession::kInvChest0; }
+            else if (a >= BedrockSession::kInvChest0 && a < BedrockSession::kInvTotal) { type = gCells[a - BedrockSession::kInvChest0].first; slot = gCells[a - BedrockSession::kInvChest0].second; }
             else if (a >= BedrockSession::kInvHorse0 && a < BedrockSession::kInvChest0) {
                 const int h = a - BedrockSession::kInvHorse0;
                 if (h < 2) { type = C::HorseEquip; slot = h; }
@@ -286,7 +288,8 @@ namespace perlin {
                     std::copy(std::begin(extraRaw), std::end(extraRaw), std::begin(snapshot.extra));
                     std::copy(std::begin(chestRaw), std::end(chestRaw), std::begin(snapshot.chest));
                     std::copy(std::begin(horseRaw), std::end(horseRaw), std::begin(snapshot.horse));
-                    gChestSlotType = chestSlotType;
+                    for (int c = 0; c < kInvChestCount; c++)
+                        gCells[c] = {containerCells[c].type, containerCells[c].slot};
                     if (legacyInventory) {
                         if (op(r) && !r.actions.empty()) {
                             std::cout << "[inventory] legacy send " << r.actions.size() << " actions" << std::endl;
@@ -461,6 +464,8 @@ namespace perlin {
             auto& C = InvInfoLocked(kInvCursor);
             const ItemV4& sRaw = InvRawLocked(addr);
             const ItemV4& cRaw = InvRawLocked(kInvCursor);
+            if (inventory.resultCell >= 0 && addr == kInvChest0 + inventory.resultCell)
+                return InvStationCraftLocked(r, false);
             if (addr == kInvOutput) {
                 if (S.Empty() || craftedRecipe < 0 || craftedRecipe >= static_cast<int>(recipes.size()))
                     return false;
@@ -517,6 +522,8 @@ namespace perlin {
             }
             if (IsCraftAddr(addr))
                 InvRecomputeOutputLocked();
+            if (addr >= kInvChest0)
+                InvRecomputeStationLocked();
             return !r.actions.empty();
         });
     }
@@ -533,6 +540,8 @@ namespace perlin {
                 return false;
             const std::vector<std::pair<int, int>> mainThenHotbar = {{9, 35}, {0, 8}};
             bool ok = false;
+            if (inventory.resultCell >= 0 && addr == kInvChest0 + inventory.resultCell)
+                return InvStationCraftLocked(r, true);
             if (addr == kInvOutput) {
                 if (craftedRecipe < 0 || craftedRecipe >= static_cast<int>(recipes.size()))
                     return false;
@@ -551,8 +560,10 @@ namespace perlin {
             }
             if (addr >= kInvChest0) {
                 ok = QuickMove(m, addr, {{0, 8}, {9, 35}});
+                InvRecomputeStationLocked();
             } else if (addr < 36 && inventory.chestOpen && inventory.chestSlots > 0) {
-                ok = QuickMove(m, addr, {{kInvChest0, kInvChest0 + inventory.chestSlots - 1}});
+                ok = QuickMove(m, addr, InvStationTargetsLocked(S));
+                InvRecomputeStationLocked();
             } else if (addr >= kInvHorse0) {
                 ok = QuickMove(m, addr, mainThenHotbar);
             } else if (addr < 36 && inventory.horseOpen &&
@@ -996,5 +1007,498 @@ namespace perlin {
             out.push_back(s);
         }
         return out;
+    }
+
+    namespace {
+        std::string Bare(const std::string& n) { return n.rfind("minecraft:", 0) == 0 ? n.substr(10) : n; }
+
+        // vanilla enchantment ids: max level and anvil weight, indexed by id
+        constexpr int kEnchMax[] = {4, 4, 4, 4, 4, 3, 3, 1, 3, 5, 5, 5, 2, 2, 3, 5, 1, 3, 3, 5, 2, 1, 1, 3, 3, 2, 1, 1, 1, 5, 3, 3, 1, 1, 4, 3, 3, 3, 3, 5, 4};
+        constexpr int kEnchWeight[] = {1, 2, 2, 4, 2, 8, 4, 4, 4, 1, 2, 2, 2, 4, 4, 1, 8, 2, 4, 1, 4, 4, 8, 4, 4, 4, 4, 8, 8, 4, 4, 1, 8, 4, 1, 2, 8, 8, 8, 2, 4};
+
+        bool EnchCompatible(int a, int b) {
+            if (a == b)
+                return true;
+            const auto protection = [](int id) { return id == 0 || id == 1 || id == 3 || id == 4; };
+            const auto damage = [](int id) { return id == 9 || id == 10 || id == 11 || id == 39 || id == 40; };
+            if ((protection(a) && protection(b)) || (damage(a) && damage(b)))
+                return false;
+            // silk touch / fortune, infinity / mending, loyalty / riptide, channeling / riptide, multishot / piercing
+            const std::pair<int, int> exclusive[] = {{16, 18}, {22, 26}, {31, 30}, {32, 30}, {33, 34}, {5, 7}};
+            for (const auto& [x, y] : exclusive)
+                if ((a == x && b == y) || (a == y && b == x))
+                    return false;
+            return true;
+        }
+
+        bool RepairsWith(const std::string& item, const std::string& material) {
+            const std::string i = Bare(item), m = Bare(material);
+            const std::pair<const char*, const char*> kinds[] = {
+                {"wooden_", "planks"}, {"stone_", "cobblestone"}, {"iron_", "iron_ingot"}, {"golden_", "gold_ingot"},
+                {"diamond_", "diamond"}, {"netherite_", "netherite_ingot"}, {"leather_", "leather"}, {"chainmail_", "iron_ingot"}};
+            for (const auto& [prefix, mat] : kinds)
+                if (i.rfind(prefix, 0) == 0)
+                    return std::string(mat) == "planks" ? m.find("planks") != std::string::npos
+                         : std::string(mat) == "cobblestone" ? (m == "cobblestone" || m == "blackstone" || m == "cobbled_deepslate")
+                                                             : m == mat;
+            if (i == "turtle_helmet") return m == "turtle_scute" || m == "scute";
+            if (i == "elytra") return m == "phantom_membrane";
+            if (i == "mace") return m == "breeze_rod";
+            if (i == "shield") return m.find("planks") != std::string::npos;
+            if (i == "wolf_armor") return m == "armadillo_scute";
+            return false;
+        }
+
+        bool IsFuel(const std::string& name) {
+            const std::string n = Bare(name);
+            static const char* const kExact[] = {"coal", "charcoal", "coal_block", "lava_bucket", "blaze_rod", "stick", "bamboo", "dried_kelp_block",
+                                                 "bowl", "crafting_table", "bookshelf", "chest", "trapped_chest", "barrel", "scaffolding", "ladder"};
+            for (const char* e : kExact)
+                if (n == e)
+                    return true;
+            static const char* const kPart[] = {"_log", "_wood", "_planks", "_stem", "_hyphae", "wooden_", "_sapling", "_fence", "_slab", "_stairs", "_door",
+                                                "_trapdoor", "_sign", "_boat", "_button", "_pressure_plate", "_wool", "_carpet", "_banner"};
+            for (const char* p : kPart)
+                if (n.find(p) != std::string::npos && n.find("stone") == std::string::npos && n.find("brick") == std::string::npos &&
+                    n.find("crimson") == std::string::npos && n.find("warped") == std::string::npos)
+                    return true;
+            return false;
+        }
+
+        // banner patterns the loom offers for an item in its pattern slot
+        const char* SpecialPattern(const std::string& item) {
+            const std::pair<const char*, const char*> special[] = {{"flower", "flo"}, {"creeper", "cre"}, {"skull", "sku"}, {"mojang", "moj"},
+                                                                    {"globe", "glb"}, {"piglin", "pig"}, {"flow", "flw"}, {"guster", "gus"},
+                                                                    {"field_masoned", "bri"}, {"bordure_indented", "cbo"}};
+            for (const auto& [name, id] : special)
+                if (Bare(item) == std::string(name) + "_banner_pattern")
+                    return id;
+            return nullptr;
+        }
+    }
+
+    bool BedrockSession::StationIngMatches(const RecipeIngredientInfo& ing, const ItemStackInfo& it) const {
+        if (ing.empty)
+            return it.Empty();
+        if (it.Empty())
+            return false;
+        if (ing.name.empty() && !ing.tag.empty())
+            return TagMatches(ing.tag, it.name);
+        if (ing.name != it.name)
+            return false;
+        return ing.meta == 0x7fff || ing.meta < 0 || ing.meta == it.aux;
+    }
+
+    void BedrockSession::InvRecomputeStationLocked() {
+        using K = ContainerKind;
+        InventoryView& v = inventory;
+        v.stones.clear();
+        v.patterns.clear();
+        v.anvilCost = 0;
+        v.enchants = enchantOptions;
+        const int out = v.resultCell;
+        if (out < 0)
+            return;
+        v.chest[out] = ItemStackInfo{};
+        chestRaw[out] = ItemV4{};
+        const auto result = [&](ItemStackInfo info, const ItemV4& raw) {
+            info.count = std::max(1, info.count);
+            v.chest[out] = info;
+            chestRaw[out] = raw;
+            chestRaw[out].count = static_cast<uint16_t>(info.count);
+        };
+        switch (v.kind) {
+        case K::Stonecutter: {
+            if (v.chest[0].Empty())
+                break;
+            const StationRecipe* picked = nullptr;
+            for (const StationRecipe& sr : stationRecipes)
+                if (sr.block == "stonecutter" && StationIngMatches(sr.in[0], v.chest[0])) {
+                    if (static_cast<int>(v.stones.size()) == v.stationPick)
+                        picked = &sr;
+                    v.stones.push_back({sr.outInfo, sr.netId});
+                }
+            if (picked)
+                result(picked->outInfo, picked->out);
+            break;
+        }
+        case K::Smithing: {
+            for (const StationRecipe& sr : stationRecipes) {
+                if (sr.block != "smithing_table" || sr.in.size() != 3 || !StationIngMatches(sr.in[0], v.chest[0]) ||
+                    !StationIngMatches(sr.in[1], v.chest[1]) || !StationIngMatches(sr.in[2], v.chest[2]))
+                    continue;
+                // a trim keeps the base item; an upgrade becomes the result item with the base's enchantments and wear
+                ItemStackInfo info = v.chest[1];
+                ItemV4 raw = chestRaw[1];
+                if (!sr.trim) {
+                    info.name = sr.outInfo.name;
+                    info.aux = sr.outInfo.aux;
+                    raw.networkId = sr.out.networkId;
+                    raw.metadata = sr.out.metadata;
+                    raw.blockRuntimeId = sr.out.blockRuntimeId;
+                }
+                info.count = 1;
+                result(info, raw);
+                break;
+            }
+            break;
+        }
+        case K::Anvil: {
+            const ItemStackInfo& base = v.chest[0];
+            const ItemStackInfo& mat = v.chest[1];
+            if (base.Empty())
+                break;
+            ItemStackInfo info = base;
+            const int maximum = ui::MaxDurability(base.name);
+            int price = 0, rename = 0;
+            bool ok = true;
+            if (!mat.Empty()) {
+                if (maximum > 0 && RepairsWith(base.name, mat.name)) {
+                    const int step = std::max(1, maximum / 4);
+                    int used = 0;
+                    while (info.damage > 0 && used < mat.count) {
+                        info.damage = std::max(0, info.damage - step);
+                        used++;
+                        price++;
+                    }
+                    ok = used > 0;
+                } else {
+                    const bool book = Bare(mat.name) == "enchanted_book";
+                    if (!book && (mat.name != base.name || maximum <= 0)) {
+                        ok = false;
+                    } else {
+                        if (!book) {
+                            const int repaired = std::max(0, base.damage + mat.damage - maximum - maximum * 12 / 100);
+                            if (repaired < base.damage) {
+                                info.damage = repaired;
+                                price += 2;
+                            }
+                        }
+                        bool accepted = false, rejected = false;
+                        for (auto [id, level] : mat.enchants) {
+                            if (id < 0 || id >= static_cast<int>(std::size(kEnchMax))) {
+                                rejected = true;
+                                continue;
+                            }
+                            bool allowed = true;
+                            for (const auto& [have, haveLevel] : info.enchants)
+                                if (!EnchCompatible(id, have)) {
+                                    allowed = false;
+                                    price++;
+                                }
+                            if (!allowed) {
+                                rejected = true;
+                                continue;
+                            }
+                            auto it = std::find_if(info.enchants.begin(), info.enchants.end(), [&](const auto& e) { return e.first == id; });
+                            const int old = it == info.enchants.end() ? 0 : it->second;
+                            level = std::min(kEnchMax[id], old == level ? level + 1 : std::max(old, level));
+                            if (it == info.enchants.end())
+                                info.enchants.push_back({id, level});
+                            else
+                                it->second = level;
+                            price += (book ? std::max(1, kEnchWeight[id] / 2) : kEnchWeight[id]) * level;
+                            accepted = true;
+                        }
+                        ok = !(rejected && !accepted);
+                    }
+                }
+            }
+            if (v.anvilNameEdited && v.anvilName != base.customName) {
+                info.customName = v.anvilName;
+                rename = 1;
+                price++;
+            }
+            if (!ok || price <= 0)
+                break;
+            int total = price + base.repairCost + (mat.Empty() ? 0 : mat.repairCost);
+            if (rename == price)
+                total = std::min(total, 39);
+            v.anvilCost = total;
+            if (!v.creative && total >= 40)
+                break;
+            info.enchanted = !info.enchants.empty();
+            info.count = 1;
+            result(info, chestRaw[0]);
+            break;
+        }
+        case K::Grindstone: {
+            int first = 0, second = 1;
+            if (v.chest[first].Empty())
+                std::swap(first, second);
+            if (v.chest[first].Empty())
+                break;
+            ItemStackInfo info = v.chest[first];
+            const ItemStackInfo& other = v.chest[second];
+            const int maximum = ui::MaxDurability(info.name);
+            bool changed = false;
+            if (!other.Empty()) {
+                if (other.name != info.name || info.count != 1 || other.count != 1 || maximum <= 0)
+                    break;
+                info.damage = std::max(0, info.damage + other.damage - maximum - maximum / 20);
+                changed = true;
+            }
+            // curses of binding (27) and vanishing (28) stay
+            std::vector<std::pair<int, int>> kept;
+            for (const auto& e : info.enchants)
+                if (e.first == 27 || e.first == 28)
+                    kept.push_back(e);
+                else
+                    changed = true;
+            info.enchants = kept;
+            info.enchanted = !kept.empty();
+            ItemV4 raw = chestRaw[first];
+            if (Bare(info.name) == "enchanted_book" && kept.empty())
+                info.name = "minecraft:book";
+            if (changed)
+                result(info, raw);
+            break;
+        }
+        case K::Loom: {
+            const ItemStackInfo& banner = v.chest[0];
+            const ItemStackInfo& dye = v.chest[1];
+            const ItemStackInfo& pattern = v.chest[2];
+            if (banner.Empty() || dye.Empty() || Bare(banner.name).find("banner") == std::string::npos || Bare(dye.name).find("dye") == std::string::npos)
+                break;
+            if (!pattern.Empty()) {
+                if (const char* id = SpecialPattern(pattern.name))
+                    v.patterns.push_back(id);
+            } else {
+                for (const char* id : {"bs", "ts", "ls", "rs", "cs", "ms", "drs", "dls", "ss", "cr", "sc", "ld", "rud", "lud", "rd", "vh", "vhr",
+                                       "hh", "hhb", "bl", "br", "tl", "tr", "bt", "tt", "bts", "tts", "mc", "mr", "bo", "gra", "gru"})
+                    v.patterns.push_back(id);
+            }
+            if (v.stationPick >= 0 && v.stationPick < static_cast<int>(v.patterns.size())) {
+                ItemStackInfo info = banner;
+                info.count = 1;
+                result(info, chestRaw[0]);
+            }
+            break;
+        }
+        default: break;
+        }
+    }
+
+    std::vector<std::pair<int, int>> BedrockSession::InvStationTargetsLocked(const ItemStackInfo& item) const {
+        using K = ContainerKind;
+        const int c0 = kInvChest0;
+        const std::string n = Bare(item.name);
+        const auto one = [&](int cell) { return std::vector<std::pair<int, int>>{{c0 + cell, c0 + cell}}; };
+        switch (inventory.kind) {
+        case K::Furnace:
+        case K::BlastFurnace:
+        case K::Smoker: return IsFuel(item.name) && inventory.chest[1].Empty() ? one(1) : one(0);
+        case K::Brewing:
+            if (n.find("potion") != std::string::npos || n == "glass_bottle")
+                return {{c0 + 1, c0 + 3}};
+            return n == "blaze_powder" ? one(4) : one(0);
+        case K::Enchanting: return n == "lapis_lazuli" ? one(1) : one(0);
+        case K::Anvil:
+        case K::Grindstone: return inventory.chest[0].Empty() ? one(0) : one(1);
+        case K::Smithing:
+            if (n.find("smithing_template") != std::string::npos)
+                return one(0);
+            return inventory.chest[1].Empty() ? one(1) : one(2);
+        case K::Stonecutter:
+        case K::Beacon: return one(0);
+        case K::Loom:
+            if (n.find("banner_pattern") != std::string::npos)
+                return one(2);
+            return n.find("dye") != std::string::npos ? one(1) : one(0);
+        default: return {{c0, c0 + inventory.chestSlots - 1}};
+        }
+    }
+
+    bool BedrockSession::InvStationCraftLocked(ItemStackRequest& r, bool toInventory) {
+        using K = ContainerKind;
+        InventoryView& v = inventory;
+        const int cell = v.resultCell;
+        if (cell < 0 || v.chest[cell].Empty())
+            return false;
+        const int addr = kInvChest0 + cell;
+        Mover m{*this, r, [this](int a) -> ItemStackInfo& { return InvInfoLocked(a); }, [this](int a) -> ItemV4& { return InvRawLocked(a); }};
+        const ItemStackInfo outInfo = v.chest[cell];
+        const ItemV4 outRaw = chestRaw[cell];
+        const ItemStackInfo& cursor = v.cursor;
+        if (!toInventory && !cursor.Empty() && (!SameStack(extraRaw[kInvCursor - 36], outRaw) || cursor.count + outInfo.count > MaxStack(cursor.name)))
+            return false;
+        ItemStackRequestActionsEntry craft;
+        std::vector<std::pair<int, int>> consume;
+        switch (v.kind) {
+        case K::Anvil: {
+            if (repairRecipe == 0 || (!v.creative && v.anvilCost > v.level))
+                return false;
+            craft.typeId = ItemStackRequestActionsEntryTypeId::Optional;
+            craft.recipeNetworkId = repairRecipe;
+            craft.filteredStringIndex = v.anvilNameEdited ? 0 : -1;
+            if (v.anvilNameEdited) {
+                r.customNames.push_back(v.anvilName);
+                r.cause = ItemStackRequestCause::AnvilText;
+            }
+            consume.push_back({0, v.chest[0].count});
+            if (!v.chest[1].Empty()) {
+                int used = 1;
+                if (RepairsWith(v.chest[0].name, v.chest[1].name)) {
+                    const int maximum = std::max(1, ui::MaxDurability(v.chest[0].name));
+                    used = std::min(v.chest[1].count, (v.chest[0].damage + std::max(1, maximum / 4) - 1) / std::max(1, maximum / 4));
+                }
+                consume.push_back({1, std::max(1, used)});
+            }
+            break;
+        }
+        case K::Grindstone:
+            craft.typeId = ItemStackRequestActionsEntryTypeId::CraftGrindstoneRequest;
+            craft.recipeNetworkId2 = 0;
+            craft.timesCrafted = 1;
+            for (int c = 0; c < 2; c++)
+                if (!v.chest[c].Empty())
+                    consume.push_back({c, v.chest[c].count});
+            break;
+        case K::Loom:
+            if (v.stationPick < 0 || v.stationPick >= static_cast<int>(v.patterns.size()))
+                return false;
+            craft.typeId = ItemStackRequestActionsEntryTypeId::CraftLoomRequest;
+            craft.pattern = v.patterns[static_cast<size_t>(v.stationPick)];
+            craft.timesCrafted = 1;
+            consume = {{0, 1}, {1, 1}};
+            break;
+        case K::Stonecutter:
+            if (v.stationPick < 0 || v.stationPick >= static_cast<int>(v.stones.size()))
+                return false;
+            craft.typeId = ItemStackRequestActionsEntryTypeId::CraftRecipe;
+            craft.recipeNetworkId = v.stones[static_cast<size_t>(v.stationPick)].netId;
+            craft.timesCrafted = 1;
+            consume = {{0, 1}};
+            break;
+        case K::Smithing: {
+            const StationRecipe* found = nullptr;
+            for (const StationRecipe& sr : stationRecipes)
+                if (sr.block == "smithing_table" && sr.in.size() == 3 && StationIngMatches(sr.in[0], v.chest[0]) &&
+                    StationIngMatches(sr.in[1], v.chest[1]) && StationIngMatches(sr.in[2], v.chest[2])) {
+                    found = &sr;
+                    break;
+                }
+            if (!found)
+                return false;
+            craft.typeId = ItemStackRequestActionsEntryTypeId::CraftRecipe;
+            craft.recipeNetworkId = found->netId;
+            craft.timesCrafted = 1;
+            consume = {{0, 1}, {1, 1}, {2, 1}};
+            break;
+        }
+        default: return false;
+        }
+        craft.legacyTypeId = LegacyActionId(craft.typeId);
+        r.actions.push_back(craft);
+        ItemStackRequestActionsEntry res;
+        res.typeId = ItemStackRequestActionsEntryTypeId::ResultsDeprecated;
+        res.legacyTypeId = LegacyActionId(res.typeId);
+        ItemStackRequestInstanceDescriptor d;
+        d.type = ItemStackRequestInstanceDescriptorType::Name;
+        d.legacyType = 1;
+        d.name = outInfo.name;
+        d.metadata = static_cast<int32_t>(outRaw.metadata);
+        d.count = static_cast<int16_t>(outInfo.count);
+        d.blockRuntimeId = outRaw.blockRuntimeId;
+        res.resultItems.push_back(d);
+        res.timesCrafted = 1;
+        r.actions.push_back(res);
+        for (const auto& [c, n] : consume) {
+            const int a = kInvChest0 + c;
+            if (InvInfoLocked(a).Empty())
+                continue;
+            ItemStackRequestActionsEntry act;
+            act.typeId = ItemStackRequestActionsEntryTypeId::Consume;
+            act.legacyTypeId = LegacyActionId(act.typeId);
+            act.count = static_cast<uint8_t>(std::min(n, InvInfoLocked(a).count));
+            Address(act.source, a, InvRawLocked(a));
+            r.actions.push_back(act);
+            auto& inf = InvInfoLocked(a);
+            auto& rw = InvRawLocked(a);
+            inf.count -= act.count;
+            rw.count = static_cast<uint16_t>(rw.count - act.count);
+            if (inf.count <= 0) {
+                inf = ItemStackInfo{};
+                rw = ItemV4{};
+            }
+        }
+        v.chest[cell] = outInfo;
+        chestRaw[cell] = outRaw;
+        chestRaw[cell].stackId = r.requestId;
+        chestRaw[cell].hasStackId = true;
+        bool ok = true;
+        if (toInventory)
+            ok = QuickMove(m, addr, {{0, 8}, {9, 35}});
+        else
+            m.Move(addr, kInvCursor, outInfo.count);
+        if (v.kind == K::Anvil) {
+            v.anvilName.clear();
+            v.anvilNameEdited = false;
+        }
+        v.stationPick = v.kind == K::Stonecutter ? v.stationPick : -1;
+        InvRecomputeStationLocked();
+        return ok;
+    }
+
+    void BedrockSession::InvStationPick(int index) {
+        std::lock_guard lock(statusMutex);
+        inventory.stationPick = index;
+        InvRecomputeStationLocked();
+    }
+
+    void BedrockSession::InvAnvilName(const std::string& name) {
+        std::lock_guard lock(statusMutex);
+        inventory.anvilName = name;
+        inventory.anvilNameEdited = true;
+        InvRecomputeStationLocked();
+    }
+
+    void BedrockSession::InvEnchant(int option) {
+        InvEnqueue([this, option](ItemStackRequest& r) {
+            const InventoryView& v = inventory;
+            if (v.kind != ContainerKind::Enchanting || option < 0 || option >= static_cast<int>(enchantOptions.size()))
+                return false;
+            const EnchantChoice& choice = enchantOptions[static_cast<size_t>(option)];
+            if (!v.creative && (v.level < choice.cost || v.chest[1].count <= option))
+                return false;
+            ItemStackRequestActionsEntry craft;
+            craft.typeId = ItemStackRequestActionsEntryTypeId::CraftRecipe;
+            craft.legacyTypeId = LegacyActionId(craft.typeId);
+            craft.recipeNetworkId = static_cast<uint32_t>(choice.optionId);
+            craft.timesCrafted = 1;
+            r.actions.push_back(craft);
+            ItemStackRequestActionsEntry res;
+            res.typeId = ItemStackRequestActionsEntryTypeId::ResultsDeprecated;
+            res.legacyTypeId = LegacyActionId(res.typeId);
+            res.timesCrafted = 1;
+            r.actions.push_back(res);
+            return true;
+        });
+    }
+
+    void BedrockSession::InvBeacon(int primary, int secondary) {
+        InvEnqueue([this, primary, secondary](ItemStackRequest& r) {
+            if (inventory.kind != ContainerKind::Beacon || inventory.chest[0].Empty() || primary <= 0)
+                return false;
+            ItemStackRequestActionsEntry pay;
+            pay.typeId = ItemStackRequestActionsEntryTypeId::BeaconPayment;
+            pay.legacyTypeId = LegacyActionId(pay.typeId);
+            pay.primaryEffect = primary;
+            pay.secondaryEffect = secondary;
+            r.actions.push_back(pay);
+            ItemStackRequestActionsEntry destroy;
+            destroy.typeId = ItemStackRequestActionsEntryTypeId::Destroy;
+            destroy.legacyTypeId = LegacyActionId(destroy.typeId);
+            destroy.count = 1;
+            Address(destroy.source, kInvChest0, chestRaw[0]);
+            r.actions.push_back(destroy);
+            inventory.chest[0].count -= 1;
+            chestRaw[0].count = static_cast<uint16_t>(chestRaw[0].count - 1);
+            if (inventory.chest[0].count <= 0) {
+                inventory.chest[0] = ItemStackInfo{};
+                chestRaw[0] = ItemV4{};
+            }
+            return true;
+        });
     }
 }

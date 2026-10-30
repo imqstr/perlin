@@ -115,9 +115,70 @@ static void TestUserOverride() {
     CHECK(p.tier == Tier::Low && p.renderDistance == 8 && !p.frameGeneration);
 }
 
+constexpr uint32_t kVk12 = (1u << 22) | (2u << 12);
+constexpr uint32_t kVk13 = (1u << 22) | (3u << 12);
+
+static void TestAmdPrefersVulkanOnWindows() {
+    Candidate vk = Make(Api::Vulkan, 0, "RX 7800 XT", vendor_id::kAmd, AdapterType::Discrete, 16);
+    Candidate dx = Make(Api::D3D12, 0, "RX 7800 XT", vendor_id::kAmd, AdapterType::Discrete, 16);
+    vk.adapter.apiVersion = kVk13;
+    vk.adapter.driverName = "AMD proprietary driver";
+    WithCaps(vk);
+    WithCaps(dx);
+    RenderProfile p = ChooseProfile(Machine({dx, vk}), {}, {}, true, false);
+    CHECK(p.api == Api::Vulkan);
+    CHECK(p.fallbacks.size() == 2 && p.fallbacks[1].adapter.api == Api::D3D12);
+
+    // an older driver that stops at vulkan 1.2 sends it back to d3d12
+    vk.adapter.apiVersion = kVk12;
+    p = ChooseProfile(Machine({dx, vk}), {}, {}, true, false);
+    CHECK(p.api == Api::D3D12);
+
+    // a vulkan crash on this driver falls back as well
+    vk.adapter.apiVersion = kVk13;
+    std::vector<KnownFailure> failures;
+    RecordFailure(failures, vk.adapter);
+    RecordFailure(failures, vk.adapter);
+    CHECK(ChooseProfile(Machine({dx, vk}), {}, failures, true, false).api == Api::D3D12);
+
+    // the user can still force direct3d 12
+    UserChoice u;
+    u.api = Api::D3D12;
+    CHECK(ChooseProfile(Machine({dx, vk}), u, {}, true, false).api == Api::D3D12);
+}
+
+static void TestNvidiaKeepsD3D12() {
+    Candidate vk = Make(Api::Vulkan, 0, "RTX 4070", vendor_id::kNvidia, AdapterType::Discrete, 12);
+    Candidate dx = Make(Api::D3D12, 0, "RTX 4070", vendor_id::kNvidia, AdapterType::Discrete, 12);
+    vk.adapter.apiVersion = kVk13;
+    WithCaps(vk);
+    WithCaps(dx);
+    CHECK(ChooseProfile(Machine({vk, dx}), {}, {}, true, false).api == Api::D3D12);
+}
+
+static void TestTranslationLayerLoses() {
+    Candidate vk = Make(Api::Vulkan, 0, "Microsoft Direct3D12 (AMD Radeon RX 580)", vendor_id::kAmd, AdapterType::Discrete, 8);
+    Candidate dx = Make(Api::D3D12, 0, "AMD Radeon RX 580", vendor_id::kAmd, AdapterType::Discrete, 8);
+    vk.adapter.apiVersion = kVk13;
+    vk.adapter.driverName = "Dozen";
+    WithCaps(vk);
+    WithCaps(dx);
+    CHECK(ChooseProfile(Machine({vk, dx}), {}, {}, true, false).api == Api::D3D12);
+    // alone it still runs: better than no renderer
+    CHECK(ChooseProfile(Machine({vk}), {}, {}, true, false).api == Api::Vulkan);
+}
+
+static void TestAmdOnLinuxStaysVulkan() {
+    Candidate vk = Make(Api::Vulkan, 0, "RX 7800 XT", vendor_id::kAmd, AdapterType::Discrete, 16);
+    vk.adapter.apiVersion = kVk13;
+    vk.adapter.driverName = "radv";
+    WithCaps(vk);
+    CHECK(ChooseProfile(Machine({vk}), {}, {}, false, false).api == Api::Vulkan);
+}
+
 static void TestFailureMemory() {
-    Candidate vk = Make(Api::Vulkan, 0, "GPU", vendor_id::kAmd, AdapterType::Discrete, 8);
-    Candidate dx = Make(Api::D3D12, 0, "GPU", vendor_id::kAmd, AdapterType::Discrete, 8);
+    Candidate vk = Make(Api::Vulkan, 0, "GPU", vendor_id::kNvidia, AdapterType::Discrete, 8);
+    Candidate dx = Make(Api::D3D12, 0, "GPU", vendor_id::kNvidia, AdapterType::Discrete, 8);
     std::vector<KnownFailure> failures;
     RecordFailure(failures, dx.adapter);
     // one failure is bad luck
@@ -158,6 +219,10 @@ static void TestRealProbe() {
 
 int main() {
     TestDesktopNvidia();
+    TestAmdPrefersVulkanOnWindows();
+    TestNvidiaKeepsD3D12();
+    TestTranslationLayerLoses();
+    TestAmdOnLinuxStaysVulkan();
     TestLinuxPrefersVulkan();
     TestIntegratedIsCapped();
     TestSoftwareLast();

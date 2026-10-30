@@ -16,6 +16,9 @@
 #include "client/input/Input.hpp"
 #include "client/input/InputManager.hpp"
 #include "client/multiplayer/BedrockSession.hpp"
+#ifdef PERLIN_SINGLEPLAYER
+#include "EmbeddedServer.hpp"
+#endif
 #include "client/replay/ExportConfig.hpp"
 #include "client/replay/Ffmpeg.hpp"
 #include "client/replay/FfmpegDownload.hpp"
@@ -156,8 +159,17 @@ namespace perlin {
         float invPanel[4] = {};
         bool invJsonPanel = false, invCloseClicked = false;
         std::string invChestScreen, invChestProblem;
+        // station screen state the server never sees until confirmed
+        std::string anvilName;
+        bool anvilFocused = false;
+        int beaconPrimary = 0, beaconSecondary = 0;
+        int invContainerSeen = 0;
         uint64_t invTemplateVersion = 0;
         void UpdatePauseScreen(ui::Hud& hud, BedrockSession* live, int fbW, int fbH);
+        void CenterCursorForGui() {
+            if (options.centerCursor)
+                input.RequestCursorCenter();
+        }
         bool UpdateDisconnectScreen(ui::Hud& hud, int fbW, int fbH);
         bool UpdateLoadingScreen(ui::Hud& hud, int fbW, int fbH);
         bool UpdateTitleScreen(ui::Hud& hud, int fbW, int fbH);
@@ -679,6 +691,12 @@ namespace perlin {
         int replayClickRow = -1;
         std::chrono::steady_clock::time_point replayClickAt{};
         std::unique_ptr<BedrockSession> session;
+        // singleplayer: the world server runs in this process; its transport is handed to the next Connect
+        void JoinSingleplayer();
+#ifdef PERLIN_SINGLEPLAYER
+        std::unique_ptr<EmbeddedServer> singleplayerServer;
+#endif
+        std::unique_ptr<Transport> pendingSingleplayer;
         std::shared_ptr<xbox::Account> account;
         std::mutex statusMutex;
         std::string statusHint;

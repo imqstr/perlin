@@ -2253,8 +2253,8 @@ vec3 GetShadowPos(vec3 playerPos) {
 
 // @included "/lib/atmospherics/volumetricLight/volumetricLight.glsl"
 vec4 DistortShadow(vec4 shadowpos, float distortFactor) {
-    shadowpos.xy *= 1.0 / distortFactor;
-    shadowpos.z = shadowpos.z * 0.2;
+    
+    
     shadowpos = shadowpos * 0.5 + 0.5;
 
     return shadowpos;

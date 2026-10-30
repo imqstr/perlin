@@ -763,7 +763,12 @@ namespace rhi::d3d12 {
             }
         }
         if (FAILED(hr)) {
-            ReportError("CreateGraphicsPipelineState failed for '" + std::string(desc.name ? desc.name : "") + "'");
+            {
+                char code[32];
+                std::snprintf(code, sizeof(code), "0x%08X", static_cast<unsigned>(hr));
+                ReportError("CreateGraphicsPipelineState failed (" + std::string(code) + ") for '" + std::string(desc.name ? desc.name : "") + "' rt=" +
+                            std::to_string(desc.colorCount) + " attrs=" + std::to_string(desc.attributeCount));
+            }
             return {};
         }
         if (desc.name)

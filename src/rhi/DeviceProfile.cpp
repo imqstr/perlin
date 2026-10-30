@@ -1,6 +1,7 @@
 #include "rhi/DeviceProfile.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -38,6 +39,66 @@ namespace rhi {
         }
 
         bool IsSoftware(const AdapterInfo& a) { return a.type == AdapterType::Cpu || a.type == AdapterType::Virtual; }
+
+        // packed VK_API_VERSION 1.3: a driver this new is recent enough to trust with the whole renderer
+        constexpr uint32_t kVulkan13 = (1u << 22) | (3u << 12);
+
+        bool Contains(const std::string& haystack, const char* needle) {
+            std::string h = haystack;
+            std::transform(h.begin(), h.end(), h.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            return h.find(needle) != std::string::npos;
+        }
+
+        // vulkan implemented on top of another api, or in software: works, but never beats the native path
+        bool IsTranslationLayer(const AdapterInfo& a) {
+            return a.api == Api::Vulkan && (Contains(a.driverName, "dozen") || Contains(a.driverName, "moltenvk") ||
+                                           Contains(a.driverName, "gfxstream") || Contains(a.driverName, "venus") ||
+                                           Contains(a.name, "d3d12") || Contains(a.name, "microsoft direct3d"));
+        }
+
+        // what this adapter's driver says about its api: positive favours it, negative steers to another api for the same gpu
+        double DriverAdjust(const AdapterInfo& a, bool windows, bool apple, std::string* note) {
+            auto say = [&](const char* text) {
+                if (note)
+                    *note = text;
+            };
+            if (IsTranslationLayer(a)) {
+                say("vulkan here is a translation layer over another api: native api preferred");
+                return -300.0;
+            }
+            if (!windows || apple || a.type == AdapterType::Cpu || a.type == AdapterType::Virtual)
+                return 0.0;
+            // apiVersion 0 = unknown (synthetic or unreadable): no opinion
+            const bool recentVulkan = a.api == Api::Vulkan && a.apiVersion >= kVulkan13;
+            const bool oldVulkan = a.api == Api::Vulkan && a.apiVersion != 0 && a.apiVersion < kVulkan13;
+            switch (a.vendorId) {
+            case vendor_id::kAmd:
+                // radeon: the vulkan driver is the better-tested path on windows; an older one that only reaches 1.2 is not
+                if (recentVulkan) {
+                    say("amd gpu with a current vulkan driver: vulkan preferred");
+                    return 35.0;
+                }
+                if (oldVulkan) {
+                    say("amd vulkan driver is old (below 1.3): direct3d 12 preferred");
+                    return -40.0;
+                }
+                return 0.0;
+            case vendor_id::kNvidia:
+                // geforce: d3d12 stays first; only a very old vulkan driver is held back further
+                if (oldVulkan) {
+                    say("nvidia vulkan driver is old (below 1.3): direct3d 12 preferred");
+                    return -20.0;
+                }
+                return 0.0;
+            case vendor_id::kIntel:
+                if (oldVulkan) {
+                    say("intel vulkan driver is old (below 1.3): direct3d 12 preferred");
+                    return -40.0;
+                }
+                return 0.0;
+            default: return 0.0;
+            }
+        }
 
         double ApiBase(Api api, bool windows, bool apple) {
             switch (api) {
@@ -84,6 +145,7 @@ namespace rhi {
         // d3d12 on pre-xe intel and old mobile parts is the more mature path
         if (windows && a.vendorId == vendor_id::kIntel && a.type == AdapterType::Integrated && a.api == Api::Vulkan)
             s -= 30;
+        s += DriverAdjust(a, windows, apple, nullptr);
         return s;
     }
 
@@ -197,6 +259,9 @@ namespace rhi {
             c.score = ScoreCandidate(c, windows, apple);
             if (c.score < -1e8)
                 continue;
+            std::string driverNote;
+            if (DriverAdjust(c.adapter, windows, apple, &driverNote) != 0.0 && !driverNote.empty())
+                c.notes.push_back(driverNote);
             if (Failed(failures, c.adapter)) {
                 c.score -= 5000;
                 c.notes.push_back("failed on a previous launch with this driver");
@@ -259,9 +324,10 @@ namespace rhi {
         p.lodMaxLevel = p.tier >= Tier::High ? 4 : 3;
 
         // meshes live in gpu memory: a share of it, never so much that the frame buffers and textures starve
-        const uint64_t share = mem ? mem / 4 : (256ull << 20);
-        p.meshBudgetBytes = std::clamp<uint64_t>(share, 128ull << 20, 4ull << 30);
-        p.retainBudgetBytes = p.meshBudgetBytes / 4;
+        // geometry only needs what the view distance fills; the rest of video memory is better left free for the driver and other apps
+        const uint64_t share = mem ? mem / 6 : (192ull << 20);
+        p.meshBudgetBytes = std::clamp<uint64_t>(share, 96ull << 20, 2ull << 30);
+        p.retainBudgetBytes = p.meshBudgetBytes / 6;
 
         p.framesInFlight = (p.tier >= Tier::Medium && best.adapter.type == AdapterType::Discrete) ? 3 : 2;
         p.gpuCulling = !haveCaps ? p.tier >= Tier::Medium : (f.drawIndirectCount || f.multiDrawIndirect);

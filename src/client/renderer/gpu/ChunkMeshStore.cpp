@@ -16,15 +16,45 @@ namespace perlin::gpu {
             return;
         for (Page& p : pages) {
             p.vb.Destroy(gpu->Dev());
+            p.ext.Destroy(gpu->Dev());
             for (Arena& a : p.ib)
                 a.Destroy(gpu->Dev());
         }
         pages.clear();
     }
 
+    void ChunkMeshStore::SetExtension(uint32_t bytesPerVertex, ExtendFn convert) {
+        if (bytesPerVertex == extBytes && static_cast<bool>(convert) == static_cast<bool>(extConvert)) {
+            extConvert = std::move(convert);
+            return;
+        }
+        chunks.clear();
+        lods.clear();
+        lodGroups.clear();
+        visible.clear();
+        visibleSections.clear();
+        if (gpu) {
+            gpu->Dev().WaitIdle();
+            for (Page& p : pages) {
+                if (!p.live)
+                    continue;
+                p.vb.Destroy(gpu->Dev());
+                p.ext.Destroy(gpu->Dev());
+                for (Arena& a : p.ib)
+                    a.Destroy(gpu->Dev());
+                p.live = false;
+            }
+        }
+        pages.clear();
+        extBytes = bytesPerVertex;
+        extConvert = std::move(convert);
+        generation++;
+    }
+
     void ChunkMeshStore::Clear() {
         chunks.clear();
         lods.clear();
+        lodGroups.clear();
         visible.clear();
         visibleSections.clear();
         // pages keep their buffers; every range is returned so the next meshes reuse them
@@ -44,6 +74,8 @@ namespace perlin::gpu {
             if (!p.live)
                 continue;
             sources.push_back({p.vb.Buffer(), p.vb.BarrierState(), p.vb.Bytes()});
+            if (extBytes)
+                sources.push_back({p.ext.Buffer(), p.ext.BarrierState(), p.ext.Bytes()});
             for (Arena& a : p.ib)
                 sources.push_back({a.Buffer(), a.BarrierState(), a.Bytes()});
         }
@@ -64,6 +96,8 @@ namespace perlin::gpu {
             if (!p.live)
                 continue;
             drop(p.vb);
+            if (extBytes)
+                drop(p.ext);
             for (Arena& a : p.ib)
                 drop(a);
         }
@@ -86,6 +120,8 @@ namespace perlin::gpu {
             if (!p.live)
                 continue;
             restore(p.vb);
+            if (extBytes)
+                restore(p.ext);
             for (Arena& a : p.ib)
                 restore(a);
         }
@@ -95,11 +131,14 @@ namespace perlin::gpu {
     int ChunkMeshStore::CreatePage(uint32_t vCap, const std::array<uint32_t, kRenderLayerCount>& iCap) {
         Page p;
         bool ok = p.vb.Create(gpu->Dev(), vCap, sizeof(Vertex), rhi::BufferUsage::Vertex | rhi::BufferUsage::Storage, "chunk vertices");
+        if (ok && extBytes)
+            ok = p.ext.Create(gpu->Dev(), vCap, extBytes, rhi::BufferUsage::Vertex, "chunk vertex extras");
         for (size_t l = 0; l < kRenderLayerCount && ok; l++)
             ok = p.ib[l].Create(gpu->Dev(), std::max(1u, iCap[l]), sizeof(uint32_t), rhi::BufferUsage::Index | rhi::BufferUsage::Storage,
                                 "chunk indices");
         if (!ok) {
             p.vb.Destroy(gpu->Dev());
+            p.ext.Destroy(gpu->Dev());
             for (Arena& a : p.ib)
                 a.Destroy(gpu->Dev());
             return -1;
@@ -163,6 +202,7 @@ namespace perlin::gpu {
             if (++p.emptyFrames < 600)
                 continue;
             p.vb.Destroy(gpu->Dev());
+            p.ext.Destroy(gpu->Dev());
             for (Arena& a : p.ib)
                 a.Destroy(gpu->Dev());
             p.live = false;
@@ -189,10 +229,50 @@ namespace perlin::gpu {
         const auto it = target.find(Key(cx, cz));
         if (it == target.end())
             return;
+        if (lod)
+            LodDrop(it->second);
         Free(it->second);
         target.erase(it);
         if (!lod)
             generation++;
+    }
+
+    void ChunkMeshStore::Recalc(LodGroup& g) {
+        bool first = true;
+        for (const Chunk* m : g.members) {
+            const float s = static_cast<float>(m->size);
+            const float x0 = m->cx * s, z0 = m->cz * s;
+            if (first) {
+                g.x0 = x0; g.z0 = z0; g.x1 = x0 + s; g.z1 = z0 + s; g.minY = m->minY; g.maxY = m->maxY;
+                first = false;
+            } else {
+                g.x0 = std::min(g.x0, x0); g.z0 = std::min(g.z0, z0);
+                g.x1 = std::max(g.x1, x0 + s); g.z1 = std::max(g.z1, z0 + s);
+                g.minY = std::min(g.minY, m->minY); g.maxY = std::max(g.maxY, m->maxY);
+            }
+        }
+    }
+
+    void ChunkMeshStore::LodAdd(const Chunk& chunk) {
+        LodGroup& g = lodGroups[Key(chunk.cx >> 3, chunk.cz >> 3)];
+        g.members.push_back(&chunk);
+        Recalc(g);
+    }
+
+    void ChunkMeshStore::LodDrop(const Chunk& chunk) {
+        const auto it = lodGroups.find(Key(chunk.cx >> 3, chunk.cz >> 3));
+        if (it == lodGroups.end())
+            return;
+        auto& members = it->second.members;
+        const auto at = std::find(members.begin(), members.end(), &chunk);
+        if (at != members.end()) {
+            *at = members.back();
+            members.pop_back();
+        }
+        if (members.empty())
+            lodGroups.erase(it);
+        else
+            Recalc(it->second);
     }
 
     void ChunkMeshStore::Upload(std::unordered_map<int64_t, Chunk>& target, bool lod, int cx, int cz, int size, const Tessellator& tess,
@@ -202,6 +282,8 @@ namespace perlin::gpu {
         auto it = target.find(key);
         if (verts.empty() || tess.Empty()) {
             if (it != target.end()) {
+                if (lod)
+                    LodDrop(it->second);
                 Free(it->second);
                 target.erase(it);
                 if (!lod)
@@ -212,6 +294,8 @@ namespace perlin::gpu {
         if (it != target.end() && it->second.version == version)
             return;
         if (it != target.end()) {
+            if (lod)
+                LodDrop(it->second);
             Free(it->second);
             target.erase(it);
         }
@@ -225,6 +309,13 @@ namespace perlin::gpu {
         Page& pg = pages[static_cast<size_t>(g.page)];
 
         gpu->WriteBuffer(pg.vb, static_cast<uint64_t>(g.vOff) * sizeof(Vertex), verts.data(), static_cast<uint64_t>(g.vCount) * sizeof(Vertex));
+        if (extBytes && extConvert && pg.ext.Buffer()) {
+            static thread_local std::vector<uint8_t> extra;
+            extra.clear();
+            extConvert(tess, extra);
+            if (extra.size() == static_cast<size_t>(g.vCount) * extBytes)
+                gpu->WriteBuffer(pg.ext, static_cast<uint64_t>(g.vOff) * extBytes, extra.data(), extra.size());
+        }
         static thread_local std::vector<uint32_t> shifted;
         for (size_t l = 0; l < kRenderLayerCount; l++) {
             const auto& list = tess.Indices(static_cast<RenderLayer>(l));
@@ -277,7 +368,9 @@ namespace perlin::gpu {
         }
         if (!lod)
             generation++;
-        target[key] = std::move(g);
+        Chunk& stored = target[key] = std::move(g);
+        if (lod)
+            LodAdd(stored);
     }
 
     uint64_t ChunkMeshStore::VertexBytes() const {
@@ -331,19 +424,33 @@ namespace perlin::gpu {
             const float dx = x0 + 8.0f - camX, dz = z0 + 8.0f - camZ;
             visible.push_back({dx * dx + dz * dz, &g, result == Frustum::Result::Inside});
         }
-        for (const auto& entry : lods) {
-            const Chunk& g = entry.second;
-            if (g.page < 0 || g.sections.empty())
-                continue;
-            const float s = static_cast<float>(g.size);
-            const float x0 = g.cx * s, z0 = g.cz * s;
-            const auto result = frustum.Test(x0, g.minY, z0, x0 + s, g.maxY, z0 + s);
-            if (result == Frustum::Result::Outside)
-                continue;
-            const float dx = x0 + s * 0.5f - camX, dz = z0 + s * 0.5f - camZ;
-            visible.push_back({dx * dx + dz * dz, &g, result == Frustum::Result::Inside});
-        }
+        // real chunks are drawn near to far; lod tiles go after them grouped by buffer range, which merges them into few draws
         std::sort(visible.begin(), visible.end(), [](const Visible& x, const Visible& y) { return x.distance < y.distance; });
+        const size_t realCount = visible.size();
+        for (const auto& [gkey, group] : lodGroups) {
+            const auto groupResult = frustum.Test(group.x0, group.minY, group.z0, group.x1, group.maxY, group.z1);
+            if (groupResult == Frustum::Result::Outside)
+                continue;
+            for (const Chunk* g : group.members) {
+                if (g->page < 0 || g->sections.empty())
+                    continue;
+                const float s = static_cast<float>(g->size);
+                const float x0 = g->cx * s, z0 = g->cz * s;
+                Frustum::Result result = groupResult;
+                if (result != Frustum::Result::Inside) {
+                    result = frustum.Test(x0, g->minY, z0, x0 + s, g->maxY, z0 + s);
+                    if (result == Frustum::Result::Outside)
+                        continue;
+                }
+                const float dx = x0 + s * 0.5f - camX, dz = z0 + s * 0.5f - camZ;
+                visible.push_back({dx * dx + dz * dz, g, result == Frustum::Result::Inside});
+            }
+        }
+        std::sort(visible.begin() + static_cast<std::ptrdiff_t>(realCount), visible.end(), [](const Visible& x, const Visible& y) {
+            if (x.chunk->page != y.chunk->page)
+                return x.chunk->page < y.chunk->page;
+            return x.chunk->iOff[0] < y.chunk->iOff[0];
+        });
         for (Visible& item : visible) {
             const Chunk& g = *item.chunk;
             const float x0 = g.cx * static_cast<float>(g.size), z0 = g.cz * static_cast<float>(g.size);

@@ -197,6 +197,8 @@ namespace perlin {
                         info.damage = r.I16();
                     else if (t == 3 && name == "Damage")
                         info.damage = r.I32();
+                    else if (t == 3 && name == "RepairCost")
+                        info.repairCost = r.I32();
                     else if (t == 3 && name == "customColor") {
                         info.color = r.I32();
                         info.hasColor = true;
