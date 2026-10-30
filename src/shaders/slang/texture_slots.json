@@ -171,5 +171,9 @@
   "s_colortex15": [
     41,
     "2d"
+  ],
+  "s_javaMaterials": [
+    42,
+    "2d"
   ]
 }

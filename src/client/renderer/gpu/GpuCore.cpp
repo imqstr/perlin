@@ -29,15 +29,16 @@ namespace perlin::gpu {
 
     uint32_t FormatBytes(Format format) { return GetFormatInfo(format).bytesPerBlock; }
 
-    std::array<uint64_t, 3> PipelineKey::Pack() const {
+    std::array<uint64_t, 4> PipelineKey::Pack() const {
         const auto u = [](auto v) { return static_cast<uint64_t>(static_cast<uint32_t>(v)); };
-        std::array<uint64_t, 3> out{};
+        std::array<uint64_t, 4> out{};
         out[0] = u(program) | (u(layout) << 16) | (u(cull) << 24) | (u(front) << 28) | (u(depthTest) << 32) | (u(depthWrite) << 33) |
                  (u(blend) << 34) | (u(alphaToCoverage) << 35) | (u(depthOp) << 36) | (u(mask) << 40) | (u(color) << 48);
         out[1] = u(srcColor) | (u(dstColor) << 8) | (u(srcAlpha) << 16) | (u(dstAlpha) << 24) | (u(depth) << 32) |
                  (static_cast<uint64_t>(static_cast<uint16_t>(biasConstant)) << 48);
         out[2] = static_cast<uint64_t>(static_cast<uint16_t>(biasSlope)) | (u(alphaOp) << 16) | (u(colorCount) << 24) |
                  (u(color1) << 32);
+        out[3] = u(color2);
         return out;
     }
 
@@ -340,8 +341,17 @@ namespace perlin::gpu {
                 gd.colorFormats[1] = key.color1;
                 gd.colorCount = 2;
             }
+            if (key.colorCount > 2 && key.color2 != Format::Unknown) {
+                gd.colorFormats[2] = key.color2;
+                gd.colorCount = 3;
+            }
+            if (library.Programs()[program].name == "java_gbuffers_water")
+                gd.blend.targets[1] = bt;
             gd.depthFormat = key.depth;
             gd.name = library.Programs()[program].name.c_str();
+            // driver-side compiler crashes give no callback: name the program first
+            if (std::getenv("PERLIN_JAVA_DBG") && !std::strncmp(gd.name, "java_", 5))
+                std::fprintf(stderr, "[gpu] pipeline %s colors=%u\n", gd.name, gd.colorCount);
             handle = device->CreateGraphicsPipeline(gd);
         }
         pipelines.emplace(key, handle);

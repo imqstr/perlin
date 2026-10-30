@@ -49,6 +49,16 @@ if(PERLIN_GPU_STANDALONE)
         "${CMAKE_CURRENT_SOURCE_DIR}/../../../util/Paths.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/../../../util/Resources.cpp")
     target_include_directories(gpu_context_test BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../tests/stubs")
+    target_sources(gpu_context_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../javashaders/PackSource.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../javashaders/PackSourceZip.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../javashaders/Properties.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../javashaders/Cond.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/TextureLoader.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../world/level/block/BlockPalette.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../util/Json.cpp")
+    target_include_directories(gpu_context_test PRIVATE "${stb_SOURCE_DIR}")
+    target_link_libraries(gpu_context_test PRIVATE glaze::glaze miniz)
     target_link_libraries(gpu_context_test PRIVATE perlin_gpu)
     # a pack built by tools/pack_shaders.py with the targets of the backends enabled here
     set(PERLIN_TEST_PACK "" CACHE FILEPATH "shader pack for gpu_context_test")

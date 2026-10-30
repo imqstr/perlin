@@ -41,11 +41,12 @@ namespace perlin::gpu {
         // second color attachment (java gbuffers MRT); count stays 1 unless set
         uint8_t colorCount = 1;
         rhi::Format color1 = rhi::Format::RGBA8Unorm;
+        rhi::Format color2 = rhi::Format::RGBA8Unorm;
         // fixed point (x100) so the key stays hashable
         int16_t biasConstant = 0;
         int16_t biasSlope = 0;
         // padding makes a raw compare unreliable, so keys are compared through their packed form
-        std::array<uint64_t, 3> Pack() const;
+        std::array<uint64_t, 4> Pack() const;
         bool operator==(const PipelineKey& o) const { return Pack() == o.Pack(); }
     };
 

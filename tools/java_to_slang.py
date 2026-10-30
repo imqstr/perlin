@@ -253,6 +253,8 @@ def main() -> int:
                     help="pack option macro override, e.g. -DRAIN_PUDDLES=2 (repeatable)")
     ap.add_argument("--check", action="store_true",
                     help="validate stage bodies with glslangValidator via a GLSL harness")
+    ap.add_argument("--fullscreen", action="store_true",
+                    help="position-only VsIn for composite/deferred/final passes; uvs derive from the fullscreen triangle")
     args = ap.parse_args()
 
     pack = Path(args.pack)
@@ -290,7 +292,7 @@ def main() -> int:
     if args.emit:
         import json as _json
         rep = emit_program(pack, args.program, args.world, Path(args.emit),
-                           dict(d.split("=", 1) for d in (args.define or [])))
+                           dict(d.split("=", 1) for d in (args.define or [])), fullscreen=args.fullscreen)
         print("--- emission report ---")
         print(_json.dumps(rep, indent=1)[:4000])
     return 0
@@ -575,24 +577,48 @@ def _slang_ctors(body: str) -> str:
 
 
 def _slang_globals(body: str) -> str:
-    """Slang rejects writable namespace-scope variables: prefix static.
-    Slang-only (plain GLSL forbids static there, so the check harness skips)."""
+    """Keep namespace globals writable without modifying function parameters."""
+    clean = re.sub(r"/\*.*?\*/|//[^\n]*", lambda m: "\n" * m.group().count("\n"), body, flags=re.S)
     out = []
-    depth = 0
-    for raw in body.splitlines():
-        stripped = raw.strip()
-        if (depth == 0 and not stripped.startswith("static")
-                and re.match(r"(const\s+)?(bool|int|uint|float|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234]|mat[234]x[234]|float[234]x[234])\s+[A-Za-z_]\w*\b",
-                             stripped)):
+    depth = parens = 0
+    for raw, code in zip(body.splitlines(), clean.splitlines()):
+        stripped = code.strip()
+        if depth == 0 and parens == 0 and re.match(
+                r"(const\s+)?(bool|int|uint|float|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234]|mat[234]x[234]|float[234]x[234])\s+[A-Za-z_]\w*\b", stripped):
             head = stripped.split("=", 1)[0].split(";")[0]
             if "(" not in head:
-                # top of the line gets static; keep original indent out (slang is ws-insensitive)
-                out.append("static " + stripped)
-                depth += raw.count("{") - raw.count("}")
-                continue
+                raw = "static " + raw.lstrip()
         out.append(raw)
-        depth += raw.count("{") - raw.count("}")
+        depth += code.count("{") - code.count("}")
+        parens += code.count("(") - code.count(")")
     return "\n".join(out)
+
+
+def _defer_global_initializers(body: str) -> str:
+    """Pack globals depend on uniforms assigned by the entry-point wrapper."""
+    assignments = []
+    pattern = r"^static (bool|int|uint|float|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234]|float[234](?:x[234])?)\s+(\w+(?:\[[^\]]*\])?\s*=[^;]+);"
+    def rewrite(match):
+        parts, start, depth = [], 0, 0
+        text = match.group(2)
+        for i, char in enumerate(text):
+            if char in "([{": depth += 1
+            elif char in ")]}": depth -= 1
+            elif char == "," and depth == 0:
+                parts.append(text[start:i]); start = i + 1
+        parts.append(text[start:])
+        decls = []
+        for part in parts:
+            if "=" in part:
+                lhs, rhs = part.split("=", 1)
+                name = lhs.strip().split("[")[0]
+                assignments.append(f"    {name} = {rhs.strip()};")
+                decls.append(lhs.strip())
+            else:
+                decls.append(part.strip())
+        return "static " + match.group(1) + " " + ", ".join(decls) + ";"
+    body = re.sub(pattern, rewrite, body, flags=re.M)
+    return body.replace("void stageMain() {", "void stageMain() {\n" + "\n".join(assignments), 1)
 
 
 def _rename_samplers(body: str, sampler_map: dict[str, str]) -> str:
@@ -918,7 +944,7 @@ def _wrap_one_cmp(seg: str) -> str:
 
 
 def emit_program(pack: Path, program: str, world: str, out: Path,
-                 extra_defines: dict[str, str] | None = None):
+                 extra_defines: dict[str, str] | None = None, fullscreen: bool = False):
     srcs, pps = {}, {}
     for stage in ("vertex", "fragment"):
         src, pp = preprocess_stage(pack, world, program, stage)
@@ -967,8 +993,10 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
               for (q, st, t, n) in vary["vertex"] if st in ("varying", "out")]
     f_ins = [(q if q in ("flat", "centroid", "noperspective") else "", t, n)
              for (q, st, t, n) in vary["fragment"] if st in ("varying", "in")]
-    # generated tile-layer varying for atlas array taps (decoded in vsMain)
-    v_outs.append(("", "float", "jLayer"))
+    # generated tile-layer varying for atlas array taps (decoded in vsMain);
+    # fullscreen passes sample no atlas
+    if not fullscreen:
+        v_outs.append(("", "float", "jLayer"))
 
     v_names = {n for _, _, n in v_outs}
     missing = [n for _, _, n in f_ins if n not in v_names]
@@ -997,6 +1025,17 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
         bodies[stage] = _size_global_arrays(bodies[stage])
         bodies[stage] = _slang_globals(bodies[stage])
         bodies[stage] = _slang_ctors(bodies[stage])
+        bodies[stage] = _defer_global_initializers(bodies[stage])
+        matrices = set(re.findall(r"\b(?:mat[234]|float[234]x[234])\s+(\w+)", bodies[stage]))
+        matrices.update(needed_matrices.values())
+        matrices.update(name for name, (ty, _) in uni.items() if ty.startswith("mat"))
+        matrix_names = "(?:" + "|".join(re.escape(name) for name in sorted(matrices, key=len, reverse=True)) + ")"
+        bodies[stage] = re.sub(r"\b(" + matrix_names + r")\s*\*\s*(" + matrix_names + r")\b",
+                               r"mul(\1, \2)", bodies[stage])
+        bodies[stage] = re.sub(r"\b(" + matrix_names + r")\s*\[([^\]]+)\]",
+                               r"transpose(\1)[\2]", bodies[stage])
+        bodies[stage] = bodies[stage].replace("shadowPos.xy /= distortFactor;", "")
+        bodies[stage] = bodies[stage].replace("shadowPos.z *= 0.2;", "")
 
     import json as _json
     try:
@@ -1021,21 +1060,22 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append(f"// Converted from Java shaderpack program {program} ({world}).")
     lines.append("// v1 converter output: uniform feed + renderer wiring still needed, see report.")
     lines.append('#include "compat.slang"')
-    lines.append('#include "vv_resources.slang"')
+
     lines.append("")
     lines.append("// Iris uniforms: engine must feed these each frame/draw.")
-    lines.append("cbuffer JavaUniforms")
-    lines.append("{")
+    lines.append("#define PERLIN_JAVA_UNIFORMS " + "\\")
     for name in sorted(uni):
         ty, arr = uni[name]
         st = GLSL_TO_SLANG_TYPE.get(ty, f"/* UNKNOWN:{ty} */ float4")
         lines.append(f"    {st} u_j{name};{f' // [{arr}]' if arr else ''}" if False else
-                     f"    {st} u_j{name}" + (f"[{arr}]" if arr else "") + ";")
+                     f"    {st} u_j{name}" + (f"[{arr}]" if arr else "") + "; " + "\\")
     for java, member in sorted(needed_matrices.values() and needed_matrices.items()):
         _ = java
         mty = "float3x3" if "Normal" in member else "float4x4"
-        lines.append(f"    {mty} {member};")
-    lines.append("};")
+        lines.append(f"    {mty} {member}; " + "\\")
+    lines.append("")
+    lines.append('#include "vv_resources.slang"')
+    lines.append("#undef PERLIN_JAVA_UNIFORMS")
     lines.append("")
     for s in sorted(samp):
         slot = SAMPLER_SLOTS.get(s, s)
@@ -1055,7 +1095,9 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     loc = {n: i for i, (_, _, n) in enumerate(v_outs)}
     lines.append("struct VsIn")
     lines.append("{")
-    for ty, nm, lc, _ in VERTEX_INPUTS:
+    # fullscreen passes derive uvs from the triangle; only position is fed
+    vin = [e for e in VERTEX_INPUTS if not fullscreen or e[1] == "a_position"]
+    for ty, nm, lc, _ in vin:
         if nm in PACKED_INPUTS:
             pty, pnm, plc, _stmts = PACKED_INPUTS[nm]
             # constant-fed inputs (chunk fade): no vertex channel at all
@@ -1134,28 +1176,40 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append("int2 javaTextureSize(Texture2D t, int lod) { uint w = 0, h = 0, n = 0; t.GetDimensions(uint(lod), w, h, n); return int2(w, h); }")
     lines.append("")
     lines.append("// engine light bytes are 0..15 levels; the pack wants 0..1")
-    lines.append("float4 javaLightCoord(float4 t) { return float4(t.xy * 17.0, t.zw); }")
+    lines.append("float4 javaLightCoord(float4 t) { return float4((t.xy * 255.0 + 8.0) / 256.0, t.zw); }")
     lines.append("")
     lines.append("VsOut vsMain(VsIn input)")
     lines.append("{")
     # packed java attribs: unpack lines use a literal {src} marker (not
     # str.format: unpack code itself contains slang braces).
+    # fullscreen passes feed position only; uvs derive from the triangle.
+    fs_pre = {
+        "a_texcoord0": "vs_stage::a_texcoord0 = vec2(input.a_position.x * 0.5 + 0.5, 0.5 - input.a_position.y * 0.5);",
+        "a_texcoord1": "vs_stage::a_texcoord1 = vec4(0.5, 0.5, 0.0, 1.0);",
+    }
     for _ty, nm, _lc, _ in VERTEX_INPUTS:
-        if nm in PACKED_INPUTS:
+        if fullscreen and nm not in ("a_position", "a_texcoord0", "a_texcoord1"):
+            continue
+        if nm in fs_pre and fullscreen:
+            lines.append(f"    {fs_pre[nm]}")
+        elif nm in PACKED_INPUTS:
             _pty, pnm, _plc, stmts = PACKED_INPUTS[nm]
             for st in stmts:
                 lines.append(f"    {st.replace('{src}', 'input.' + pnm) if pnm else st}")
         else:
             lines.append(f"    vs_stage::{nm} = input.{nm};")
+    if program in ("gbuffers_terrain", "gbuffers_water", "shadow"):
+        lines.append("    { int id = int(input.a_ePacked + 0.5); vs_stage::a_mcEntity.x = texelFetch(s_javaMaterials, int2(id & 255, id >> 8), 0).r; }")
     for name in sorted(uni):
         lines.append(f"    vs_stage::{name} = u_j{name};")
     for _java, member in sorted(needed_matrices.items()):
         lines.append(f"    vs_stage::{member} = {member};")
     # tile layer for atlas array taps, before the pack body samples anything
-    lines.append("    vs_stage::jLayer = floor(input.a_texcoord1.z * 255.0 + 0.5) + floor(input.a_texcoord1.w * 255.0 + 0.5) * 256.0;")
+    if not fullscreen:
+        lines.append("    vs_stage::jLayer = floor(input.a_texcoord1.z * 255.0 + 0.5) + floor(input.a_texcoord1.w * 255.0 + 0.5) * 256.0;")
     lines.append("    vs_stage::stageMain();")
     lines.append("    VsOut output;")
-    lines.append("    output.clipPosition = vs_stage::gl_Position;")
+    lines.append("    output.clipPosition = float4(input.a_position.xy, 0.0, 1.0);" if fullscreen else "    output.clipPosition = vs_stage::gl_Position;")
     for _q, _t, n in v_outs:
         lines.append(f"    output.v_{n} = vs_stage::{n};")
     lines.append("    return output;")
@@ -1179,7 +1233,7 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
     lines.append("}")
     lines.append("")
 
-    out.write_text("\n".join(lines), encoding="utf-8")
+    out.write_text("\n".join(line.rstrip() for line in lines), encoding="utf-8")
     return {
         "program": program, "world": world,
         "varyings": [(t, n) for _, t, n in v_outs],

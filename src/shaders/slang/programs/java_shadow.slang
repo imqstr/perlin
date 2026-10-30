@@ -1,96 +1,96 @@
 // Converted from Java shaderpack program shadow (world0).
 // v1 converter output: uniform feed + renderer wiring still needed, see report.
 #include "compat.slang"
-#include "vv_resources.slang"
 
 // Iris uniforms: engine must feed these each frame/draw.
-cbuffer JavaUniforms
-{
-    float u_jaspectRatio;
-    int2 u_jatlasSize;
-    float u_jblindness;
-    int u_jblockEntityId;
-    float3 u_jcameraPosition;
-    float3 u_jcameraPositionFract;
-    int3 u_jcameraPositionInt;
-    float u_jcloudHeight;
-    int u_jcurrentRenderedItemId;
-    float u_jdarknessFactor;
-    float u_jdarknessLightFactor;
-    float4 u_jentityColor;
-    int u_jentityId;
-    float u_jeyeAltitude;
-    int2 u_jeyeBrightness;
-    float u_jeyeBrightnessM;
-    float u_jeyeBrightnessM2;
-    float3 u_jeyePosition;
-    float u_jfar;
-    float3 u_jfogColor;
-    int u_jframeCounter;
-    float u_jframeTime;
-    float u_jframeTimeCounter;
-    float u_jframeTimeSmooth;
-    float u_jframemod2;
-    float u_jframemod4;
-    float u_jframemod600;
-    float u_jframemod8;
-    float4x4 u_jgbufferModelView;
-    float4x4 u_jgbufferModelViewInverse;
-    float4x4 u_jgbufferPreviousModelView;
-    float4x4 u_jgbufferPreviousProjection;
-    float4x4 u_jgbufferProjection;
-    float4x4 u_jgbufferProjectionInverse;
-    bool u_jheavyFog;
-    int u_jheldBlockLightValue;
-    int u_jheldBlockLightValue2;
-    int u_jheldItemId;
-    int u_jheldItemId2;
-    float u_jinBasaltDeltas;
-    float u_jinCrimsonForest;
-    float u_jinDry;
-    float u_jinNetherWastes;
-    float u_jinPaleGarden;
-    float u_jinRainy;
-    float u_jinSnowy;
-    float u_jinSoulValley;
-    float u_jinSulfurCaves;
-    float u_jinWarpedForest;
-    bool u_jisElytraFlying;
-    float u_jisEyeInCave;
-    int u_jisEyeInWater;
-    float4 u_jlightningBoltPosition;
-    float u_jmaxBlindnessDarkness;
-    int u_jmoonPhase;
-    float u_jnear;
-    float u_jnightVision;
-    float3 u_jplayerLookVector;
-    float u_jplayerMood;
-    float3 u_jpreviousCameraPosition;
-    float3 u_jpreviousCameraPositionFract;
-    int3 u_jpreviousCameraPositionInt;
-    float u_jrainFactor;
-    float u_jrainStrength;
-    float3 u_jrelativeEyePosition;
-    float u_jscreenBrightness;
-    float4x4 u_jshadowModelView;
-    float4x4 u_jshadowModelViewInverse;
-    float4x4 u_jshadowProjection;
-    float4x4 u_jshadowProjectionInverse;
-    float3 u_jskyColor;
-    float u_jstarter;
-    float u_jsunAngle;
-    float u_jvelocity;
-    float u_jviewHeight;
-    float u_jviewWidth;
-    float u_jwetness;
-    int u_jworldDay;
-    int u_jworldTime;
-    float4x4 u_jModelViewMatrix;
-    float3x3 u_jNormalMatrix;
-    float4x4 u_jProjectionMatrix;
-    float4x4 u_jTextureMatrix0;
-    float4x4 u_jTextureMatrix1;
-};
+#define PERLIN_JAVA_UNIFORMS \
+    float u_jaspectRatio; \
+    int2 u_jatlasSize; \
+    float u_jblindness; \
+    int u_jblockEntityId; \
+    float3 u_jcameraPosition; \
+    float3 u_jcameraPositionFract; \
+    int3 u_jcameraPositionInt; \
+    float u_jcloudHeight; \
+    int u_jcurrentRenderedItemId; \
+    float u_jdarknessFactor; \
+    float u_jdarknessLightFactor; \
+    float4 u_jentityColor; \
+    int u_jentityId; \
+    float u_jeyeAltitude; \
+    int2 u_jeyeBrightness; \
+    float u_jeyeBrightnessM; \
+    float u_jeyeBrightnessM2; \
+    float3 u_jeyePosition; \
+    float u_jfar; \
+    float3 u_jfogColor; \
+    int u_jframeCounter; \
+    float u_jframeTime; \
+    float u_jframeTimeCounter; \
+    float u_jframeTimeSmooth; \
+    float u_jframemod2; \
+    float u_jframemod4; \
+    float u_jframemod600; \
+    float u_jframemod8; \
+    float4x4 u_jgbufferModelView; \
+    float4x4 u_jgbufferModelViewInverse; \
+    float4x4 u_jgbufferPreviousModelView; \
+    float4x4 u_jgbufferPreviousProjection; \
+    float4x4 u_jgbufferProjection; \
+    float4x4 u_jgbufferProjectionInverse; \
+    bool u_jheavyFog; \
+    int u_jheldBlockLightValue; \
+    int u_jheldBlockLightValue2; \
+    int u_jheldItemId; \
+    int u_jheldItemId2; \
+    float u_jinBasaltDeltas; \
+    float u_jinCrimsonForest; \
+    float u_jinDry; \
+    float u_jinNetherWastes; \
+    float u_jinPaleGarden; \
+    float u_jinRainy; \
+    float u_jinSnowy; \
+    float u_jinSoulValley; \
+    float u_jinSulfurCaves; \
+    float u_jinWarpedForest; \
+    bool u_jisElytraFlying; \
+    float u_jisEyeInCave; \
+    int u_jisEyeInWater; \
+    float4 u_jlightningBoltPosition; \
+    float u_jmaxBlindnessDarkness; \
+    int u_jmoonPhase; \
+    float u_jnear; \
+    float u_jnightVision; \
+    float3 u_jplayerLookVector; \
+    float u_jplayerMood; \
+    float3 u_jpreviousCameraPosition; \
+    float3 u_jpreviousCameraPositionFract; \
+    int3 u_jpreviousCameraPositionInt; \
+    float u_jrainFactor; \
+    float u_jrainStrength; \
+    float3 u_jrelativeEyePosition; \
+    float u_jscreenBrightness; \
+    float4x4 u_jshadowModelView; \
+    float4x4 u_jshadowModelViewInverse; \
+    float4x4 u_jshadowProjection; \
+    float4x4 u_jshadowProjectionInverse; \
+    float3 u_jskyColor; \
+    float u_jstarter; \
+    float u_jsunAngle; \
+    float u_jvelocity; \
+    float u_jviewHeight; \
+    float u_jviewWidth; \
+    float u_jwetness; \
+    int u_jworldDay; \
+    int u_jworldTime; \
+    float4x4 u_jModelViewMatrix; \
+    float3x3 u_jNormalMatrix; \
+    float4x4 u_jProjectionMatrix; \
+    float4x4 u_jTextureMatrix0; \
+    float4x4 u_jTextureMatrix1; \
+
+#include "vv_resources.slang"
+#undef PERLIN_JAVA_UNIFORMS
 
 // java sampler colortex0 -> RHI slot s_colortex0 (see vv_resources.slang)
 // java sampler colortex1 -> RHI slot s_colortex1 (see vv_resources.slang)
@@ -439,19 +439,19 @@ static const int shadowMapResolution = 2048;
 -----------------------------------------------------------------------------*/
 
 
-static float tAmin     = fract(sunAngle - 0.033333333);
-static float tAlin     = tAmin < 0.433333333 ? tAmin * 1.15384615385 : tAmin * 0.882352941176 + 0.117647058824;
-static float hA        = tAlin > 0.5 ? 1.0 : 0.0;
-static float tAfrc     = fract(tAlin * 2.0);
-static float tAfrs     = tAfrc*tAfrc*(3.0-2.0*tAfrc);
-static float tAmix     = hA < 0.5 ? 0.3 : -0.1;
-static float timeAngle = (tAfrc * (1.0-tAmix) + tAfrs * tAmix + hA) * 0.5;
+static float tAmin;
+static float tAlin;
+static float hA;
+static float tAfrc;
+static float tAfrs;
+static float tAmix;
+static float timeAngle;
 
 // @included "/lib/util/commonFunctions.glsl"
 // Do these via macro as Apple otherwise complains
 
-static float overworldAngleRaw = fract(timeAngle - 0.25);
-static float overworldAngle = (overworldAngleRaw + (cos(overworldAngleRaw * 3.14159265358979) * -0.5 + 0.5 - overworldAngleRaw) / 3.0) * 6.28318530717959;
+static float overworldAngleRaw;
+static float overworldAngle;
 
     vec2 GetLightMapCoordinates() {
         vec2 lmCoord = (u_jTextureMatrix1 * javaLightCoord(a_texcoord1)).xy;
@@ -735,33 +735,33 @@ vec3 hsv2rgb(vec3 c)
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
-static float renderDistance = far;
+static float renderDistance;
 
 static const float shadowMapBias = 1.0 - 25.6 / shadowDistance;
-static float noonFactorRaw = max(sin(timeAngle * 6.28318530718), 0.0);
-static float noonFactor = sqrt(noonFactorRaw);
-static float nightFactor = max(sin(timeAngle * (-6.28318530718)), 0.0);
-static float invNightFactor = 1.0 - nightFactor;
-static float rainFactor2 = rainFactor * rainFactor;
-static float invRainFactor = 1.0 - rainFactor;
-static float invNoonFactor = 1.0 - noonFactor;
-static float invNoonFactor2 = invNoonFactor * invNoonFactor;
+static float noonFactorRaw;
+static float noonFactor;
+static float nightFactor;
+static float invNightFactor;
+static float rainFactor2;
+static float invRainFactor;
+static float invNoonFactor;
+static float invNoonFactor2;
 
-static float vsBrightness = clamp(screenBrightness, 0.0, 1.0);
+static float vsBrightness;
 
-static float nightVisionWithAddedSupport = screenBrightness > 1.0 ? 1.0 : nightVision; // Add support for fullbright mods
+static float nightVisionWithAddedSupport; // Add support for fullbright mods
 
-static int modifiedWorldDay = int(mod(worldDay, 100) + 5.0);
-static float syncedTime = (worldTime + modifiedWorldDay * 24000) * 0.05;
+static int modifiedWorldDay;
+static float syncedTime;
 
 static const float pi = 3.14159265359;
 static const float goldenRatio = 1.61803398875;
 
 static const float oceanAltitude = 61.9;
 
-static ivec3 cameraPositionBestInt = ivec3(floor(cameraPosition));
-static vec3 cameraPositionBestFract = fract(cameraPosition);
-static vec3 previousCameraPositionBestFract = fract(previousCameraPosition);
+static ivec3 cameraPositionBestInt;
+static vec3 cameraPositionBestFract;
+static vec3 previousCameraPositionBestFract;
 
 // @included "/lib/colors/blocklightColors.glsl"
 void AddSpecialLightDetail(inout vec3 light, vec3 albedo, float emission) {
@@ -772,17 +772,17 @@ void AddSpecialLightDetail(inout vec3 light, vec3 albedo, float emission) {
 	light += pow2(lightM / (albedo + 0.1));
 }
 
-static vec3 blocklightCol = vec3(0.1775, 0.104, 0.077) * vec3(1.00, 1.00, 1.00);
+static vec3 blocklightCol;
 
-static vec3 fireSpecialLightColorBase = vec3(2.25, 0.83, 0.27) * 3.7;
-static vec3 fireSpecialLightColor = fireSpecialLightColorBase;
+static vec3 fireSpecialLightColorBase;
+static vec3 fireSpecialLightColor;
 
-static vec3 lavaSpecialLightColor = vec3(3.25, 0.9, 0.2) * 3.9;
-static vec3 netherPortalSpecialLightColor = vec3(1.8, 0.4, 2.2) * 0.8;
-static vec3 redstoneSpecialLightColor = vec3(4.0, 0.1, 0.1);
-static vec4 soulFireSpecialColor = vec4(vec3(0.3, 2.0, 2.2) * 1.0, 0.3);
-static float candleColorMult = 2.0;
-static float candleExtraLight = 0.004;
+static vec3 lavaSpecialLightColor;
+static vec3 netherPortalSpecialLightColor;
+static vec3 redstoneSpecialLightColor;
+static vec4 soulFireSpecialColor;
+static float candleColorMult;
+static float candleExtraLight;
 
 vec4 GetSpecialBlocklightColor(int mat) {
 	/* Please note that these colors do not determine the intensity of the
@@ -1029,24 +1029,16 @@ static const vec3 specialTintColor[20] = {
 };;
 
 static const vec3 caveFogColorRaw = vec3(0.13, 0.13, 0.15);
-static vec3 caveFogColorRaw2 = caveFogColorRaw * (0.7 + 0.3 * vsBrightness); // Default
-static vec3 caveFogColor = caveFogColorRaw2;
+static vec3 caveFogColorRaw2; // Default
+static vec3 caveFogColor;
 
-static vec3 underwaterColorM1 = pow(fogColor, vec3(0.33, 0.21, 0.26));
-static vec3 underwaterColorM2 = underwaterColorM1;
-static vec3 waterFogColor = underwaterColorM2 * vec3(0.2 + 0.1 * vsBrightness);
+static vec3 underwaterColorM1;
+static vec3 underwaterColorM2;
+static vec3 waterFogColor;
 
-static float netherColorMixer = inNetherWastes + inCrimsonForest + inWarpedForest + inBasaltDeltas + inSoulValley;
-static vec3 netherColor = mix(
-            fogColor * 0.6 + 0.2 * normalize(fogColor + 0.0001),
-            (
-                inNetherWastes * vec3(0.4, 0.14, 0.06) + inCrimsonForest * vec3(0.36, 0.07, 0.05) +
-                inWarpedForest * vec3(0.18, 0.1, 0.25) + inBasaltDeltas * vec3(0.25, 0.235, 0.23) +
-                inSoulValley * vec3(0.1, vec2(0.24))
-            ),
-            netherColorMixer
-        );
-static vec3 lavaLightColor = vec3(0.15, 0.06, 0.01);
+static float netherColorMixer;
+static vec3 netherColor;
+static vec3 lavaLightColor;
 
 static const vec3 endSkyColor = vec3(0.095, 0.07, 0.15) * 1.65;
 
@@ -1054,11 +1046,10 @@ static const float rainTexOpacity = 0.25;
 static const float snowTexOpacity = 0.5;
 
 
-static float cloudHeightM = isnan(cloudHeight) ? 192.0 : cloudHeight; // iris returns "nan" if there are no clouds
-static float cloudHeightOffset = cloudHeightM - 192.0
-    ;
-static int cloudAlt1i = int(192 + cloudHeightOffset); // Old setting files can send float values
-static int cloudAlt2i = int(288 + cloudHeightOffset);
+static float cloudHeightM; // iris returns "nan" if there are no clouds
+static float cloudHeightOffset;
+static int cloudAlt1i; // Old setting files can send float values
+static int cloudAlt2i;
 
 static const float OSIEBCA = 1.0 / 255.0; // One Step In Eight Bit Color Attachment
     /* materialMask steps
@@ -1115,21 +1106,21 @@ static vec2 lmCoord;
 // @included "/lib/util/spaceConversion.glsl"
 
 vec3 ScreenToView(vec3 pos) {
-    vec4 iProjDiag = vec4(gbufferProjectionInverse[0].x,
-                          gbufferProjectionInverse[1].y,
-                          gbufferProjectionInverse[2].zw);
+    vec4 iProjDiag = vec4(transpose(gbufferProjectionInverse)[0].x,
+                          transpose(gbufferProjectionInverse)[1].y,
+                          transpose(gbufferProjectionInverse)[2].zw);
     vec3 p3 = pos * 2.0 - 1.0;
-    vec4 viewPos = iProjDiag * p3.xyzz + gbufferProjectionInverse[3];
+    vec4 viewPos = iProjDiag * p3.xyzz + transpose(gbufferProjectionInverse)[3];
     return viewPos.xyz / viewPos.w;
 }
 
 
 vec3 ViewToPlayer(vec3 pos) {
-    return mat3(gbufferModelViewInverse) * pos + gbufferModelViewInverse[3].xyz;
+    return mat3(gbufferModelViewInverse) * pos + transpose(gbufferModelViewInverse)[3].xyz;
 }
 
 vec3 PlayerToShadow(vec3 pos) {
-    vec3 shadowpos = mat3(shadowModelView) * pos + shadowModelView[3].xyz;
+    vec3 shadowpos = mat3(shadowModelView) * pos + transpose(shadowModelView)[3].xyz;
     return projMAD(shadowProjection, shadowpos);
 }
 
@@ -1264,12 +1255,66 @@ void DoWave(inout vec3 playerPos, int mat) {
 
 //Program//
 void stageMain() {
+    tAmin = fract(sunAngle - 0.033333333);
+    tAlin = tAmin < 0.433333333 ? tAmin * 1.15384615385 : tAmin * 0.882352941176 + 0.117647058824;
+    hA = tAlin > 0.5 ? 1.0 : 0.0;
+    tAfrc = fract(tAlin * 2.0);
+    tAfrs = tAfrc*tAfrc*(3.0-2.0*tAfrc);
+    tAmix = hA < 0.5 ? 0.3 : -0.1;
+    timeAngle = (tAfrc * (1.0-tAmix) + tAfrs * tAmix + hA) * 0.5;
+    overworldAngleRaw = fract(timeAngle - 0.25);
+    overworldAngle = (overworldAngleRaw + (cos(overworldAngleRaw * 3.14159265358979) * -0.5 + 0.5 - overworldAngleRaw) / 3.0) * 6.28318530717959;
+    renderDistance = far;
+    noonFactorRaw = max(sin(timeAngle * 6.28318530718), 0.0);
+    noonFactor = sqrt(noonFactorRaw);
+    nightFactor = max(sin(timeAngle * (-6.28318530718)), 0.0);
+    invNightFactor = 1.0 - nightFactor;
+    rainFactor2 = rainFactor * rainFactor;
+    invRainFactor = 1.0 - rainFactor;
+    invNoonFactor = 1.0 - noonFactor;
+    invNoonFactor2 = invNoonFactor * invNoonFactor;
+    vsBrightness = clamp(screenBrightness, 0.0, 1.0);
+    nightVisionWithAddedSupport = screenBrightness > 1.0 ? 1.0 : nightVision;
+    modifiedWorldDay = int(mod(worldDay, 100) + 5.0);
+    syncedTime = (worldTime + modifiedWorldDay * 24000) * 0.05;
+    cameraPositionBestInt = ivec3(floor(cameraPosition));
+    cameraPositionBestFract = fract(cameraPosition);
+    previousCameraPositionBestFract = fract(previousCameraPosition);
+    blocklightCol = vec3(0.1775, 0.104, 0.077) * vec3(1.00, 1.00, 1.00);
+    fireSpecialLightColorBase = vec3(2.25, 0.83, 0.27) * 3.7;
+    fireSpecialLightColor = fireSpecialLightColorBase;
+    lavaSpecialLightColor = vec3(3.25, 0.9, 0.2) * 3.9;
+    netherPortalSpecialLightColor = vec3(1.8, 0.4, 2.2) * 0.8;
+    redstoneSpecialLightColor = vec3(4.0, 0.1, 0.1);
+    soulFireSpecialColor = vec4(vec3(0.3, 2.0, 2.2) * 1.0, 0.3);
+    candleColorMult = 2.0;
+    candleExtraLight = 0.004;
+    caveFogColorRaw2 = caveFogColorRaw * (0.7 + 0.3 * vsBrightness);
+    caveFogColor = caveFogColorRaw2;
+    underwaterColorM1 = pow(fogColor, vec3(0.33, 0.21, 0.26));
+    underwaterColorM2 = underwaterColorM1;
+    waterFogColor = underwaterColorM2 * vec3(0.2 + 0.1 * vsBrightness);
+    netherColorMixer = inNetherWastes + inCrimsonForest + inWarpedForest + inBasaltDeltas + inSoulValley;
+    netherColor = mix(
+            fogColor * 0.6 + 0.2 * normalize(fogColor + 0.0001),
+            (
+                inNetherWastes * vec3(0.4, 0.14, 0.06) + inCrimsonForest * vec3(0.36, 0.07, 0.05) +
+                inWarpedForest * vec3(0.18, 0.1, 0.25) + inBasaltDeltas * vec3(0.25, 0.235, 0.23) +
+                inSoulValley * vec3(0.1, vec2(0.24))
+            ),
+            netherColorMixer
+        );
+    lavaLightColor = vec3(0.15, 0.06, 0.01);
+    cloudHeightM = isnan(cloudHeight) ? 192.0 : cloudHeight;
+    cloudHeightOffset = cloudHeightM - 192.0;
+    cloudAlt1i = int(192 + cloudHeightOffset);
+    cloudAlt2i = int(288 + cloudHeightOffset);
     texCoord = vec4(a_texcoord0, 0.0, 1.0).xy;
     lmCoord = GetLightMapCoordinates();
     glColor = a_color0;
     mat = int(a_mcEntity.x + 0.5);
 
-    position = shadowModelViewInverse * shadowProjectionInverse * (u_jProjectionMatrix * u_jModelViewMatrix * vec4(a_position, 1.0));
+    position = mul(shadowModelViewInverse, shadowProjectionInverse) * (mul(u_jProjectionMatrix, u_jModelViewMatrix) * vec4(a_position, 1.0));
 
         DoWave(position.xyz, mat);
 
@@ -1286,7 +1331,7 @@ void stageMain() {
     }
 
 
-    gl_Position = shadowProjection * shadowModelView * position;
+    gl_Position = mul(shadowProjection, shadowModelView) * position;
 
     float lVertexPos = sqrt(gl_Position.x * gl_Position.x + gl_Position.y * gl_Position.y);
     float distortFactor = lVertexPos * shadowMapBias + (1.0 - shadowMapBias);
@@ -1569,19 +1614,19 @@ static const int shadowMapResolution = 2048;
 -----------------------------------------------------------------------------*/
 
 
-static float tAmin     = fract(sunAngle - 0.033333333);
-static float tAlin     = tAmin < 0.433333333 ? tAmin * 1.15384615385 : tAmin * 0.882352941176 + 0.117647058824;
-static float hA        = tAlin > 0.5 ? 1.0 : 0.0;
-static float tAfrc     = fract(tAlin * 2.0);
-static float tAfrs     = tAfrc*tAfrc*(3.0-2.0*tAfrc);
-static float tAmix     = hA < 0.5 ? 0.3 : -0.1;
-static float timeAngle = (tAfrc * (1.0-tAmix) + tAfrs * tAmix + hA) * 0.5;
+static float tAmin;
+static float tAlin;
+static float hA;
+static float tAfrc;
+static float tAfrs;
+static float tAmix;
+static float timeAngle;
 
 // @included "/lib/util/commonFunctions.glsl"
 // Do these via macro as Apple otherwise complains
 
-static float overworldAngleRaw = fract(timeAngle - 0.25);
-static float overworldAngle = (overworldAngleRaw + (cos(overworldAngleRaw * 3.14159265358979) * -0.5 + 0.5 - overworldAngleRaw) / 3.0) * 6.28318530717959;
+static float overworldAngleRaw;
+static float overworldAngle;
 
 
 float GetLuminance(vec3 color) {
@@ -1861,33 +1906,33 @@ vec3 hsv2rgb(vec3 c)
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
-static float renderDistance = far;
+static float renderDistance;
 
 static const float shadowMapBias = 1.0 - 25.6 / shadowDistance;
-static float noonFactorRaw = max(sin(timeAngle * 6.28318530718), 0.0);
-static float noonFactor = sqrt(noonFactorRaw);
-static float nightFactor = max(sin(timeAngle * (-6.28318530718)), 0.0);
-static float invNightFactor = 1.0 - nightFactor;
-static float rainFactor2 = rainFactor * rainFactor;
-static float invRainFactor = 1.0 - rainFactor;
-static float invNoonFactor = 1.0 - noonFactor;
-static float invNoonFactor2 = invNoonFactor * invNoonFactor;
+static float noonFactorRaw;
+static float noonFactor;
+static float nightFactor;
+static float invNightFactor;
+static float rainFactor2;
+static float invRainFactor;
+static float invNoonFactor;
+static float invNoonFactor2;
 
-static float vsBrightness = clamp(screenBrightness, 0.0, 1.0);
+static float vsBrightness;
 
-static float nightVisionWithAddedSupport = screenBrightness > 1.0 ? 1.0 : nightVision; // Add support for fullbright mods
+static float nightVisionWithAddedSupport; // Add support for fullbright mods
 
-static int modifiedWorldDay = int(mod(worldDay, 100) + 5.0);
-static float syncedTime = (worldTime + modifiedWorldDay * 24000) * 0.05;
+static int modifiedWorldDay;
+static float syncedTime;
 
 static const float pi = 3.14159265359;
 static const float goldenRatio = 1.61803398875;
 
 static const float oceanAltitude = 61.9;
 
-static ivec3 cameraPositionBestInt = ivec3(floor(cameraPosition));
-static vec3 cameraPositionBestFract = fract(cameraPosition);
-static vec3 previousCameraPositionBestFract = fract(previousCameraPosition);
+static ivec3 cameraPositionBestInt;
+static vec3 cameraPositionBestFract;
+static vec3 previousCameraPositionBestFract;
 
 // @included "/lib/colors/blocklightColors.glsl"
 void AddSpecialLightDetail(inout vec3 light, vec3 albedo, float emission) {
@@ -1898,17 +1943,17 @@ void AddSpecialLightDetail(inout vec3 light, vec3 albedo, float emission) {
 	light += pow2(lightM / (albedo + 0.1));
 }
 
-static vec3 blocklightCol = vec3(0.1775, 0.104, 0.077) * vec3(1.00, 1.00, 1.00);
+static vec3 blocklightCol;
 
-static vec3 fireSpecialLightColorBase = vec3(2.25, 0.83, 0.27) * 3.7;
-static vec3 fireSpecialLightColor = fireSpecialLightColorBase;
+static vec3 fireSpecialLightColorBase;
+static vec3 fireSpecialLightColor;
 
-static vec3 lavaSpecialLightColor = vec3(3.25, 0.9, 0.2) * 3.9;
-static vec3 netherPortalSpecialLightColor = vec3(1.8, 0.4, 2.2) * 0.8;
-static vec3 redstoneSpecialLightColor = vec3(4.0, 0.1, 0.1);
-static vec4 soulFireSpecialColor = vec4(vec3(0.3, 2.0, 2.2) * 1.0, 0.3);
-static float candleColorMult = 2.0;
-static float candleExtraLight = 0.004;
+static vec3 lavaSpecialLightColor;
+static vec3 netherPortalSpecialLightColor;
+static vec3 redstoneSpecialLightColor;
+static vec4 soulFireSpecialColor;
+static float candleColorMult;
+static float candleExtraLight;
 
 vec4 GetSpecialBlocklightColor(int mat) {
 	/* Please note that these colors do not determine the intensity of the
@@ -2155,37 +2200,28 @@ static const vec3 specialTintColor[20] = {
 };;
 
 static const vec3 caveFogColorRaw = vec3(0.13, 0.13, 0.15);
-static vec3 caveFogColorRaw2 = caveFogColorRaw * (0.7 + 0.3 * vsBrightness); // Default
-static vec3 caveFogColor = caveFogColorRaw2;
+static vec3 caveFogColorRaw2; // Default
+static vec3 caveFogColor;
 
-static vec3 underwaterColorM1 = pow(fogColor, vec3(0.33, 0.21, 0.26));
-static vec3 underwaterColorM2 = underwaterColorM1;
-static vec3 waterFogColor = underwaterColorM2 * vec3(0.2 + 0.1 * vsBrightness);
+static vec3 underwaterColorM1;
+static vec3 underwaterColorM2;
+static vec3 waterFogColor;
 
-static float netherColorMixer = inNetherWastes + inCrimsonForest + inWarpedForest + inBasaltDeltas + inSoulValley;
-static vec3 netherColor = mix(
-            fogColor * 0.6 + 0.2 * normalize(fogColor + 0.0001),
-            (
-                inNetherWastes * vec3(0.4, 0.14, 0.06) + inCrimsonForest * vec3(0.36, 0.07, 0.05) +
-                inWarpedForest * vec3(0.18, 0.1, 0.25) + inBasaltDeltas * vec3(0.25, 0.235, 0.23) +
-                inSoulValley * vec3(0.1, vec2(0.24))
-            ),
-            netherColorMixer
-        );
-static vec3 lavaLightColor = vec3(0.15, 0.06, 0.01);
+static float netherColorMixer;
+static vec3 netherColor;
+static vec3 lavaLightColor;
 
 static const vec3 endSkyColor = vec3(0.095, 0.07, 0.15) * 1.65;
 
 static const float rainTexOpacity = 0.25;
 static const float snowTexOpacity = 0.5;
 
-static ivec2 texelCoord = ivec2(gl_FragCoord.xy);
+static ivec2 texelCoord;
 
-static float cloudHeightM = isnan(cloudHeight) ? 192.0 : cloudHeight; // iris returns "nan" if there are no clouds
-static float cloudHeightOffset = cloudHeightM - 192.0
-    ;
-static int cloudAlt1i = int(192 + cloudHeightOffset); // Old setting files can send float values
-static int cloudAlt2i = int(288 + cloudHeightOffset);
+static float cloudHeightM; // iris returns "nan" if there are no clouds
+static float cloudHeightOffset;
+static int cloudAlt1i; // Old setting files can send float values
+static int cloudAlt2i;
 
 static const float OSIEBCA = 1.0 / 255.0; // One Step In Eight Bit Color Attachment
     /* materialMask steps
@@ -2228,21 +2264,21 @@ static const float OSIEBCA = 1.0 / 255.0; // One Step In Eight Bit Color Attachm
 //Pipeline Constants//
 // @included "/lib/pipelineSettings.glsl"
 /*
-static const int colortex0Format = R11F_G11F_B10F; //main color
-static const int colortex1Format = RGB8_SNORM;     //half res normalM
-static const int colortex2Format = RGB16F;         //taa
-static const int colortex3Format = RGBA8;          //(cloud/water map on deferred/gbuffer) | translucentMult & bloom & final color
-static const int colortex4Format = RGBA8_SNORM;    //normalM & reflection strength
-static const int colortex5Format = RGBA8;          //scene image for water reflections & volumetric cloud linear depth & volumetric light factor
-static const int colortex6Format = RGB8;           //smoothnessD & materialMask & skyLightFactor
-static const int colortex7Format = RGBA16F;        //(cloud/water map on gbuffer) | reflection temporal image (rgb) & previous depth
-static const int colortex8Format = RGBA16F;        //SSR results for WSR, topmost translucent opacity
+const int colortex0Format = R11F_G11F_B10F; //main color
+const int colortex1Format = RGB8_SNORM;     //half res normalM
+const int colortex2Format = RGB16F;         //taa
+const int colortex3Format = RGBA8;          //(cloud/water map on deferred/gbuffer) | translucentMult & bloom & final color
+const int colortex4Format = RGBA8_SNORM;    //normalM & reflection strength
+const int colortex5Format = RGBA8;          //scene image for water reflections & volumetric cloud linear depth & volumetric light factor
+const int colortex6Format = RGB8;           //smoothnessD & materialMask & skyLightFactor
+const int colortex7Format = RGBA16F;        //(cloud/water map on gbuffer) | reflection temporal image (rgb) & previous depth
+const int colortex8Format = RGBA16F;        //SSR results for WSR, topmost translucent opacity
 
-static const int colortex12Format = RGBA8;         //Improved Rain
-static const int colortex13Format = R8;            //Entity linear depth for vl blending
+const int colortex12Format = RGBA8;         //Improved Rain
+const int colortex13Format = R8;            //Entity linear depth for vl blending
 
-static const int colortex18Format = R8;            //shadow for voxy chunks
-static const int colortex19Format = RGBA8;         //scene image for voxy reflections
+const int colortex18Format = R8;            //shadow for voxy chunks
+const int colortex19Format = RGBA8;         //scene image for voxy reflections
 */
 
 static const bool colortex0Clear = true;
@@ -2273,12 +2309,12 @@ static const float wetnessHalflife = 300.0;
 static const float ambientOcclusionLevel = 1.0;
 
 //Common Variables//
-static vec3 upVec = normalize(gbufferModelView[1].xyz);
+static vec3 upVec;
 
-static vec3 sunVec = GetSunVector();
+static vec3 sunVec;
 
-static float SdotU = dot(sunVec, upVec);
-static float sunVisibility = clamp(SdotU + 0.0625, 0.0, 0.125) / 0.125;
+static float SdotU;
+static float sunVisibility;
 
 //Common Functions//
 void DoNaturalShadowCalculation(inout vec4 color1, inout vec4 color2) {
@@ -2306,6 +2342,65 @@ void DoNaturalShadowCalculation(inout vec4 color1, inout vec4 color2) {
 
 //Program//
 void stageMain() {
+    tAmin = fract(sunAngle - 0.033333333);
+    tAlin = tAmin < 0.433333333 ? tAmin * 1.15384615385 : tAmin * 0.882352941176 + 0.117647058824;
+    hA = tAlin > 0.5 ? 1.0 : 0.0;
+    tAfrc = fract(tAlin * 2.0);
+    tAfrs = tAfrc*tAfrc*(3.0-2.0*tAfrc);
+    tAmix = hA < 0.5 ? 0.3 : -0.1;
+    timeAngle = (tAfrc * (1.0-tAmix) + tAfrs * tAmix + hA) * 0.5;
+    overworldAngleRaw = fract(timeAngle - 0.25);
+    overworldAngle = (overworldAngleRaw + (cos(overworldAngleRaw * 3.14159265358979) * -0.5 + 0.5 - overworldAngleRaw) / 3.0) * 6.28318530717959;
+    renderDistance = far;
+    noonFactorRaw = max(sin(timeAngle * 6.28318530718), 0.0);
+    noonFactor = sqrt(noonFactorRaw);
+    nightFactor = max(sin(timeAngle * (-6.28318530718)), 0.0);
+    invNightFactor = 1.0 - nightFactor;
+    rainFactor2 = rainFactor * rainFactor;
+    invRainFactor = 1.0 - rainFactor;
+    invNoonFactor = 1.0 - noonFactor;
+    invNoonFactor2 = invNoonFactor * invNoonFactor;
+    vsBrightness = clamp(screenBrightness, 0.0, 1.0);
+    nightVisionWithAddedSupport = screenBrightness > 1.0 ? 1.0 : nightVision;
+    modifiedWorldDay = int(mod(worldDay, 100) + 5.0);
+    syncedTime = (worldTime + modifiedWorldDay * 24000) * 0.05;
+    cameraPositionBestInt = ivec3(floor(cameraPosition));
+    cameraPositionBestFract = fract(cameraPosition);
+    previousCameraPositionBestFract = fract(previousCameraPosition);
+    blocklightCol = vec3(0.1775, 0.104, 0.077) * vec3(1.00, 1.00, 1.00);
+    fireSpecialLightColorBase = vec3(2.25, 0.83, 0.27) * 3.7;
+    fireSpecialLightColor = fireSpecialLightColorBase;
+    lavaSpecialLightColor = vec3(3.25, 0.9, 0.2) * 3.9;
+    netherPortalSpecialLightColor = vec3(1.8, 0.4, 2.2) * 0.8;
+    redstoneSpecialLightColor = vec3(4.0, 0.1, 0.1);
+    soulFireSpecialColor = vec4(vec3(0.3, 2.0, 2.2) * 1.0, 0.3);
+    candleColorMult = 2.0;
+    candleExtraLight = 0.004;
+    caveFogColorRaw2 = caveFogColorRaw * (0.7 + 0.3 * vsBrightness);
+    caveFogColor = caveFogColorRaw2;
+    underwaterColorM1 = pow(fogColor, vec3(0.33, 0.21, 0.26));
+    underwaterColorM2 = underwaterColorM1;
+    waterFogColor = underwaterColorM2 * vec3(0.2 + 0.1 * vsBrightness);
+    netherColorMixer = inNetherWastes + inCrimsonForest + inWarpedForest + inBasaltDeltas + inSoulValley;
+    netherColor = mix(
+            fogColor * 0.6 + 0.2 * normalize(fogColor + 0.0001),
+            (
+                inNetherWastes * vec3(0.4, 0.14, 0.06) + inCrimsonForest * vec3(0.36, 0.07, 0.05) +
+                inWarpedForest * vec3(0.18, 0.1, 0.25) + inBasaltDeltas * vec3(0.25, 0.235, 0.23) +
+                inSoulValley * vec3(0.1, vec2(0.24))
+            ),
+            netherColorMixer
+        );
+    lavaLightColor = vec3(0.15, 0.06, 0.01);
+    texelCoord = ivec2(gl_FragCoord.xy);
+    cloudHeightM = isnan(cloudHeight) ? 192.0 : cloudHeight;
+    cloudHeightOffset = cloudHeightM - 192.0;
+    cloudAlt1i = int(192 + cloudHeightOffset);
+    cloudAlt2i = int(288 + cloudHeightOffset);
+    upVec = normalize(transpose(gbufferModelView)[1].xyz);
+    sunVec = GetSunVector();
+    SdotU = dot(sunVec, upVec);
+    sunVisibility = clamp(SdotU + 0.0625, 0.0, 0.125) / 0.125;
     vec4 color1 = texture2DArrayLod(s_atlas, float3(texCoord, jLayer), 0); // Shadow Color
 
 
@@ -2393,9 +2488,6 @@ void stageMain() {
         /* DRAWBUFFERS:01 */
         gl_FragData1 = color2; // Light Shaft Color
 }
-
-
-//////////Vertex Shader//////////Vertex Shader//////////Vertex Shader//////////
 }
 
 // the pack spells matrix math M * v; slang only defines mul():
@@ -2423,7 +2515,7 @@ float javaTextureProj(Texture2D t, SamplerState s, float4 uvw)
 int2 javaTextureSize(Texture2D t, int lod) { uint w = 0, h = 0, n = 0; t.GetDimensions(uint(lod), w, h, n); return int2(w, h); }
 
 // engine light bytes are 0..15 levels; the pack wants 0..1
-float4 javaLightCoord(float4 t) { return float4(t.xy * 17.0, t.zw); }
+float4 javaLightCoord(float4 t) { return float4((t.xy * 255.0 + 8.0) / 256.0, t.zw); }
 
 VsOut vsMain(VsIn input)
 {
@@ -2440,6 +2532,7 @@ VsOut vsMain(VsIn input)
           ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);
       vs_stage::a_atTangent = float4(ax, hd); }
     vs_stage::a_mcChunkFade = 1.0;
+    { int id = int(input.a_ePacked + 0.5); vs_stage::a_mcEntity.x = texelFetch(s_javaMaterials, int2(id & 255, id >> 8), 0).r; }
     vs_stage::aspectRatio = u_jaspectRatio;
     vs_stage::atlasSize = u_jatlasSize;
     vs_stage::blindness = u_jblindness;

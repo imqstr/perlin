@@ -50,6 +50,15 @@ namespace perlin {
         Weather,
         Cracks,
         Nametag,
+        JavaDeferred,
+        JavaComposite,
+        JavaComposite1,
+        JavaComposite3,
+        JavaComposite4,
+        JavaComposite5,
+        JavaComposite6,
+        JavaComposite7,
+        JavaFinal,
         Count
     };
 
@@ -77,6 +86,15 @@ namespace perlin {
         Bloom6,
         Up0,
         Up1,
+        JavaDeferred,
+        JavaComposite,
+        JavaComposite1,
+        JavaComposite3,
+        JavaComposite4,
+        JavaComposite5,
+        JavaComposite6,
+        JavaComposite7,
+        JavaFinal,
         Count
     };
 
@@ -201,6 +219,7 @@ namespace perlin {
             // second MRT attachment for java gbuffer passes; 1 keeps single-target
             uint32_t colorCount = 1;
             rhi::Format colorFormat1 = rhi::Format::RGBA8Unorm;
+            rhi::Format colorFormat2 = rhi::Format::RGBA8Unorm;
             std::vector<DrawCall> draws;
         };
 
@@ -209,6 +228,8 @@ namespace perlin {
             rhi::TextureHandle depth;
             // optional second MRT color attachment (java colortex1)
             rhi::TextureHandle color1;
+            // optional third MRT color attachment (java deferred colortex4)
+            rhi::TextureHandle color2;
             uint32_t w = 0, h = 0;
             rhi::Format colorFormat = rhi::Format::RGBA8Unorm;
         };
@@ -295,6 +316,12 @@ namespace perlin {
             bool failed = false;
             // second MRT attachment for java gbuffer passes (colortex1 content)
             rhi::TextureHandle javaAux;
+            // java composite chain ping-pong buffers (colortex1-5,7) and
+            // temps; colortex0 is worldColor, colortex6 is javaAux
+            rhi::TextureHandle javaC1, javaC2, javaC3, javaC4, javaC5, javaC7;
+            rhi::TextureHandle javaTempA, javaTempB, javaTempC;
+            bool javaChainClear = false;
+            uint32_t javaChainW = 0, javaChainH = 0;
         } post;
         void PlanPost(const FrameParams& params);
         bool EnsureWorldTargets(uint32_t w, uint32_t h, bool sampledDepth, bool history);
@@ -428,11 +455,25 @@ namespace perlin {
         bool javaActive = false;
         std::string javaPackPath;
         // generated/default java samplers (noise, pbr fallbacks, cleared buffers)
-        TexRec javaNoise, javaNormalDef, javaSpecDef, javaBlack;
+        TexRec javaNoise, javaNormalDef, javaSpecDef, javaBlack, javaCloudWater, javaMaterials;
+        struct JavaMaterialRule {
+            int id = 0;
+            std::vector<std::pair<std::string, std::string>> states;
+        };
+        std::unordered_map<std::string, std::vector<JavaMaterialRule>> javaMaterialRules;
+        size_t javaMaterialCount = 0;
+        bool EnsureJavaMaterials();
         bool javaTexReady = false;
         bool EnsureJavaSamplers();
         void FeedJavaUniforms(const FrameParams& params);
         void BindJavaExtras();
+        // full java chain (deferred + composite + final); false when any
+        // converted program is missing, and only terrain+sky run instead
+        bool JavaChainReady() const;
+        bool EnsureJavaChainTargets(uint32_t w, uint32_t h);
+        void BuildJavaChainStages();
+        void RecordJavaChain();
+        void JavaChainBinds();
         bool ResolvePrograms();
         std::array<int, static_cast<size_t>(Program::Count)> programIds{};
         std::array<gpu::VertexLayout, static_cast<size_t>(Program::Count)> programLayouts{};

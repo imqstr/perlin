@@ -44,7 +44,7 @@ namespace perlin {
         const float centerV = (uv[0][1] + uv[1][1] + uv[2][1] + uv[3][1]) * 0.25f * kTiles;
         const float column = std::floor(centerU), row = std::floor(centerV);
         const uint32_t tile = static_cast<uint32_t>(row * kTiles + column) << 16;
-        // face normal from winding; flipped index order faces the other way
+        // either triangle diagonal preserves the quad winding
         float e0[3] = {v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]};
         float e1[3] = {v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]};
         float nx = e0[1] * e1[2] - e0[2] * e1[1];
@@ -59,11 +59,6 @@ namespace perlin {
             nx = 0.0f;
             ny = 1.0f;
             nz = 0.0f;
-        }
-        if (flip) {
-            nx = -nx;
-            ny = -ny;
-            nz = -nz;
         }
         // tangent from uv gradients; axis-aligned faces land exactly on an axis
         float d0u = uv[1][0] - uv[0][0], d0v = uv[1][1] - uv[0][1];
@@ -114,8 +109,8 @@ namespace perlin {
         const float tangent = static_cast<float>(axis * 2 + (hand < 0.0f ? 0 : 1));
         const uint32_t packedNormal = PackColor(nx * 0.5f + 0.5f, ny * 0.5f + 0.5f, nz * 0.5f + 0.5f);
         const float entity = static_cast<float>(curBlock);
-        // atlas-space mid point: what mc_midTexCoord means to the pack
-        const float midU = centerU / kTiles, midV = centerV / kTiles;
+        // array textures use tile-local uvs for both corners and midpoints
+        const float midU = (centerU - column - kInset) / kSpan, midV = (centerV - row - kInset) / kSpan;
         for (int i = 0; i < 4; i++) {
             const float u = (uv[i][0] * kTiles - column - kInset) / kSpan;
             const float w = (uv[i][1] * kTiles - row - kInset) / kSpan;

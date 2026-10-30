@@ -359,6 +359,7 @@ namespace rhi::vk {
         std::array<std::mutex, 3> queueMutexes;
         VkPipelineCache pipelineCache = VK_NULL_HANDLE;
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        std::array<float, 8> queuePriorities{};
         std::array<uint32_t, kQueueCount> queueIndex{};
         VkDescriptorSetLayout emptySetLayout = VK_NULL_HANDLE;
         VkImageView MakeView(TextureRec& tex, const SubresourceRange& range, VkImageViewType type, VkFormat format, VkImageAspectFlags aspect);

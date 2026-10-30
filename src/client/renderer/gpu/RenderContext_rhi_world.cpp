@@ -335,6 +335,12 @@ namespace perlin {
         BindShadowSampling();
         if (javaActive)
             BindJavaExtras();
+        if (javaActive && ordered && post.sceneValid) {
+            BindTexture("s_gaux2", post.javaC5, gpu::SamplerKind::PointClamp);
+            BindTexture("s_colortex0", post.sceneColor, gpu::SamplerKind::LinearClamp);
+            BindTexture("s_sceneDepth", post.sceneDepth, gpu::SamplerKind::PointClamp);
+            BindTexture("s_depth", post.sceneDepth, gpu::SamplerKind::PointClamp);
+        }
         if (ordered && post.sceneValid) {
             BindTexture("s_sceneColor", post.sceneColor, gpu::SamplerKind::LinearClamp);
             BindTexture("s_sceneDepth", post.sceneDepth, gpu::SamplerKind::PointClamp);
@@ -451,8 +457,10 @@ namespace perlin {
         if (javaActive) {
             BindShadowSampling();
             BindJavaExtras();
-            if (post.worldDepth)
-                BindTexture("s_sceneDepth", post.worldDepth, gpu::SamplerKind::PointClamp);
+            Submit(View::World, drawState(Program::Sky, gpu::VertexLayout::Position), {screenTri, 0}, nullptr,
+                   rhi::IndexType::U32, 0, 3);
+            ResetBindings();
+            return;
         }
         {
             const Source indices{fanIdx, 0};
@@ -518,6 +526,8 @@ namespace perlin {
     }
 
     void RenderContext_rhi::DrawClouds() {
+        if (javaActive)
+            return;
         const CloudDraw& clouds = frame.cloud;
         material::Registry::Instance().Configure(clouds.fancy);
         if (!clouds.enabled || cloudTexture.solid.empty())

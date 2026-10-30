@@ -105,7 +105,7 @@ namespace rhi::vk {
         else if (slots[1].family != static_cast<uint32_t>(gfx) || slots[1].index != 0)
             slots[2] = slots[1];
 
-        std::vector<float> priorities(8, 1.0f);
+        queuePriorities.fill(1.0f);
         std::vector<VkDeviceQueueCreateInfo> infos;
         std::vector<Slot> unique;
         for (const Slot& s : slots) {
@@ -126,7 +126,7 @@ namespace rhi::vk {
             VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
             qi.queueFamilyIndex = fam;
             qi.queueCount = need;
-            qi.pQueuePriorities = priorities.data();
+            qi.pQueuePriorities = queuePriorities.data();
             infos.push_back(qi);
         }
         queueCreateInfos = std::move(infos);

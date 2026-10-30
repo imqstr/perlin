@@ -59,13 +59,166 @@ namespace perlin {
             return t;
         }
 
-        constexpr rhi::TextureUsage kColorRt = rhi::TextureUsage::ColorTarget | rhi::TextureUsage::Sampled | rhi::TextureUsage::CopySrc;
+        constexpr rhi::TextureUsage kColorRt = rhi::TextureUsage::ColorTarget | rhi::TextureUsage::Sampled | rhi::TextureUsage::CopySrc | rhi::TextureUsage::CopyDst;
+    }
+
+    bool RenderContext_rhi::JavaChainReady() const {
+        if (!javaActive)
+            return false;
+        for (Program p : {Program::JavaDeferred, Program::JavaComposite, Program::JavaComposite1, Program::JavaComposite3,
+                          Program::JavaComposite4, Program::JavaComposite5, Program::JavaComposite6, Program::JavaComposite7,
+                          Program::JavaFinal})
+            if (ProgramIndex(p) < 0)
+                return false;
+        return true;
+    }
+
+    bool RenderContext_rhi::EnsureJavaChainTargets(uint32_t w, uint32_t h) {
+        const rhi::Format kPostColor = javaActive ? rhi::Format::RGBA16Float : rhi::Format::RGBA8Unorm;
+        if (post.javaC1 && post.javaChainW == w && post.javaChainH == h)
+            return true;
+        gpu.Dev().WaitIdle();
+        for (rhi::TextureHandle* t : {&post.javaC1, &post.javaC2, &post.javaC3, &post.javaC4, &post.javaC5, &post.javaC7,
+                                      &post.javaTempA, &post.javaTempB, &post.javaTempC}) {
+            if (*t)
+                gpu.DestroyTexture(*t);
+            *t = {};
+        }
+        postTextures.erase(std::remove_if(postTextures.begin(), postTextures.end(),
+                                          [](rhi::TextureHandle t) { return !t; }),
+                           postTextures.end());
+        const auto make = [&](const char* name) {
+            rhi::TextureHandle t = MakeTarget(gpu, w, h, kPostColor, kColorRt, name);
+            if (t)
+                postTextures.push_back(t);
+            return t;
+        };
+        post.javaC1 = make("java colortex1");
+        post.javaC2 = make("java colortex2");
+        post.javaC3 = make("java colortex3");
+        post.javaC4 = make("java colortex4");
+        post.javaC5 = make("java colortex5");
+        post.javaC7 = make("java colortex7");
+        post.javaTempA = make("java temp a");
+        post.javaTempB = make("java temp b");
+        post.javaTempC = make("java temp c");
+        post.javaChainClear = true;
+        post.javaChainW = w;
+        post.javaChainH = h;
+        if (!post.javaC1 || !post.javaC2 || !post.javaC3 || !post.javaC4 || !post.javaC5 || !post.javaC7 || !post.javaTempA ||
+            !post.javaTempB || !post.javaTempC) {
+            std::cout << "[render] could not create java chain targets" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    void RenderContext_rhi::BuildJavaChainStages() {
+        const rhi::Format kPostColor = javaActive ? rhi::Format::RGBA16Float : rhi::Format::RGBA8Unorm;
+        const uint32_t w = static_cast<uint32_t>(plan.w), h = static_cast<uint32_t>(plan.h);
+        if (post.javaChainClear) {
+            for (auto texture : {post.javaC1, post.javaC2, post.javaC3, post.javaC5, post.javaC7}) {
+                Stage clear;
+                clear.target.color = texture;
+                clear.target.w = w;
+                clear.target.h = h;
+                clear.target.colorFormat = kPostColor;
+                clear.clearColor = true;
+                stages.push_back(clear);
+            }
+            post.javaChainClear = false;
+        }
+        // each program renders into temps, then copies land in the colortex
+        // buffers: passes both read and write the same buffers
+        const auto pushCopy = [&](rhi::TextureHandle src, rhi::TextureHandle dst) {
+            Stage c;
+            c.kind = Stage::Kind::Copy;
+            c.copySrc = src;
+            c.copyDst = dst;
+            c.copyW = w;
+            c.copyH = h;
+            stages.push_back(c);
+        };
+        // deferred: t0->C0, t1->C5, t2->C4
+        {
+            Target t;
+            t.color = post.javaTempA;
+            t.color1 = post.javaTempB;
+            t.color2 = post.javaTempC;
+            t.w = w;
+            t.h = h;
+            t.colorFormat = kPostColor;
+            Stage s;
+            s.target = t;
+            s.views = {View::JavaDeferred};
+            stages.push_back(s);
+            pushCopy(post.javaTempA, post.worldColor);
+            pushCopy(post.javaTempB, post.javaC5);
+            pushCopy(post.javaTempC, post.javaC4);
+        }
+        pushCopy(post.worldColor, post.sceneColor);
+        pushCopy(post.worldDepth, post.sceneDepth);
+        Stage clearWater;
+        clearWater.target.color = post.javaC3;
+        clearWater.target.w = w;
+        clearWater.target.h = h;
+        clearWater.target.colorFormat = kPostColor;
+        clearWater.clearColor = true;
+        stages.push_back(clearWater);
+        Stage water;
+        water.target.color = post.worldColor;
+        water.target.color1 = post.javaC3;
+        water.target.depth = post.worldDepth;
+        water.target.w = w;
+        water.target.h = h;
+        water.target.colorFormat = kPostColor;
+        water.views = {View::Late};
+        stages.push_back(water);
+        const struct {
+            Program program;
+            View view;
+            rhi::TextureHandle d0, d1;
+        } rest[] = {
+            {Program::JavaComposite, View::JavaComposite, post.javaC7, post.javaC1},
+            {Program::JavaComposite1, View::JavaComposite1, post.worldColor, post.javaC5},
+            {Program::JavaComposite3, View::JavaComposite3, post.worldColor, {}},
+            {Program::JavaComposite4, View::JavaComposite4, post.javaC3, {}},
+            {Program::JavaComposite5, View::JavaComposite5, post.javaC3, {}},
+            {Program::JavaComposite6, View::JavaComposite6, post.javaC3, post.javaC2},
+            {Program::JavaComposite7, View::JavaComposite7, post.javaC3, {}},
+        };
+        for (const auto& r : rest) {
+            Target t;
+            t.color = post.javaTempA;
+            t.w = w;
+            t.h = h;
+            t.colorFormat = kPostColor;
+            if (r.d1)
+                t.color1 = post.javaTempB;
+            Stage s;
+            s.target = t;
+            s.views = {r.view};
+            stages.push_back(s);
+            pushCopy(post.javaTempA, r.d0);
+            if (r.d1)
+                pushCopy(post.javaTempB, r.d1);
+        }
+        Stage out;
+        out.toScreen = true;
+        out.views = {View::JavaFinal};
+        stages.push_back(out);
+        {
+            ViewData& vd = views[static_cast<size_t>(View::JavaFinal)];
+            vd.colorFormat = gpu.TargetFormat();
+            vd.depthFormat = rhi::Format::Unknown;
+        }
     }
 
     void RenderContext_rhi::DestroyPostTargets() {
         for (rhi::TextureHandle* t : {&post.worldColor, &post.worldDepth, &post.hist[0], &post.hist[1], &post.bloom[0], &post.bloom[1],
                                       &post.bloom[2], &post.bloom[3], &post.up[0], &post.up[1], &post.up[2], &post.sceneColor,
-                                      &post.sceneDepth, &post.javaAux})
+                                      &post.sceneDepth, &post.javaAux, &post.javaC1, &post.javaC2, &post.javaC3, &post.javaC4,
+                                      &post.javaC5, &post.javaC7, &post.javaTempA, &post.javaTempB, &post.javaTempC})
             if (*t) {
                 gpu.DestroyTexture(*t);
                 *t = {};
@@ -76,6 +229,7 @@ namespace perlin {
     }
 
     bool RenderContext_rhi::EnsureWorldTargets(uint32_t w, uint32_t h, bool, bool history) {
+        const rhi::Format kPostColor = javaActive ? rhi::Format::RGBA16Float : rhi::Format::RGBA8Unorm;
         if (post.worldColor && post.worldW == w && post.worldH == h && (!history || post.hist[0]))
             return true;
         // a size change drops everything built for the old size
@@ -157,6 +311,7 @@ namespace perlin {
     }
 
     bool RenderContext_rhi::EnsureSceneTargets() {
+        const rhi::Format kPostColor = javaActive ? rhi::Format::RGBA16Float : rhi::Format::RGBA8Unorm;
         if (post.sceneColor && post.sceneColor && post.worldW)
             return true;
         post.sceneColor = MakeTarget(gpu, post.worldW, post.worldH, kPostColor,
@@ -179,6 +334,7 @@ namespace perlin {
     // -- planning ---------------------------------------------------------------------------------------------------
 
     void RenderContext_rhi::PlanPost(const FrameParams& params) {
+        const rhi::Format kPostColor = javaActive ? rhi::Format::RGBA16Float : rhi::Format::RGBA8Unorm;
         plan = PostPlan{};
         stages.clear();
         shadowStages.clear();
@@ -200,6 +356,13 @@ namespace perlin {
         // java MRT needs the offscreen chain even with every effect off
         if (javaActive && !post.failed && ProgramIndex(Program::Post) >= 0)
             plan.active = true;
+        // the converted chain replaces post effects and scaling wholesale
+        if (JavaChainReady()) {
+            plan.scaled = plan.temporal = plan.bloom = plan.blur = false;
+            plan.sceneCopy = true;
+            plan.w = width;
+            plan.h = height;
+        }
 
         const float clear[4] = {params.fogColor[0], params.fogColor[1], params.fogColor[2], 1.0f};
         const auto direct = [&] {
@@ -277,6 +440,11 @@ namespace perlin {
             vd.colorFormat1 = kPostColor;
         }
 
+        if (JavaChainReady() && !EnsureJavaChainTargets(static_cast<uint32_t>(plan.w), static_cast<uint32_t>(plan.h))) {
+            direct();
+            overlays();
+            return;
+        }
         Target world;
         world.color = post.worldColor;
         world.depth = post.worldDepth;
@@ -291,8 +459,10 @@ namespace perlin {
                 postTextures.push_back(post.javaAux);
             }
             world.color1 = post.javaAux;
+            world.color2 = post.javaC4;
             for (View v : {View::World, View::Entity, View::Late}) {
-                views[static_cast<size_t>(v)].colorCount = 2;
+                views[static_cast<size_t>(v)].colorCount = 3;
+                views[static_cast<size_t>(v)].colorFormat2 = kPostColor;
                 views[static_cast<size_t>(v)].colorFormat1 = kPostColor;
             }
         }
@@ -303,7 +473,13 @@ namespace perlin {
         opaque.target = world;
         opaque.clearColor = opaque.clearDepth = true;
         std::memcpy(opaque.clear, clear, sizeof(clear));
-        if (plan.sceneCopy) {
+        if (JavaChainReady()) {
+            opaque.views = {View::World, View::Entity};
+            stages.push_back(opaque);
+            post.sceneValid = true;
+            ViewData& late = views[static_cast<size_t>(View::Late)];
+            late.colorCount = 2;
+        } else if (plan.sceneCopy) {
             opaque.views = {View::World, View::Entity};
             stages.push_back(opaque);
             Stage copyColor;
@@ -327,6 +503,12 @@ namespace perlin {
             opaque.views = {View::World, View::Entity, View::Late};
             stages.push_back(opaque);
             post.sceneValid = false;
+        }
+
+        if (JavaChainReady() && EnsureJavaChainTargets(static_cast<uint32_t>(plan.w), static_cast<uint32_t>(plan.h))) {
+            BuildJavaChainStages();
+            overlays();
+            return;
         }
 
         if (plan.bloom) {
@@ -422,7 +604,7 @@ namespace perlin {
         vd.depthFormat = rhi::Format::Unknown;
         DrawState s = Base(program, false, false, rhi::CompareOp::Always);
         s.layout = gpu::VertexLayout::Position;
-        s.mask = rhi::ColorMask::RGB;
+        s.mask = rhi::ColorMask::All;
         s.cull = rhi::CullMode::None;
         if (additive) {
             s.blend = true;
@@ -510,6 +692,10 @@ namespace perlin {
     void RenderContext_rhi::RecordPost() {
         if (!plan.active || !post.worldColor)
             return;
+        if (JavaChainReady()) {
+            RecordJavaChain();
+            return;
+        }
         const FrameParams& params = frame;
         const float intensity = std::clamp(params.motionBlur, 0.0f, 1.0f);
         const float menuPx = std::max(0.0f, params.menuBlur);
@@ -595,15 +781,22 @@ namespace perlin {
             draws += views[static_cast<size_t>(v)].draws.size();
         if (!draws && !stage.clearColor && !stage.clearDepth)
             return;
+        if (PERLIN_ENV("PERLIN_JAVA_DBG") && stage.toScreen) {
+            static int s = 0;
+            if (s++ % 60 == 0)
+                std::fprintf(stderr, "[javadbg] screen stage draws=%zu\n", draws);
+        }
         const Target& target = stage.target;
         ReadyForSampling(list, target.color, target.depth);
         gpu.Transition(list, target.color, rhi::State::ColorTarget);
         if (target.color1)
             gpu.Transition(list, target.color1, rhi::State::ColorTarget);
+        if (target.color2)
+            gpu.Transition(list, target.color2, rhi::State::ColorTarget);
         if (target.depth)
             gpu.Transition(list, target.depth, rhi::State::DepthWrite);
         rhi::RenderingDesc rd;
-        rd.colorCount = target.color1 ? 2 : 1;
+        rd.colorCount = target.color2 ? 3 : target.color1 ? 2 : 1;
         rd.colors[0].texture = target.color;
         rd.colors[0].load = stage.clearColor ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
         rd.colors[0].store = rhi::StoreOp::Store;
@@ -613,6 +806,12 @@ namespace perlin {
             rd.colors[1].load = stage.clearColor ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
             rd.colors[1].store = rhi::StoreOp::Store;
             rd.colors[1].clear = {0.0f, 0.0f, 0.0f, 1.0f};
+        }
+        if (target.color2) {
+            rd.colors[2].texture = target.color2;
+            rd.colors[2].load = stage.clearColor ? rhi::LoadOp::Clear : rhi::LoadOp::Load;
+            rd.colors[2].store = rhi::StoreOp::Store;
+            rd.colors[2].clear = {0.0f, 0.0f, 0.0f, 1.0f};
         }
         if (target.depth) {
             rd.depth.texture = target.depth;

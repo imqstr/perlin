@@ -30,6 +30,9 @@ UNIFORMS_BEGIN
     vec4 u_sceneInfo;
     mat4 u_invMvp;
     vec4 u_viewTexel;
+#ifdef PERLIN_JAVA_UNIFORMS
+    PERLIN_JAVA_UNIFORMS
+#endif
 UNIFORMS_END
 
 SAMPLER2DARRAY(s_atlas, 0, 1);
@@ -64,3 +67,5 @@ SAMPLER2D(s_colortex12, 76, 77);
 SAMPLER2D(s_colortex13, 78, 79);
 SAMPLER2D(s_colortex14, 80, 81);
 SAMPLER2D(s_colortex15, 82, 83);
+
+SAMPLER2D(s_javaMaterials, 84, 85);
