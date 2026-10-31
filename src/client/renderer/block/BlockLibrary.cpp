@@ -1338,6 +1338,7 @@ namespace perlin {
                 if (base) {
                     BlockAppearance copy = *base;
                     copy.cutout = def.cutout || base->cutout;
+                    copy.doubleSided = def.doubleSided || base->doubleSided;
                     {
                         std::lock_guard<std::mutex> lock(lookMutex);
                         appearances[def.name] = std::move(copy);
@@ -1373,6 +1374,7 @@ namespace perlin {
             a.texSide = pSide;
             a.texBottom = pBottom.empty() ? pSide : pBottom;
             a.cutout = def.cutout;
+            a.doubleSided = def.doubleSided;
             {
                 std::lock_guard<std::mutex> lock(lookMutex);
                 appearances[def.name] = std::move(a);

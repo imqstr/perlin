@@ -33,6 +33,7 @@ namespace perlin {
         enum class Shape { Cube, Cross, Flat, Wall };
         Shape shape = Shape::Cube;
         bool cutout = false;
+        bool doubleSided = false;
         std::string texTop, texSide, texBottom;
     };
 

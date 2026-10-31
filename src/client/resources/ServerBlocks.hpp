@@ -30,6 +30,8 @@ namespace perlin {
         std::string name;
         std::map<std::string, std::string> faceTexture;
         bool cutout = false;
+        // alpha_test and double_sided render methods draw both faces of every quad
+        bool doubleSided = false;
         std::string json;
         std::string geometry;
     };

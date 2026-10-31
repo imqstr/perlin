@@ -295,8 +295,13 @@ namespace perlin {
                             continue;
                         if (const ui::Json* tex = v.Find("texture"); tex && tex->IsString())
                             def.faceTexture[face] = tex->string;
-                        if (const ui::Json* rm = v.Find("render_method"); rm && rm->IsString() && rm->string != "opaque")
-                            def.cutout = true;
+                        // Bedrock's default material is opaque; alpha_test and double_sided turn backface culling off
+                        if (const ui::Json* rm = v.Find("render_method"); rm && rm->IsString()) {
+                            if (rm->string != "opaque")
+                                def.cutout = true;
+                            if (rm->string == "alpha_test" || rm->string == "double_sided")
+                                def.doubleSided = true;
+                        }
                     }
                 }
             }
