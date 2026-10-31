@@ -503,7 +503,13 @@ namespace perlin::entity {
         // velocity-aligned flight: arrows, tridents and lobbed bottles alike
         if (projectile) {
             const double len = glm::length(d);
-            if (len > 0.04) {
+            // the vanilla client draws a projectile with the rotation the server gives it; deriving one
+            // from motion used the mob yaw convention, which mirrors projectiles (they use atan2(dx, dz))
+            const bool serverRotation = e.yaw != 0.0f || e.pitch != 0.0f;
+            if (serverRotation) {
+                v.yaw = v.yaw + WrapDegrees(e.yaw - v.yaw) * static_cast<float>(1.0 - std::exp(-dt / 0.03));
+                v.pitch = v.pitch + WrapDegrees(e.pitch - v.pitch) * static_cast<float>(1.0 - std::exp(-dt / 0.03));
+            } else if (len > 0.04) {
                 const float targetYaw = static_cast<float>(std::atan2(-d.x, d.z) * 180.0 / 3.14159265358979);
                 const float targetPitch = static_cast<float>(-std::asin(std::clamp(d.y / len, -1.0, 1.0)) * 180.0 / 3.14159265358979);
                 const float aim = 1.0f - std::exp(-dt / 0.03f);
