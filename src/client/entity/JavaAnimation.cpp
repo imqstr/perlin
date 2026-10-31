@@ -238,7 +238,8 @@ namespace perlin::entity::java {
         return glm::scale(root, glm::vec3(-1, 1, 1));
     }
 
-    bool ApplyPlayerPose(const PlayerPose& p, const attachable::Geometry* g, attachable::Pose& pose) {
+    bool ApplyPlayerPose(const PlayerPose& p, const attachable::Geometry* g, attachable::Pose& pose,
+                         const attachable::Geometry* pivotSource) {
         if (!g)
             return false;
         const std::array<std::pair<const char*, const Part*>, 6> parts = {{{"head", &p.head},
@@ -247,9 +248,14 @@ namespace perlin::entity::java {
                                                                            {"leftarm", &p.leftArm},
                                                                            {"rightleg", &p.rightLeg},
                                                                            {"leftleg", &p.leftLeg}}};
+        // a player skeleton must have every part; layer geometry such as armor is split per piece
+        // (a helmet has only a head), so it only needs one
+        size_t present = 0;
         for (const auto& [name, part] : parts)
-            if (std::none_of(g->bones.begin(), g->bones.end(), [&](const auto& b) { return b.name == name; }))
-                return false;
+            if (std::any_of(g->bones.begin(), g->bones.end(), [&](const auto& b) { return b.name == name; }))
+                ++present;
+        if (present == 0 || (!pivotSource && present != parts.size()))
+            return false;
         for (const char* name :
              {"root", "waist", "hat", "jacket", "leftsleeve", "rightsleeve", "leftpants", "rightpants"})
             pose.erase(name);
@@ -263,9 +269,18 @@ namespace perlin::entity::java {
             if (found != parts.end()) {
                 const auto& part = *found->second;
                 const glm::vec3 degrees = glm::degrees(part.rotation);
-                const glm::mat4 desired = glm::translate(glm::mat4(1), part.offset + b.pivot) *
+                // Java copies the player's part transforms onto armor (copyPropertiesTo), so a layer
+                // geometry rotates its parts about the player's pivots, not its own
+                glm::vec3 pivot = b.pivot;
+                if (pivotSource)
+                    for (const auto& sb : pivotSource->bones)
+                        if (sb.name == b.name) {
+                            pivot = sb.pivot;
+                            break;
+                        }
+                const glm::mat4 desired = glm::translate(glm::mat4(1), part.offset + pivot) *
                                           attachable::EulerZYX(degrees) *
-                                          glm::translate(glm::mat4(1), -b.pivot);
+                                          glm::translate(glm::mat4(1), -pivot);
                 const glm::mat4 fit = glm::inverse(parent) * desired;
                 const float y = std::asin(std::clamp(-fit[0][2], -1.0f, 1.0f));
                 const bool singular = std::hypot(fit[0][0], fit[0][1]) < 1e-5f;
