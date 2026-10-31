@@ -654,6 +654,9 @@ namespace perlin {
             std::lock_guard lock(statusMutex);
             inventoryWindow = static_cast<int>(p.windowId);
             inventoryOpen = true;
+            // a server close that arrived while no screen was up must not close this new one; it left
+            // the Hive's Skywars chests shutting the instant they opened after a kit menu had been closed
+            serverClosedInventory = false;
             workbenchOpen = p.windowType == WindowType::Workbench;
             if (p.windowType == WindowType::Horse) {
                 inventory.horseOpen = true;
