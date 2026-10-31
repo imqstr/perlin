@@ -305,7 +305,10 @@ namespace perlin::entity {
   }
 })JAVA";
         void LoadJavaOverrides(attachable::AnimationLibrary& animations) {
-            if (!PERLIN_ENV("PERLIN_JAVA_ANIMATIONS") || PERLIN_ENV("PERLIN_NO_JAVA_ANIMATIONS"))
+            // The renderer takes the java animation path unconditionally, so the overrides have to
+            // be installed and refreshed unconditionally too: gating only this side left whatever
+            // revision an earlier opted-in run happened to write on disk, and never updated it.
+            if (PERLIN_ENV("PERLIN_NO_JAVA_ANIMATIONS"))
                 return;
             const fs::path dir = fs::path(paths::DataDir()) / "animation_overrides";
             std::error_code ec;
