@@ -1,6 +1,7 @@
 #include "util/Relaunch.hpp"
 #include "client/EmbeddedProvider.hpp"
 #include "client/Perlin.hpp"
+#include "client/ExitSignals.hpp"
 #include "client/platform/sdl/AppPlatform_SDL.hpp"
 #include "util/Paths.hpp"
 
@@ -240,6 +241,7 @@ namespace {
 }
 
 int main(int argc, char** argv) {
+    perlin::exitsignals::Install();
 #if defined(__GLIBC__)
     mallopt(M_ARENA_MAX, 2);
     mallopt(M_MMAP_THRESHOLD, 256 * 1024);

@@ -87,6 +87,11 @@ namespace perlin {
 
         bool Connect(const std::string& host, uint16_t port);
         void Disconnect();
+        // crash path: only tells the transport to say goodbye; takes no session locks and joins nothing
+        void LeaveNow() {
+            if (net)
+                net->Disconnect();
+        }
         void SetPackDirectory(const std::string& dir) { packs.SetDirectory(dir); }
         std::vector<PackDownloader::PackFile> ServerPackFiles() const { return packs.Files(); }
         bool Transferring() const { return transferring; }

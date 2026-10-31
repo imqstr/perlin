@@ -1,3 +1,4 @@
+#include "client/ExitSignals.hpp"
 #include "client/PerlinFrame.hpp"
 #include "util/Log.hpp"
 
@@ -29,8 +30,12 @@ namespace perlin {
         RunWebMainLoop([this] { return renderRunning && platform->isRunning ? (FrameStep(), true) : false; },
                        [this] { TearDownRenderThread(); });
 #else
-        while (renderRunning && platform->isRunning)
+        while (renderRunning && platform->isRunning && !exitsignals::QuitRequested()) {
+            exitsignals::SetLeaveHook(session ? [](void* s) { static_cast<BedrockSession*>(s)->LeaveNow(); } : nullptr,
+                                      session.get());
             FrameStep();
+        }
+        exitsignals::SetLeaveHook(nullptr, nullptr);
         if (exportJob.active)
             ExportFinish(true, "");
         if (replayCtl.Playing()) {

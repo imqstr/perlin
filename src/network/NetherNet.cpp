@@ -639,6 +639,14 @@ namespace perlin {
                     impl->pc->onStateChange(nullptr);
                     impl->pc->onGatheringStateChange(nullptr);
                 }
+                // close now: the deferred delete below never runs when the game is exiting, and without
+                // the close the server keeps the session and refuses the next join for about 30 s
+                if (impl->reliable)
+                    impl->reliable->close();
+                if (impl->unreliable)
+                    impl->unreliable->close();
+                if (impl->pc)
+                    impl->pc->close();
             } catch (...) {
             }
             Impl* doomed = impl.release();
