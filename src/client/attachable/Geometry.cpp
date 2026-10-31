@@ -202,6 +202,16 @@ namespace perlin::attachable {
         return m;
     }
 
+    namespace {
+        void ReadVisibleBounds(const Json& from, const char* width, const char* height, const char* offset, Geometry& g) {
+            g.visibleWidth = from.Find(width) ? static_cast<float>(from.Find(width)->NumberOr(0)) : 0.0f;
+            g.visibleHeight = from.Find(height) ? static_cast<float>(from.Find(height)->NumberOr(0)) : 0.0f;
+            if (const Json* o = from.Find(offset); o && o->IsArray() && o->array.size() == 3)
+                for (int i = 0; i < 3; i++)
+                    g.visibleOffset[i] = static_cast<float>(o->array[static_cast<size_t>(i)].NumberOr(0));
+        }
+    }
+
     void GeometryLibrary::Load(const std::string& text) {
         Json doc;
         std::string error;
@@ -224,6 +234,7 @@ namespace perlin::attachable {
                 g.textureHeight = desc->Find("texture_height")
                                       ? static_cast<float>(desc->Find("texture_height")->NumberOr(64))
                                       : 64.0f;
+                ReadVisibleBounds(*desc, "visible_bounds_width", "visible_bounds_height", "visible_bounds_offset", g);
                 if (const Json* bones = entry.Find("bones"); bones && bones->IsArray())
                     ParseBones(*bones, g);
                 geometries[g.id] = std::move(g);
@@ -242,6 +253,7 @@ namespace perlin::attachable {
             g.textureHeight = value.Find("textureheight")
                                   ? static_cast<float>(value.Find("textureheight")->NumberOr(64))
                                   : 64.0f;
+            ReadVisibleBounds(value, "visibleBoundsWidth", "visibleBoundsHeight", "visibleBoundsOffset", g);
             if (!g.parentId.empty()) {
                 if (!value.Find("texturewidth"))
                     g.textureWidth = 0;
@@ -336,6 +348,11 @@ namespace perlin::attachable {
                     g.bones = std::move(merged);
                     if (g.textureWidth <= 0)
                         g.textureWidth = p->second.textureWidth;
+                    if (g.visibleWidth <= 0.0f) {
+                        g.visibleWidth = p->second.visibleWidth;
+                        g.visibleHeight = p->second.visibleHeight;
+                        g.visibleOffset = p->second.visibleOffset;
+                    }
                     if (g.textureHeight <= 0)
                         g.textureHeight = p->second.textureHeight;
                 }

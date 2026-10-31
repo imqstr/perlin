@@ -200,6 +200,9 @@ namespace perlin::entity {
         std::map<std::string, CtrlState> ctrl;
         std::vector<EntityRenderer::Layer> cachedLayers;
         float cachedScale = 1.0f;
+        // bound geometry's visible_bounds, what the game culls with; width 0: none declared
+        float visibleWidth = 0, visibleHeight = 0;
+        glm::vec3 visibleOffset{0.0f};
         int cacheAge = 1 << 20;
         double cacheTime = -1e9;
         const Entity* entity = nullptr;
@@ -934,6 +937,11 @@ namespace perlin::entity {
                 bindGeometry = assets.geometries.Find(id->second);
             if (bindGeometry)
                 break;
+        }
+        if (bindGeometry) {
+            v.visibleWidth = bindGeometry->visibleWidth;
+            v.visibleHeight = bindGeometry->visibleHeight;
+            v.visibleOffset = bindGeometry->visibleOffset;
         }
         Pose pose;
         host.bonePivot = [bindGeometry](const std::string& bone, int axis, double& out) {
@@ -2311,15 +2319,29 @@ namespace perlin::entity {
                     h = hb.second;
                 }
                 const float r = std::max(w, h) * 0.5f + 0.75f + (e.isItem ? 0.0f : 0.5f * h);
-                const float x = static_cast<float>(v.pos.x), y = static_cast<float>(v.pos.y),
-                            z = static_cast<float>(v.pos.z);
-                if (!in.frustum->Visible(x - r, y - 0.5f, z - r, x + r, y + std::max(h, 0.5f) + r, z + r)) {
+                const float x = static_cast<float>(v.pos.x), y = static_cast<float>(v.pos.y), z = static_cast<float>(v.pos.z);
+                float lo[3] = {x - r, y - 0.5f, z - r}, hi[3] = {x + r, y + std::max(h, 0.5f) + r, z + r};
+                // cull by the geometry's visible_bounds like the game: a model far larger than its hitbox
+                // vanished whenever its anchor left the view
+                const float vs = e.scale > 0.0f ? e.scale : 1.0f;
+                const bool bigModel = v.visibleWidth * vs > 2.0f * r || v.visibleHeight * vs > h + 2.0f * r;
+                if (v.visibleWidth > 0.0f) {
+                    const float hw = v.visibleWidth * vs * 0.5f + 0.5f, hh = v.visibleHeight * vs * 0.5f + 0.5f;
+                    const float c[3] = {x + v.visibleOffset.x * vs, y + v.visibleOffset.y * vs, z + v.visibleOffset.z * vs};
+                    const float half[3] = {hw, hh, hw};
+                    for (int i = 0; i < 3; i++) {
+                        lo[i] = std::min(lo[i], c[i] - half[i]);
+                        hi[i] = std::max(hi[i], c[i] + half[i]);
+                    }
+                }
+                if (!in.frustum->Visible(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])) {
                     culled++;
                     continue;
                 }
-                if (in.sectionReached && !e.isSelf && !e.isPlayer && e.nameTag.empty() &&
-                    !in.sectionReached(static_cast<int>(std::floor(x)) >> 4,
-                                       static_cast<int>(std::floor(y)) >> 4,
+                // behind walls: no model, names still show; a big model can be in view while its anchor's
+                // section is hidden
+                if (in.sectionReached && !bigModel && !e.isSelf && !e.isPlayer && e.nameTag.empty() &&
+                    !in.sectionReached(static_cast<int>(std::floor(x)) >> 4, static_cast<int>(std::floor(y)) >> 4,
                                        static_cast<int>(std::floor(z)) >> 4)) {
                     culled++;
                     continue;

@@ -59,6 +59,9 @@ namespace perlin::attachable {
         std::string parentId;
         bool linked = false;
         float textureWidth = 64, textureHeight = 64;
+        // culling box in blocks, centred on the entity; zero width: none declared
+        float visibleWidth = 0, visibleHeight = 0;
+        glm::vec3 visibleOffset{0.0f};
         std::vector<Bone> bones;
 
         std::map<std::string, glm::vec3> locators;
