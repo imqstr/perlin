@@ -715,6 +715,12 @@ namespace perlin::physics {
         Vec3 v = FinalizeMotion(s, m, m.velocity);
         if (m.stepped)
             v.y = 0;
+        // A bouncing landing only takes gravity for the part of the tick left after contact.
+        // Measured against per-tick BDS traces (querytarget every tick): the bounce exceeds (r - 0.08) * 0.98 by
+        // 0.0784 * resolved / requested across 40+ landings at drop heights 1.3 to 12 blocks.
+        float bounceFraction = 0.0f;
+        if (m.cy && !sneaking && m.requested.y < 0.0f && (m.supportingSurface == 1 || m.supportingSurface == 2))
+            bounceFraction = std::clamp(static_cast<float>(m.resolved.y) / m.requested.y, 0.0f, 1.0f);
         v = LandingResponse(s, v, m.supportingSurface, m.cy, sneaking);
 
         const bool autoClimb =
@@ -743,8 +749,13 @@ namespace perlin::physics {
             else
                 v.y = F(static_cast<float>(v.y) - 0.02f);
         } else if (!glide) {
-            v.y = bds::PostGroundVertical(static_cast<float>(v.y), s.fallDistance, gravity,
+            const float beforeGravity = static_cast<float>(v.y);
+            v.y = bds::PostGroundVertical(beforeGravity, s.fallDistance, gravity,
                                          attr.levitation, attr.slowFalling, autoClimb);
+            if (bounceFraction > 0.0f) {
+                const float gravityShare = beforeGravity * 0.98f - static_cast<float>(v.y);
+                v.y = F(static_cast<float>(v.y) + gravityShare * bounceFraction);
+            }
             v.x = DampHorizontal(v.x, friction);
             v.z = DampHorizontal(v.z, friction);
         }
