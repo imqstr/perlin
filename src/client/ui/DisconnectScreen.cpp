@@ -63,9 +63,17 @@ mcimg { display: block; position: absolute; }
 
     std::string BuildDisconnectScreenRml(const std::string& templateText, const DisconnectScreenText& t, int guiW, int guiH) {
         const int textW = std::min(guiW - 40, 320);
-        const int perLine = std::max(8, textW / 5);
+        // Minecraft font glyphs average 6px with spacing; wrapping here, rather than leaving it to the
+        // layout, keeps the reserved height equal to the lines drawn, so long reasons cannot spill
+        // over the code and buttons below
+        const size_t perLine = static_cast<size_t>(std::max(8, textW / 6));
         int lines = 0;
         std::string body;
+        const auto emit = [&](const std::string& line) {
+            if (lines++ > 0)
+                body += "<br/>";
+            body += FormatCodesToRml(line);
+        };
         {
             size_t start = 0;
             const std::string text = t.reason;
@@ -73,11 +81,39 @@ mcimg { display: block; position: absolute; }
                 size_t end = text.find('\n', start);
                 if (end == std::string::npos)
                     end = text.size();
-                const std::string line = text.substr(start, end - start);
-                lines += std::max(1, static_cast<int>((StripFormatCodes(line).size() + perLine - 1) / perLine));
-                if (!body.empty())
-                    body += "<br/>";
-                body += FormatCodesToRml(line);
+                std::string rest = text.substr(start, end - start);
+                while (StripFormatCodes(rest).size() > perLine) {
+                    // break at the last space that keeps the visible part within the line
+                    size_t cut = std::string::npos, visible = 0;
+                    for (size_t i = 0; i < rest.size() && visible <= perLine; i++) {
+                        if (static_cast<unsigned char>(rest[i]) == 0xC2 && i + 1 < rest.size() &&
+                            static_cast<unsigned char>(rest[i + 1]) == 0xA7) {
+                            i += 2;
+                            continue;
+                        }
+                        if (rest[i] == ' ')
+                            cut = i;
+                        if ((static_cast<unsigned char>(rest[i]) & 0xC0) != 0x80)
+                            visible++;
+                    }
+                    if (cut == std::string::npos || cut == 0) {
+                        size_t bytes = 0, seen = 0;
+                        while (bytes < rest.size() && seen < perLine) {
+                            if ((static_cast<unsigned char>(rest[bytes]) & 0xC0) != 0x80)
+                                seen++;
+                            bytes++;
+                        }
+                        while (bytes < rest.size() && (static_cast<unsigned char>(rest[bytes]) & 0xC0) == 0x80)
+                            bytes++;
+                        cut = bytes;
+                        emit(rest.substr(0, cut));
+                        rest.erase(0, cut);
+                    } else {
+                        emit(rest.substr(0, cut));
+                        rest.erase(0, cut + 1);
+                    }
+                }
+                emit(rest);
                 start = end + 1;
             }
         }
