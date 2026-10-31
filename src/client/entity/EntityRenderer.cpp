@@ -2151,7 +2151,61 @@ namespace perlin::entity {
             const double dist2 = glm::dot(delta, delta);
             const bool pinned = e.dying || e.Has(flag::Riding);
             const double reuseFor = pinned ? 0.0 : dist2 > 80.0 * 80.0 ? 0.066 : dist2 > 48.0 * 48.0 ? 0.033 : dist2 > 24.0 * 24.0 ? 0.016 : dist2 > 16.0 * 16.0 ? 0.008 : 0.0035;
+            // Java's renderFlame: camera-facing quads stacked up a burning entity, 1.4 x its width wide,
+            // each 0.45 higher, 10% narrower and a little nearer, alternating fire_0 and fire_1
+            const auto drawFlame = [&]() {
+                if (!e.Has(flag::Onfire) || shadowOnlyPass)
+                    return;
+                const auto [bbW, bbH] = HitBox(e);
+                const float f = std::max(bbW, 0.1f) * 1.4f;
+                float half = 0.5f, height = bbH / f, drop = 0.0f, depth = 0.0f;
+                const float start = -0.3f + static_cast<float>(static_cast<int>(height)) * 0.02f;
+                const int tick = static_cast<int>(in.time * 20.0);
+                std::vector<Layer> flames(2);
+                for (int k = 0; k < 2; k++) {
+                    flames[k].texture = k == 0 ? "textures/blocks/fire_0" : "textures/blocks/fire_1";
+                    flames[k].translucent = false;
+                    flames[k].material.emissive = 2;
+                    flames[k].material.hurtTint = false;
+                }
+                int frames[2] = {1, 1};
+                for (int k = 0; k < 2; k++) {
+                    Texture strip;
+                    if (ui::UiAssets::Instance().Image(flames[k].texture, strip) && strip.width > 0)
+                        frames[k] = std::max(1, strip.height / strip.width);
+                }
+                for (int i = 0; height > 0.0f && i < 32; i++) {
+                    const int k = i % 2;
+                    const float v0 = static_cast<float>(tick % frames[k]) / static_cast<float>(frames[k]);
+                    const float v1 = v0 + 1.0f / static_cast<float>(frames[k]);
+                    float u0 = 0.0f, u1 = 1.0f;
+                    if ((i / 2) % 2 == 0)
+                        std::swap(u0, u1);
+                    attachable::Quad q;
+                    const float z = (start + depth) * f * 16.0f;
+                    q.p[0] = glm::vec3(-half, -drop, 0.0f) * f * 16.0f;
+                    q.p[1] = glm::vec3(half, -drop, 0.0f) * f * 16.0f;
+                    q.p[2] = glm::vec3(half, 1.4f - drop, 0.0f) * f * 16.0f;
+                    q.p[3] = glm::vec3(-half, 1.4f - drop, 0.0f) * f * 16.0f;
+                    for (auto& pt : q.p)
+                        pt.z = z;
+                    q.uv[0] = {u1, v1};
+                    q.uv[1] = {u0, v1};
+                    q.uv[2] = {u0, v0};
+                    q.uv[3] = {u1, v0};
+                    q.n = {0.0f, 0.0f, -1.0f};
+                    flames[k].quads.push_back(q);
+                    height -= 0.45f;
+                    drop -= 0.45f;
+                    half *= 0.9f;
+                    depth += 0.03f;
+                }
+                View facing = v;
+                facing.yaw = in.cameraYaw + 180.0f;
+                Draw(e, facing, flames, 1.0f, in);
+            };
             const auto drawStyled = [&](const std::vector<Layer>& layers, float scale) {
+                drawFlame();
                 if (!style) {
                     Draw(e, v, layers, scale, in);
                     return;
