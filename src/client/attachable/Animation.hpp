@@ -19,6 +19,7 @@ namespace perlin::attachable {
         glm::vec3 position{0.0f};
         glm::vec3 rotation{0.0f};
         glm::vec3 scale{1.0f};
+        bool rotationRelativeToEntity = false;
     };
     using Pose = std::map<std::string, BoneXform>;
 
@@ -43,6 +44,7 @@ namespace perlin::attachable {
 
     struct BoneAnimation {
         Channel rotation, position, scale;
+        bool rotationRelativeToEntity = false;
     };
 
     struct Animation {

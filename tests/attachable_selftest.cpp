@@ -3,6 +3,7 @@
 #include "client/attachable/Molang.hpp"
 
 #include <cmath>
+#include <glm/gtc/matrix_transform.hpp>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -151,12 +152,46 @@ int main(int argc, char** argv) {
         }
     }
 
+    {
+        attachable::AnimationLibrary look;
+        look.LoadAnimations(R"({"animations":{"look":{"bones":{"head":{"relative_to":{"rotation":"entity"},"rotation":[10,65,0]}}}}})");
+        const auto* animation = look.Find("look");
+        CHECK(animation && animation->bones.at("head").rotationRelativeToEntity);
+        attachable::Geometry geometry;
+        attachable::Bone root, head;
+        root.name = "root";
+        head.name = "head";
+        head.parent = 0;
+        head.pivot = {0, 24, 0};
+        geometry.bones = {root, head};
+        for (float crouch : {0.0f, 14.0f, 28.0f})
+            for (float yaw : {-75.0f, -30.0f, 0.0f, 30.0f, 75.0f})
+                for (float pitch : {-60.0f, 0.0f, 60.0f}) {
+                    attachable::Pose pose;
+                    if (animation) attachable::Apply(*animation, s, 0, 1, pose);
+                    pose["root"].rotation.x = crouch;
+                    pose["root"].position = {0, 1.25f, 9};
+                    pose["head"].rotation = {pitch, yaw, 0};
+                    glm::mat4 world;
+                    glm::vec3 pivot;
+                    CHECK(attachable::BoneWorld(geometry, pose, "head", world, pivot));
+                    const auto expected = attachable::EulerZYX({pitch, yaw, 0});
+                    for (int column = 0; column < 3; ++column)
+                        CHECK(glm::length(glm::vec3(world[column] - expected[column])) < 0.0001f);
+                    const auto parent = glm::translate(glm::mat4(1), pose["root"].position) * attachable::EulerZYX({crouch, 0, 0});
+                    CHECK(glm::length(glm::vec3(world * glm::vec4(pivot, 1) - parent * glm::vec4(pivot, 1))) < 0.0001f);
+                }
+    }
+
     if (argc > 1) {
         const std::string root = argv[1];
         attachable::AnimationLibrary vanilla;
         vanilla.LoadAnimations(Slurp(root + "/animations/bow.animation.json"));
         vanilla.LoadAnimations(Slurp(root + "/animations/shield.animation.json"));
         vanilla.LoadAnimations(Slurp(root + "/animations/sheep.animation.json"));
+        vanilla.LoadAnimations(Slurp(root + "/animations/humanoid.animation.json"));
+        const auto* headLook = vanilla.Find("animation.humanoid.look_at_target.default");
+        CHECK(headLook && headLook->bones.at("head").rotationRelativeToEntity);
         const auto* grazing = vanilla.Find("animation.sheep.grazing.v2");
         CHECK(grazing);
         if (grazing) {

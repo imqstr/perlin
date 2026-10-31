@@ -125,7 +125,7 @@ struct VsIn
 {
     [[vk::location(0)]] float3 a_position : TEXCOORD0;
     [[vk::location(1)]] float4 a_nPacked : TEXCOORD1;
-    [[vk::location(2)]] float4 a_color0 : TEXCOORD2;
+    [[vk::location(3)]] float4 a_javaColor : TEXCOORD3;
     [[vk::location(4)]] float2 a_texcoord0 : TEXCOORD4;
     [[vk::location(5)]] float4 a_texcoord1 : TEXCOORD5;
     [[vk::location(8)]] float a_ePacked : TEXCOORD8;
@@ -3935,7 +3935,7 @@ VsOut vsMain(VsIn input)
 {
     vs_stage::a_position = input.a_position;
     vs_stage::a_normal = normalize(input.a_nPacked.xyz * 2.0 - 1.0);
-    vs_stage::a_color0 = input.a_color0;
+    vs_stage::a_color0 = input.a_javaColor;
     vs_stage::a_texcoord0 = input.a_texcoord0;
     vs_stage::a_texcoord1 = input.a_texcoord1;
     vs_stage::a_mcEntity = float4(input.a_ePacked, 0.0, 0.0, 0.0);
@@ -3946,8 +3946,6 @@ VsOut vsMain(VsIn input)
           ix < 4.5 ? float3(0.0, 0.0, 1.0) : float3(0.0, 0.0, -1.0);
       vs_stage::a_atTangent = float4(ax, hd); }
     vs_stage::a_mcChunkFade = 1.0;
-    { float ao = fract(input.a_tPacked) * 16.0; ao = ao > 0.0 ? ao : 1.0;
-      vs_stage::a_color0.rgb /= max(ao * input.a_nPacked.w, 1.0 / 255.0); vs_stage::a_color0.a = ao; }
     { int id = int(input.a_ePacked + 0.5); vs_stage::a_mcEntity.x = texelFetch(s_javaMaterials, int2(id & 255, id >> 8), 0).r; }
     vs_stage::FogScale = u_jFogScale;
     vs_stage::FogStart = u_jFogStart;

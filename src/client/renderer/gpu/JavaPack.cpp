@@ -998,7 +998,7 @@ namespace perlin::gpu {
             for (int i = 0; i < 4; i++) {
                 uint8_t* o = out.data() + (q + static_cast<size_t>(i)) * kPackVertexBytes;
                 const float pos[3] = {v[i].x, v[i].y, v[i].z};
-                const uint32_t abgr = v[i].rgba;
+                const uint32_t abgr = v[i].javaColor;
                 const float uv[2] = {au[i], av[i]};
                 const float light[2] = {static_cast<float>(v[i].light & 0xFF), static_cast<float>((v[i].light >> 8) & 0xFF)};
                 const glm::vec3 toMid = (blockCentre - glm::vec3(pos[0], pos[1], pos[2])) * 64.0f;
@@ -1212,7 +1212,7 @@ namespace perlin::gpu {
                 if (progName == dump)
                     std::fprintf(stderr, "---- %s vertex (failed)\n%s\n---- fragment (failed)\n%s\n", progName.c_str(), c->transform.vertex.glsl.c_str(),
                                  c->transform.fragment.glsl.c_str());
-            lastError = c->error;
+            lastError = progName + ": " + c->error;
             programs[key] = std::make_unique<Program>();
             return nullptr;
         }
@@ -1256,7 +1256,7 @@ namespace perlin::gpu {
 
     bool JavaPack::TerrainUsable() {
         const auto it = programs.find(KeyFor("gbuffers_terrain", false));
-        return it != programs.end() && it->second->valid;
+        return lastError.empty() && it != programs.end() && it->second->valid;
     }
 
     rhi::PipelineHandle JavaPack::PipelineFor(Program& p, const PipeState& st) {

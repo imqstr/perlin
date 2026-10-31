@@ -146,7 +146,7 @@ namespace perlin {
         const ShadowMap& next = shadow.maps[shadow.front == 0 ? 1 : 0];
         uni.Mat4("u_shadowMtx", f.sample);
         uni.Set("u_shadowInfo", f.info, 4);
-        const ShadowMap& b = fading ? next : f;
+        const ShadowMap& b = fading && !javaActive ? next : f;
         uni.Mat4("u_shadowMtxB", b.sample);
         uni.Vec4("u_shadowInfoB", b.info[0], b.info[1], b.info[2], fading ? shadow.fadeWeight : 0.0f);
         uni.Mat4("u_shadowMtxE", shadow.sampleE);

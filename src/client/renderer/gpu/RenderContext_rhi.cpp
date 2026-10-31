@@ -655,7 +655,11 @@ namespace perlin {
         }
     }
 
-    bool RenderContext_rhi::StageReversed(const Stage& stage) {
+    bool RenderContext_rhi::StageReversed(const Stage& stage) const {
+        if (javaActive)
+            for (View v : stage.views)
+                if (v == View::World || v == View::Entity || v == View::Late)
+                    return false;
         for (View v : stage.views)
             if (v == View::ShadowBuild || v == View::ShadowGlass || v == View::ShadowEntity)
                 return false;
@@ -663,7 +667,7 @@ namespace perlin {
     }
 
     void RenderContext_rhi::ConvertDepth(const float in[16], float out[16]) const {
-        const glm::mat4 r = ReverseDepth(glm::make_mat4(in));
+        const glm::mat4 r = javaActive ? glm::make_mat4(in) : ReverseDepth(glm::make_mat4(in));
         std::memcpy(out, glm::value_ptr(r), sizeof(float) * 16);
     }
 
@@ -681,9 +685,10 @@ namespace perlin {
         }
         for (View v : {View::ShadowBuild, View::ShadowGlass, View::ShadowEntity})
             views[static_cast<size_t>(v)].reversedZ = false;
-        const glm::mat4 worldProj = ReverseDepth(glm::make_mat4(params.viewProjection));
+        const glm::mat4 worldProj = javaActive ? glm::make_mat4(params.viewProjection) : ReverseDepth(glm::make_mat4(params.viewProjection));
         for (View v : {View::World, View::Entity, View::Late}) {
             views[static_cast<size_t>(v)].proj = worldProj;
+            views[static_cast<size_t>(v)].reversedZ = !javaActive;
         }
         views[static_cast<size_t>(View::Hand)].proj = ReverseDepth(glm::make_mat4(params.handProjection));
         const glm::mat4 ortho = ReverseDepth(glm::orthoRH_ZO(0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, -1000.0f, 1000.0f));
@@ -729,7 +734,7 @@ namespace perlin {
             static uint32_t waitFrames = 0;
             const int left = jpack->WarmUp();
             if (left == 0 && !jpack->TerrainUsable()) {
-                jpackError = "the shader pack's terrain program failed to compile (see [jshader] lines above)";
+                jpackError = jpack->Error().empty() ? "the shader pack's terrain program failed to compile" : jpack->Error();
                 std::cout << "[javapack] " << jpackError << std::endl;
             } else if (left == 0) {
                 jpackReady = true;

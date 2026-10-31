@@ -26,6 +26,10 @@ namespace perlin {
                 if (const auto it = cache.find(key); it != cache.end())
                     return it->second;
                 std::string stateKey, valueText;
+                if (stateFragment.empty() && (name == "water" || name == "lava")) {
+                    stateKey = "liquid_depth";
+                    valueText = "0";
+                }
                 if (!stateFragment.empty()) {
                     const size_t q1 = stateFragment.find('"'), q2 = stateFragment.find('"', q1 + 1);
                     stateKey = stateFragment.substr(q1 + 1, q2 - q1 - 1);

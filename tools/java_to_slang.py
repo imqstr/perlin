@@ -330,6 +330,7 @@ PACKED_INPUTS = {
     "a_mcMidTexCoord": ("float2", "a_mPacked", 9, [
         "vs_stage::a_mcMidTexCoord = float4({src}, 0.0, 0.0);",
     ]),
+    "a_color0": ("float4", "a_javaColor", 3, ["vs_stage::a_color0 = {src};"]),
     # tangent axis index 0..5 (+x,-x,+y,-y,+z,-z), handedness in the low bit
     "a_atTangent": ("float", "a_tPacked", 10, [
         "{ float ti = floor({src}); float ix = floor(ti * 0.5); float hd = (ti - ix * 2.0) * 2.0 - 1.0;",
@@ -1202,9 +1203,6 @@ def emit_program(pack: Path, program: str, world: str, out: Path,
                 lines.append(f"    {st.replace('{src}', 'input.' + pnm) if pnm else st}")
         else:
             lines.append(f"    vs_stage::{nm} = input.{nm};")
-    if program in ("gbuffers_terrain", "gbuffers_water"):
-        lines.append("    { float ao = fract(input.a_tPacked) * 16.0; ao = ao > 0.0 ? ao : 1.0;")
-        lines.append("      vs_stage::a_color0.rgb /= max(ao * input.a_nPacked.w, 1.0 / 255.0); vs_stage::a_color0.a = ao; }")
     if program in ("gbuffers_terrain", "gbuffers_water", "shadow"):
         lines.append("    { int id = int(input.a_ePacked + 0.5); vs_stage::a_mcEntity.x = texelFetch(s_javaMaterials, int2(id & 255, id >> 8), 0).r; }")
     for name in sorted(uni):

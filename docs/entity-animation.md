@@ -1,3 +1,10 @@
+Player and mob animation controllers use the loaded Bedrock resource pack by default.
+The first-person rig follows the Bedrock rig option without an environment override.
+Java animation overrides and the additional Java crouch/riding pose are opt-in with
+`PERLIN_JAVA_ANIMATIONS=1`; they do not run on top of the default Bedrock pose.
+
+The optional Java reference implementation is documented below.
+
 Player animation and body rotation use the Minecraft Java 26.3 client as a
 behavioral reference. The reference JAR has SHA-1
 `e877b6a07acd633fb3bb475002175cec036e7b87`; it is not bundled with Perlin.

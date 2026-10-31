@@ -142,6 +142,9 @@ namespace perlin::attachable {
             if (const Json* bones = def.Find("bones"); bones && bones->IsObject()) {
                 for (const auto& [name, anim] : bones->object) {
                     BoneAnimation b;
+                    if (const Json* relative = anim.Find("relative_to"))
+                        if (const Json* rotation = relative->Find("rotation"))
+                            b.rotationRelativeToEntity = rotation->StringOr("") == "entity";
                     if (const Json* r = anim.Find("rotation"))
                         ParseChannel(*r, b.rotation);
                     if (const Json* p = anim.Find("position"))
@@ -269,6 +272,8 @@ namespace perlin::attachable {
                 scope.thisVec[2] = v.z;
             };
             if (anim.rotation.present) {
+                if (weight > 0.0f)
+                    x.rotationRelativeToEntity = anim.rotationRelativeToEntity;
                 setThis(bindRotation ? x.rotation + bindRotation(bone) : x.rotation);
                 glm::vec3 r = anim.rotation.Eval(scope, time);
                 static const float armZ = PERLIN_ENV("PERLIN_ARMZ") ? static_cast<float>(std::atof(PERLIN_ENV("PERLIN_ARMZ"))) : 1.0f;

@@ -122,7 +122,7 @@ namespace perlin {
         void ClearJavaShaderPack() override;
         bool JavaShaderPackActive() const override { return javaActive || jpack != nullptr; }
         std::vector<JavaPackOption> JavaShaderPackOptions() const override;
-        bool JavaPackReady() const { return PackRunning(); }
+        bool JavaPackReady() const { return javaActive ? JavaChainReady() : PackRunning(); }
         std::string JavaShaderPackError() const override { return jpackError; }
         void SetJavaShaderPackDimension(const std::string& folder) override;
         void SetBlockNameLookup(std::function<std::string(uint16_t)> lookup) override { blockNames = std::move(lookup); }
@@ -431,7 +431,7 @@ namespace perlin {
         void ConvertDepth(const float in[16], float out[16]) const;
         static glm::mat4 ReverseDepth(const glm::mat4& clipFromWorld);
         static rhi::CompareOp ReverseOp(rhi::CompareOp op);
-        static bool StageReversed(const Stage& stage);
+        bool StageReversed(const Stage& stage) const;
         void UploadLightmap(const uint8_t* pixels);
         bool MakeTexture(TexRec& rec, uint32_t w, uint32_t h, uint32_t layers, uint32_t mips, rhi::Format format, gpu::SamplerKind sampler,
                          const char* name);

@@ -7139,8 +7139,10 @@ namespace perlin {
                 previewEntities.AddItem(rid, static_cast<int64_t>(rid), p, "minecraft:" + (variant.empty() ? std::string("diamond_sword") : variant),
                                         variant.find("stack") != std::string::npos ? 40 : 1, 0, 0, false);
             } else if (type == "player") {
+                const float pitch = PERLIN_ENV("PERLIN_PREVIEW_ENTITY_PITCH") ? std::atof(PERLIN_ENV("PERLIN_PREVIEW_ENTITY_PITCH")) : 0.0f;
+                const float head = yaw + (PERLIN_ENV("PERLIN_PREVIEW_ENTITY_HEAD_YAW") ? std::atof(PERLIN_ENV("PERLIN_PREVIEW_ENTITY_HEAD_YAW")) : 0.0f);
                 previewEntities.AddPlayer(rid, static_cast<int64_t>(rid), "preview" + std::to_string(i), "Steve",
-                                          {p.x, p.y, p.z}, 0.0f, yaw, yaw, 0, "");
+                                          {p.x, p.y, p.z}, pitch, yaw, head, 0, "");
                 auto skin = std::make_shared<entity::SkinData>();
                 skin->serial = 100 + i;
                 const bool slim = variant.find("alex") != std::string::npos;
@@ -9495,13 +9497,13 @@ namespace perlin {
                     handFrame.leftSleeve = options.skinParts.leftSleeve;
                     handFrame.rightSleeve = options.skinParts.rightSleeve;
                 }
-                { ProfScope p(4); handRenderer.Render(handFrame, options.hand); }
+                if (!options.hand.bedrockRig) { ProfScope p(4); handRenderer.Render(handFrame, options.hand); }
                 {
                     int sw = 0, sh = 0;
                     renderer->FramebufferSize(sw, sh);
                     handRenderer.RenderScope(sw, sh, partial);
                 }
-                if (options.hand.bedrockRig && PERLIN_ENV("PERLIN_BEDROCK_RIG") && (fpSelf || previewEntitiesSpawned || true)) {
+                if (options.hand.bedrockRig) {
                     if (!fpSelf) {
                         fpSelf.emplace();
                         fpSelf->runtimeId = 0xFFFFFFFFFFFF0001ull;

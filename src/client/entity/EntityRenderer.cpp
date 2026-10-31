@@ -530,7 +530,7 @@ namespace perlin::entity {
             v.yawSpeed = 0.0f;
         }
 
-        if (e.isPlayer && !v.fp)
+        if (e.isPlayer && e.isSelf && !v.fp)
             TickPlayerBody(v, dt, prevYaw);
 
         const glm::dvec3 step = v.pos - v.lastPos;
@@ -780,6 +780,8 @@ namespace perlin::entity {
         host.bodyYaw = v.yaw;
         host.headYaw = v.headYaw;
         host.pitch = v.pitch;
+        if (v.fp)
+            host.bodyYaw = host.headYaw = host.pitch = 0.0f;
         host.life = static_cast<float>(in.time - v.born);
         host.dx = static_cast<float>(v.pos.x - v.lastPos.x) * 20.0f;
         host.dy = static_cast<float>(v.pos.y - v.lastPos.y) * 20.0f;
@@ -892,13 +894,13 @@ namespace perlin::entity {
             for (const auto& [bn, xf] : pose)
                 std::cout << "[pose] " << e.type << " " << bn << " rot " << xf.rotation.x << "," << xf.rotation.y << "," << xf.rotation.z
                           << " pos " << xf.position.x << "," << xf.position.y << "," << xf.position.z << std::endl;
-        if (e.isPlayer && e.Has(flag::Riding) && v.swimAmount < 0.01f && v.lieAmount < 0.01f) {
+        if (PERLIN_ENV("PERLIN_JAVA_ANIMATIONS") && e.isPlayer && e.Has(flag::Riding) && v.swimAmount < 0.01f && v.lieAmount < 0.01f) {
             pose["rightleg"].rotation = {-81.0f, -18.0f, -4.5f};
             pose["leftleg"].rotation = {-81.0f, 18.0f, 4.5f};
             pose["rightarm"].rotation.x += -36.0f;
             pose["leftarm"].rotation.x += -36.0f;
         }
-        if (e.isPlayer && !v.fp && e.Has(flag::Sneaking) && v.swimAmount < 0.01f && v.lieAmount < 0.01f && !e.Has(flag::Riding))
+        if (PERLIN_ENV("PERLIN_JAVA_ANIMATIONS") && e.isPlayer && !v.fp && e.Has(flag::Sneaking) && v.swimAmount < 0.01f && v.lieAmount < 0.01f && !e.Has(flag::Riding))
             ApplyJavaCrouch(pose, bindGeometry);
         if (e.isPlayer && e.isSelf) {
             const SkinParts& parts = in.ownParts;

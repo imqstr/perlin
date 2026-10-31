@@ -26,7 +26,7 @@ namespace perlin {
     }
 
     void Tessellator::AddQuad(const float v[4][3], const float c[4][3], const float uv[4][2], bool flip,
-                              const float light[4][2], const float* ao, float shade) {
+                              const float light[4][2], const float* ao, float shade, const float* javaTint) {
         if (!building)
             return;
         if (PERLIN_ENV("PERLIN_JAVA_DBG")) {
@@ -122,7 +122,10 @@ namespace perlin {
             const float w = (uv[i][1] * kTiles - row - kInset) / kSpan;
             vertices.push_back({v[i][0], v[i][1], v[i][2], PackColor(c[i][0], c[i][1], c[i][2]), u, w,
                                 PackLight(light[i][0], light[i][1]) | tile, packedNormal, entity, midU, midV,
-                                tangent + std::clamp(ao ? ao[i] : 1.0f, 0.0f, 1.0f) / 16.0f});
+                                tangent + std::clamp(ao ? ao[i] : 1.0f, 0.0f, 1.0f) / 16.0f,
+                                PackColor(javaTint ? javaTint[0] : c[i][0] / std::max((ao ? ao[i] : 1.0f) * shade, 1.0f / 255.0f),
+                                          javaTint ? javaTint[1] : c[i][1] / std::max((ao ? ao[i] : 1.0f) * shade, 1.0f / 255.0f),
+                                          javaTint ? javaTint[2] : c[i][2] / std::max((ao ? ao[i] : 1.0f) * shade, 1.0f / 255.0f), ao ? ao[i] : 1.0f)});
         }
 
         if (CaptureQuadInfo())

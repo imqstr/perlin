@@ -79,11 +79,13 @@ namespace perlin::jshader {
 
         for (int i = 0; i < kMaxColorTex; i++) {
             const std::string n = "colortex" + std::to_string(i);
+            static constexpr const char* legacy[] = {"gcolor", "gdepth", "gnormal", "composite", "gaux1", "gaux2", "gaux3", "gaux4"};
+            const std::string alias = i < 8 ? legacy[i] : n;
             BufferSetup& b = cfg.color[static_cast<size_t>(i)];
             if (i == 0) b.format = BufferFormat::RGBA8;
-            b.format = ParseBufferFormat(d.Text(n + "Format"), b.format);
-            b.clear = d.Bool(n + "Clear", true);
-            const std::string cc = d.Text(n + "ClearColor");
+            b.format = ParseBufferFormat(d.Text(n + "Format", d.Text(alias + "Format")), b.format);
+            b.clear = d.Bool(n + "Clear", d.Bool(alias + "Clear", true));
+            const std::string cc = d.Text(n + "ClearColor", d.Text(alias + "ClearColor"));
             if (!cc.empty()) {
                 std::string s = cc;
                 const size_t o = s.find('(');
@@ -96,8 +98,8 @@ namespace perlin::jshader {
                     k = comma + 1;
                 }
             }
-            b.mipmap = d.Bool(n + "MipmapEnabled", false);
-            b.linear = !d.Bool(n + "Nearest", false);
+            b.mipmap = d.Bool(n + "MipmapEnabled", d.Bool(alias + "MipmapEnabled", false));
+            b.linear = !d.Bool(n + "Nearest", d.Bool(alias + "Nearest", false));
         }
         for (int i = 0; i < kMaxShadowColor; i++) {
             const std::string n = "shadowcolor" + std::to_string(i);

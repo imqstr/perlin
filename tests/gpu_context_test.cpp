@@ -147,6 +147,23 @@ int main(int argc, char** argv) {
     settings.offscreen = true;
     settings.validation = true;
 
+    {
+        const auto root = std::filesystem::temp_directory_path() / "perlin_legacy_buffer_directives_test";
+        WriteText(root / "shaders/final.vsh", "#version 120\nvoid main() { gl_Position = gl_Vertex; }\n");
+        WriteText(root / "shaders/final.fsh", "#version 120\nconst bool gaux3Clear = false;\n"
+                  "const int gaux3Format = R16F;\nconst bool gaux2MipmapEnabled = true;\n"
+                  "const bool colortex5MipmapEnabled = false;\nvoid main() { gl_FragColor = vec4(1.0); }\n");
+        auto source = jshader::OpenPack(root.string());
+        Check(source != nullptr, "legacy buffer directive fixture loads");
+        if (source) {
+            jshader::ShaderPackInstance instance(std::move(source), {}, {});
+            const auto config = jshader::ParsePipelineConfig(instance);
+            Check(!config.color[6].clear, "legacy exposure buffer keeps its history");
+            Check(config.color[6].format == jshader::BufferFormat::R16F, "legacy buffer format is respected");
+            Check(!config.color[5].mipmap, "canonical directives take precedence over legacy aliases");
+        }
+    }
+
     RenderContext_rhi ctx;
     std::string error;
     if (!ctx.InitializeOffscreen(settings, pack, &error)) {
@@ -166,6 +183,21 @@ int main(int argc, char** argv) {
         for (const Vertex& vertex : tess.Vertices())
             upward &= ((vertex.normal >> 8) & 255) == 255;
         Check(upward, diagonal ? "alternate triangle diagonal preserves upward normals" : "top face normal points upward");
+    }
+
+    {
+        Tessellator tess;
+        const float face[4][3] = {{0, 1, 0}, {1, 1, 0}, {1, 1, 1}, {0, 1, 1}};
+        const float colors[4][3] = {{0.3f, 0.3f, 0.3f}, {0.3f, 0.3f, 0.3f}, {0.3f, 0.3f, 0.3f}, {0.3f, 0.3f, 0.3f}};
+        const float uv[4][2] = {};
+        const float light[4][2] = {};
+        const float ao[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+        const float tint[3] = {0x3f / 255.0f, 0x76 / 255.0f, 0xe4 / 255.0f};
+        tess.Begin();
+        tess.AddQuad(face, colors, uv, false, light, ao, 0.6f, tint);
+        tess.End();
+        Check(tess.Vertices()[0].rgba == PackColor(0.3f, 0.3f, 0.3f), "java tint preserves native vertex colour");
+        Check(tess.Vertices()[0].javaColor == PackColor(tint[0], tint[1], tint[2], 0.5f), "java water receives biome tint and separate ao");
     }
 
     std::vector<uint8_t> tile(16 * 16 * 4);

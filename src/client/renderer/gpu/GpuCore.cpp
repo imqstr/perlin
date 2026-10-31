@@ -18,7 +18,7 @@ namespace perlin::gpu {
 
         const VertexLayoutInfo kLayouts[static_cast<size_t>(VertexLayout::Count)] = {
             // terrain: position, packed colour, uv, packed light, packed normal, entity, mid uv, tangent
-            {48, {{{0, 0, Format::RGB32Float, 0}, {2, 0, Format::RGBA8Unorm, 12}, {4, 0, Format::RG32Float, 16}, {5, 0, Format::RGBA8Unorm, 24}, {1, 0, Format::RGBA8Unorm, 28}, {8, 0, Format::R32Float, 32}, {9, 0, Format::RG32Float, 36}, {10, 0, Format::R32Float, 44}}}, 8},
+            {52, {{{0, 0, Format::RGB32Float, 0}, {2, 0, Format::RGBA8Unorm, 12}, {4, 0, Format::RG32Float, 16}, {5, 0, Format::RGBA8Unorm, 24}, {1, 0, Format::RGBA8Unorm, 28}, {8, 0, Format::R32Float, 32}, {9, 0, Format::RG32Float, 36}, {10, 0, Format::R32Float, 44}, {3, 0, Format::RGBA8Unorm, 48}}}, 9},
             {12, {{{0, 0, Format::RGB32Float, 0}}}, 1},
             {16, {{{0, 0, Format::RGB32Float, 0}, {2, 0, Format::RGBA8Unorm, 12}}}, 2},
             {20, {{{0, 0, Format::RGB32Float, 0}, {4, 0, Format::RG32Float, 12}}}, 2},

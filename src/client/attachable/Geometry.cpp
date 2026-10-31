@@ -587,6 +587,27 @@ namespace perlin::attachable {
             }
     }
 
+    namespace {
+        glm::mat4 BoneMatrix(const Bone& bone, const BoneXform& pose, const glm::mat4& parent, const glm::mat4& entity) {
+            const glm::mat4 rotation = EulerZYX(bone.rotation + pose.rotation);
+            if (!pose.rotationRelativeToEntity)
+                return parent * glm::translate(glm::mat4(1.0f), pose.position + bone.pivot) * rotation *
+                       glm::scale(glm::mat4(1.0f), pose.scale) * glm::translate(glm::mat4(1.0f), -bone.pivot);
+            // entity-relative look keeps the inherited pivot but bypasses the crouched parent's orientation
+            const glm::vec3 pivot = glm::vec3(parent * glm::vec4(pose.position + bone.pivot, 1.0f));
+            glm::vec3 scale(glm::length(glm::vec3(parent[0])), glm::length(glm::vec3(parent[1])), glm::length(glm::vec3(parent[2])));
+            if (glm::determinant(glm::mat3(parent)) < 0.0f)
+                scale.x = -scale.x;
+            glm::mat4 orientation(1.0f);
+            for (int axis = 0; axis < 3; ++axis) {
+                const float length = glm::length(glm::vec3(entity[axis]));
+                orientation[axis] = glm::vec4(length > 1e-8f ? glm::vec3(entity[axis]) / length : glm::vec3(0.0f), 0.0f);
+            }
+            return glm::translate(glm::mat4(1.0f), pivot) * orientation * rotation *
+                   glm::scale(glm::mat4(1.0f), scale * pose.scale) * glm::translate(glm::mat4(1.0f), -bone.pivot);
+        }
+    }
+
     void BuildMesh(const Geometry& g, const Pose& pose, const TextureLookup& textures, BuiltMesh& out,
                    const BoneFilter& visible, const glm::mat4* rootParent, bool mirrorTextures) {
         std::vector<glm::mat4> world(g.bones.size(), glm::mat4(1.0f));
@@ -595,10 +616,8 @@ namespace perlin::attachable {
             BoneXform x;
             if (const auto it = pose.find(b.name); it != pose.end())
                 x = it->second;
-            glm::mat4 local = glm::translate(glm::mat4(1.0f), x.position) * glm::translate(glm::mat4(1.0f), b.pivot) *
-                              EulerZYX(b.rotation + x.rotation) * glm::scale(glm::mat4(1.0f), x.scale) *
-                              glm::translate(glm::mat4(1.0f), -b.pivot);
-            world[i] = (b.parent >= 0 ? world[static_cast<size_t>(b.parent)] : (rootParent ? *rootParent : glm::mat4(1.0f))) * local;
+            const glm::mat4 entity = rootParent ? *rootParent : glm::mat4(1.0f);
+            world[i] = BoneMatrix(b, x, b.parent >= 0 ? world[static_cast<size_t>(b.parent)] : entity, entity);
             if (b.neverRender || (visible && !visible(b.name)))
                 continue;
             for (const Cube& c : b.cubes)
@@ -639,10 +658,7 @@ namespace perlin::attachable {
             BoneXform x;
             if (const auto it = pose.find(b.name); it != pose.end())
                 x = it->second;
-            const glm::mat4 local = glm::translate(glm::mat4(1.0f), x.position) * glm::translate(glm::mat4(1.0f), b.pivot) *
-                                    EulerZYX(b.rotation + x.rotation) * glm::scale(glm::mat4(1.0f), x.scale) *
-                                    glm::translate(glm::mat4(1.0f), -b.pivot);
-            world[i] = (b.parent >= 0 ? world[static_cast<size_t>(b.parent)] : glm::mat4(1.0f)) * local;
+            world[i] = BoneMatrix(b, x, b.parent >= 0 ? world[static_cast<size_t>(b.parent)] : glm::mat4(1.0f), glm::mat4(1.0f));
             if (b.name == name) {
                 out = world[i];
                 pivot = b.pivot;

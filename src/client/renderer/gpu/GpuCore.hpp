@@ -15,7 +15,7 @@ namespace perlin::gpu {
 
     struct VertexLayoutInfo {
         uint32_t stride;
-        std::array<rhi::VertexAttributeDesc, 8> attributes;
+        std::array<rhi::VertexAttributeDesc, 9> attributes;
         uint32_t attributeCount;
     };
     const VertexLayoutInfo& LayoutInfo(VertexLayout layout);

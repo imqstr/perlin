@@ -312,7 +312,7 @@ namespace perlin::entity {
   }
 })JAVA";
         void LoadJavaOverrides(attachable::AnimationLibrary& animations) {
-            if (PERLIN_ENV("PERLIN_NO_JAVA_ANIMATIONS"))
+            if (!PERLIN_ENV("PERLIN_JAVA_ANIMATIONS") || PERLIN_ENV("PERLIN_NO_JAVA_ANIMATIONS"))
                 return;
             const fs::path dir = fs::path(paths::DataDir()) / "animation_overrides";
             std::error_code ec;

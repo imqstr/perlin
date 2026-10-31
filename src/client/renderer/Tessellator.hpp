@@ -18,8 +18,9 @@ namespace perlin {
         float entity;
         float midU, midV;
         float tangent;
+        uint32_t javaColor;
     };
-    static_assert(sizeof(Vertex) == 48, "Vertex layout must match the GPU vertex layout");
+    static_assert(sizeof(Vertex) == 52, "Vertex layout must match the GPU vertex layout");
 
     struct MeshSection {
         int sy;
@@ -78,7 +79,7 @@ namespace perlin {
         std::vector<SpecialBlock>& Specials() { return specials; }
 
         void AddQuad(const float v[4][3], const float c[4][3], const float uv[4][2], bool flip,
-                     const float light[4][2], const float* ao = nullptr, float shade = 1.0f);
+                     const float light[4][2], const float* ao = nullptr, float shade = 1.0f, const float* javaTint = nullptr);
         void AddQuad(const float v[4][3], const float c[4][3], const float uv[4][2], bool flip, float block,
                      float sky);
 

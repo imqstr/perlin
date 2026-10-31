@@ -1968,7 +1968,8 @@ namespace perlin {
                         const RenderLayer faceLayer = translucent ? RenderLayer::Translucent
                             : holes ? RenderLayer::CutoutCull : RenderLayer::Solid;
                         tess.SetLayer(faceLayer);
-                        tess.AddQuad(v, col, uv, flip, lt, aoV, shade);
+                        const float waterTint[3] = {tintR, tintG, tintB};
+                        tess.AddQuad(v, col, uv, flip, lt, aoV, shade, liquidKind == 1 ? waterTint : nullptr);
                         if (ovTile && ny == 0) {
                             float ou0, ov0, ou1, ov1;
                             BlockLibrary::TileUV(ovTile, ou0, ov0, ou1, ov1);
