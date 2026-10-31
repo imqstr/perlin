@@ -68,11 +68,11 @@ namespace perlin::entity {
                 const float b = std::asin(std::clamp(-fit[0][2], -1.0f, 1.0f));
                 const float cc = std::atan2(fit[1][2], fit[2][2]);
                 const float a = std::atan2(fit[0][1], fit[0][0]);
-                const glm::vec3 euler(-glm::degrees(cc), -glm::degrees(b), glm::degrees(a) / zs);
+                // EulerZYX is Rz(z * zs) * Ry(y) * Rx(-x), so asin(-m[0][2]) is +y. Negating it
+                // mirrored head yaw inside the leaned body, which showed as roll when turning crouched.
+                const glm::vec3 euler(-glm::degrees(cc), glm::degrees(b), glm::degrees(a) / zs);
                 x.rotation = euler - restOf(name);
-                const glm::mat3 r(glm::rotate(glm::mat4(1.0f), glm::radians(zs * euler.z), glm::vec3(0, 0, 1)) *
-                                  glm::rotate(glm::mat4(1.0f), glm::radians(-euler.y), glm::vec3(0, 1, 0)) *
-                                  glm::rotate(glm::mat4(1.0f), glm::radians(-euler.x), glm::vec3(1, 0, 0)));
+                const glm::mat3 r(attachable::EulerZYX(euler));
                 const glm::vec3 t(fit[3]);
                 x.position = t - c + r * c;
             };
