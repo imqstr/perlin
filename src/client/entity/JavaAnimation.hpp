@@ -169,5 +169,5 @@ namespace perlin::entity::java {
     glm::mat4 PlayerRootTransform(const RootState& state, float modelScale);
     float FlightYaw(float yaw, float pitch, const glm::vec3& velocityPerTick);
     bool ApplyPlayerPose(const PlayerPose& player, const attachable::Geometry* geometry,
-                         attachable::Pose& pose);
+                         attachable::Pose& pose, const attachable::Geometry* pivotSource = nullptr);
 }

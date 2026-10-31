@@ -875,6 +875,7 @@ namespace perlin::entity {
         // Players take Java's HumanoidModel/PlayerModel pose, the code checked against the Java 26.3
         // client JAR (tests/data/java_animation_reference.txt). ApplyPlayerPose re-expresses those
         // root-level parts in Bedrock's parented skeleton, so crouch and riding need no patching.
+        java::PlayerPose javaPose;
         const auto applyJavaPose = [&]() {
             // PlayerRenderer.getArmPose: what a hand holds, and what it is doing while the item is in use
             const auto armPose = [&](const std::string& item, bool using_) {
@@ -917,7 +918,8 @@ namespace perlin::entity {
             s.useTicks = using_ ? static_cast<float>((v.now - v.usingSince) * 20.0) : 0.0f;
             s.right = armPose(e.mainHand, using_ && !offhandUse);
             s.left = armPose(e.offHand, offhandUse);
-            return java::ApplyPlayerPose(java::AnimatePlayer(s), bindGeometry, pose);
+            javaPose = java::AnimatePlayer(s);
+            return java::ApplyPlayerPose(javaPose, bindGeometry, pose);
         };
         const bool javaPosed = e.isPlayer && !v.fp && bindGeometry && v.lieAmount < 0.01f &&
                                !PERLIN_ENV("PERLIN_NO_JAVA_POSE") && applyJavaPose();
@@ -1262,6 +1264,14 @@ namespace perlin::entity {
                     elytraPose["left_wing"] = {pl, rl, glm::vec3(1.0f, 1.0f, 2.0f)};
                     elytraPose["right_wing"] = {pr, rr, glm::vec3(1.0f, 1.0f, 2.0f)};
                     meshPose = &elytraPose;
+                }
+                // the pose was fitted to the player's skeleton; armor geometry parents its bones differently
+                // (leggings and boots hang off the body), so refit the same Java pose to this geometry
+                attachable::Pose armorPose;
+                if (javaPosed) {
+                    armorPose = *meshPose;
+                    if (java::ApplyPlayerPose(javaPose, geometry, armorPose, bindGeometry))
+                        meshPose = &armorPose;
                 }
                 attachable::BuiltMesh mesh;
                 glm::mat4 rootWorld(1.0f);
