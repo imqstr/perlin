@@ -164,6 +164,22 @@ int main(int argc, char** argv) {
         }
     }
 
+    {
+        jshader::UniformTable table;
+        jshader::CustomUniforms custom;
+        custom.Load({{"uniform.float.dayMoment", "worldTime / 24000.0"}});
+        table.SetCustom(&custom);
+        jshader::FrameState frame;
+        frame.worldTime = 6000;
+        custom.Evaluate(frame, table);
+        jshader::PackDrawState draw;
+        jshader::UniformTable::Context context{&frame, &draw};
+        float value[4] = {};
+        int components = 0;
+        Check(table.Evaluate("dayMoment", context, value, components) && std::abs(value[0] - 0.25f) < 0.0001f,
+              "pack custom uniforms override compatibility defaults");
+    }
+
     RenderContext_rhi ctx;
     std::string error;
     if (!ctx.InitializeOffscreen(settings, pack, &error)) {

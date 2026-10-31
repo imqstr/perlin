@@ -643,6 +643,7 @@ namespace perlin::jshader {
     }
 
     bool UniformTable::Evaluate(const std::string& name, const Context& ctx, float* out, int& components) const {
+        if (custom && custom->Get(name, out, components)) return true;
         const auto it = entries.find(name);
         if (it != entries.end()) {
             it->second.fn(ctx, out);
