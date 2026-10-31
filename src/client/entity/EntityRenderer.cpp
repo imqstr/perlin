@@ -608,7 +608,9 @@ namespace perlin::entity {
         v.wasUsing = usingItem;
         if (e.swingSerial != v.swingSerial) {
             v.swingSerial = e.swingSerial;
-            if (v.attackTime <= 0.0f || v.attackTime >= 0.5f)
+            // third person plays whole swings: restarting past the halfway point (the first-person
+            // rule) looped the first half every tick while mining, faster than anyone else sees it
+            if (v.attackTime <= 0.0f)
                 v.attackTime = 0.0001f;
         }
         if (static const char* forced = PERLIN_ENV("PERLIN_PREVIEW_ATTACK"); forced && e.isSelf)
