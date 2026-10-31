@@ -135,8 +135,12 @@ namespace perlin {
                 default: break;
                 }
             }
+            // a key missing from this update keeps its value; resetting it to 0 turned every Hive
+            // hologram into the Build Battle one the first time its player count changed
+            constexpr int kAbsent = entity::EntityTracker::kNoVariant;
             if (variant >= 0 || mark >= 0 || color >= 0)
-                tracker.SetVariant(rid, std::max(variant, 0), std::max(mark, 0), std::max(color, 0));
+                tracker.SetVariant(rid, variant >= 0 ? variant : kAbsent, mark >= 0 ? mark : kAbsent,
+                                   color >= 0 ? color : kAbsent);
             if (boxWidth > 0.0f && boxHeight > 0.0f)
                 tracker.SetBoundingBox(rid, boxWidth, boxHeight);
         }

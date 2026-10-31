@@ -197,8 +197,11 @@ namespace perlin::entity {
     // server hitbox: draw/collide with what it simulates
     PERLIN_ENTITY_SET(SetBoundingBox(uint64_t rid, float width, float height), e.boxWidth = width; e.boxHeight = height)
     PERLIN_ENTITY_SET(SetNameTag(uint64_t rid, const std::string& nameTag), e.nameTag = nameTag)
+    // kNoVariant leaves a field alone: actor data updates only carry the keys that changed
     PERLIN_ENTITY_SET(SetVariant(uint64_t rid, int variant, int markVariant, int color),
-                      e.variant = variant; e.markVariant = markVariant; e.color = color)
+                      if (variant != kNoVariant) e.variant = variant;
+                      if (markVariant != kNoVariant) e.markVariant = markVariant;
+                      if (color != kNoVariant) e.color = color)
     PERLIN_ENTITY_SET(SetHealth(uint64_t rid, float health), e.health = health; if (health <= 0.0f && !e.isItem) e.dying = true; else if (health > 0.0f) e.dying = false)
     PERLIN_ENTITY_SET(SetAttribute(uint64_t rid, const std::string& name, float min, float value, float max),
                       if (e.attributes.size() < 64 || e.attributes.count(name)) (e.attributes[name] = Entity::Attribute{min, value, max}))

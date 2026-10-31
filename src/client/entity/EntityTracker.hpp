@@ -1,4 +1,6 @@
 #pragma once
+
+#include <limits>
 #include <chrono>
 #include <functional>
 #include <glm/glm.hpp>
@@ -116,6 +118,7 @@ namespace perlin::entity {
         void SetScale(uint64_t rid, float scale);
         void SetBoundingBox(uint64_t rid, float width, float height);
         void SetNameTag(uint64_t rid, const std::string& nameTag);
+        static constexpr int kNoVariant = std::numeric_limits<int>::min();
         void SetVariant(uint64_t rid, int variant, int markVariant, int color);
         void SetHealth(uint64_t rid, float health);
         void SetAttribute(uint64_t rid, const std::string& name, float min, float value, float max);
