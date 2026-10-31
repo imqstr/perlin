@@ -964,14 +964,62 @@ namespace perlin::entity {
             for (const auto& [bn, xf] : pose)
                 Log("pose", "{} {} rot {},{},{} pos {},{},{}", e.type, bn, xf.rotation.x, xf.rotation.y,
                     xf.rotation.z, xf.position.x, xf.position.y, xf.position.z);
-        if (e.isPlayer && e.Has(flag::Riding) && v.swimAmount < 0.01f && v.lieAmount < 0.01f) {
-
+        // Players take Java's HumanoidModel/PlayerModel pose, the code checked against the Java 26.3
+        // client JAR (tests/data/java_animation_reference.txt). ApplyPlayerPose re-expresses those
+        // root-level parts in Bedrock's parented skeleton, so crouch and riding need no patching.
+        const auto applyJavaPose = [&]() {
+            // PlayerRenderer.getArmPose: what a hand holds, and what it is doing while the item is in use
+            const auto armPose = [&](const std::string& item, bool using_) {
+                if (item.empty() || item == "minecraft:air")
+                    return java::ArmPose::Empty;
+                if (using_) {
+                    if (item.ends_with("shield")) return java::ArmPose::Block;
+                    if (item.ends_with(":bow")) return java::ArmPose::Bow;
+                    if (item.ends_with("trident")) return java::ArmPose::Trident;
+                    if (item.ends_with("crossbow")) return java::ArmPose::CrossbowCharge;
+                    if (item.ends_with("spyglass")) return java::ArmPose::Spyglass;
+                    if (item.ends_with("goat_horn")) return java::ArmPose::Horn;
+                    if (item.ends_with("brush")) return java::ArmPose::Brush;
+                }
+                return java::ArmPose::Item;
+            };
+            const auto usable = [](const std::string& item) {
+                for (const char* s : {"shield", ":bow", "trident", "crossbow", "spyglass", "goat_horn", "brush"})
+                    if (item.ends_with(s))
+                        return true;
+                return false;
+            };
+            const bool using_ = e.Has(flag::UsingItem);
+            // Bedrock does not say which hand is in use: the main hand wins unless only the offhand can be used
+            const bool offhandUse = using_ && !usable(e.mainHand) && usable(e.offHand);
+            java::PlayerState s;
+            s.headYaw = WrapDegrees(v.headYaw - v.yaw);
+            s.pitch = v.pitch;
+            s.walk = v.limbSwing;
+            s.speed = v.limbAmount;
+            s.age = static_cast<float>((v.now - v.born) * 20.0);
+            s.attack = v.attackTime;
+            s.swinging = v.attackTime > 0.0f;
+            s.swim = v.swimAmount;
+            s.riding = e.Has(flag::Riding);
+            s.crouching = e.Has(flag::Sneaking) && !s.riding && v.swimAmount < 0.01f;
+            s.gliding = e.Has(flag::Gliding);
+            s.usingItem = using_;
+            s.useLeft = offhandUse;
+            s.useTicks = using_ ? static_cast<float>((v.now - v.usingSince) * 20.0) : 0.0f;
+            s.right = armPose(e.mainHand, using_ && !offhandUse);
+            s.left = armPose(e.offHand, offhandUse);
+            return java::ApplyPlayerPose(java::AnimatePlayer(s), bindGeometry, pose);
+        };
+        const bool javaPosed = e.isPlayer && !v.fp && bindGeometry && v.lieAmount < 0.01f &&
+                               !PERLIN_ENV("PERLIN_NO_JAVA_POSE") && applyJavaPose();
+        if (!javaPosed && e.isPlayer && e.Has(flag::Riding) && v.swimAmount < 0.01f && v.lieAmount < 0.01f) {
             pose["rightleg"].rotation = {-81.0f, 18.0f, 0.0f};
             pose["leftleg"].rotation = {-81.0f, -18.0f, 0.0f};
             pose["rightarm"].rotation.x += -36.0f;
             pose["leftarm"].rotation.x += -36.0f;
         }
-        if (e.isPlayer && !v.fp && e.Has(flag::Sneaking) && v.swimAmount < 0.01f && v.lieAmount < 0.01f &&
+        if (!javaPosed && e.isPlayer && !v.fp && e.Has(flag::Sneaking) && v.swimAmount < 0.01f && v.lieAmount < 0.01f &&
             !e.Has(flag::Riding))
             ApplyJavaCrouch(pose, bindGeometry);
         if (e.isPlayer && e.isSelf) {
