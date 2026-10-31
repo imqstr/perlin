@@ -276,7 +276,15 @@ namespace perlin {
                 return info;
             auto it = itemNames.find(raw.networkId);
             info.name = it == itemNames.end() ? std::string("minecraft:unknown") : it->second;
-            if (it == itemNames.end()) {
+            // a server's custom block items are left out of the item registry (their ids are
+            // 255 - legacy block id, so negative); the stack still names its block
+            if (it == itemNames.end() && raw.blockRuntimeId != 0) {
+                auto& pal = BlockPalette::Instance();
+                const std::string blockName = pal.Name(pal.InternRuntime(static_cast<int32_t>(raw.blockRuntimeId)));
+                if (!blockName.empty())
+                    info.name = blockName;
+            }
+            if (it == itemNames.end() && info.name == "minecraft:unknown") {
                 static std::set<int> reported;
                 if (reported.insert(raw.networkId).second)
                     Log("items", "unknown network id {} (registry has {} items)", raw.networkId, itemNames.size());
