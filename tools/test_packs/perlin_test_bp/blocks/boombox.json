@@ -1,0 +1,28 @@
+{
+ "format_version": "1.21.40",
+ "minecraft:block": {
+  "description": {
+   "identifier": "perlin:boombox",
+   "menu_category": {
+    "category": "construction"
+   }
+  },
+  "components": {
+   "minecraft:geometry": "minecraft:geometry.full_block",
+   "minecraft:material_instances": {
+    "*": {
+     "texture": "tnt_side",
+     "render_method": "opaque"
+    },
+    "up": {
+     "texture": "tnt_top",
+     "render_method": "opaque"
+    },
+    "down": {
+     "texture": "tnt_bottom",
+     "render_method": "opaque"
+    }
+   }
+  }
+ }
+}

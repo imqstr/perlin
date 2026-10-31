@@ -1,0 +1,21 @@
+{
+ "format_version": "1.21.40",
+ "minecraft:block": {
+  "description": {
+   "identifier": "perlin:plant",
+   "menu_category": {
+    "category": "construction"
+   }
+  },
+  "components": {
+   "minecraft:geometry": "geometry.perlin.plant",
+   "minecraft:material_instances": {
+    "*": {
+     "texture": "perlin_plant",
+     "render_method": "alpha_test"
+    }
+   },
+   "minecraft:collision_box": false
+  }
+ }
+}

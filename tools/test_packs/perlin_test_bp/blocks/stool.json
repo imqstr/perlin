@@ -1,0 +1,102 @@
+{
+ "format_version": "1.21.40",
+ "minecraft:block": {
+  "description": {
+   "identifier": "perlin:stool",
+   "menu_category": {
+    "category": "construction"
+   },
+   "states": {
+    "custom:facing_direction": [
+     0,
+     1,
+     2,
+     3
+    ]
+   }
+  },
+  "components": {
+   "minecraft:geometry": "geometry.perlin.stool",
+   "minecraft:material_instances": {
+    "*": {
+     "texture": "perlin_wood",
+     "render_method": "opaque"
+    }
+   },
+   "minecraft:collision_box": {
+    "origin": [
+     -6,
+     0,
+     -6
+    ],
+    "size": [
+     12,
+     10,
+     12
+    ]
+   },
+   "minecraft:selection_box": {
+    "origin": [
+     -6,
+     0,
+     -6
+    ],
+    "size": [
+     12,
+     10,
+     12
+    ]
+   }
+  },
+  "permutations": [
+   {
+    "condition": "q.block_state('custom:facing_direction') == 0",
+    "components": {
+     "minecraft:transformation": {
+      "rotation": [
+       0,
+       0,
+       0
+      ]
+     }
+    }
+   },
+   {
+    "condition": "q.block_state('custom:facing_direction') == 1",
+    "components": {
+     "minecraft:transformation": {
+      "rotation": [
+       0,
+       90,
+       0
+      ]
+     }
+    }
+   },
+   {
+    "condition": "q.block_state('custom:facing_direction') == 2",
+    "components": {
+     "minecraft:transformation": {
+      "rotation": [
+       0,
+       180,
+       0
+      ]
+     }
+    }
+   },
+   {
+    "condition": "q.block_state('custom:facing_direction') == 3",
+    "components": {
+     "minecraft:transformation": {
+      "rotation": [
+       0,
+       270,
+       0
+      ]
+     }
+    }
+   }
+  ]
+ }
+}

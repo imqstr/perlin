@@ -12,6 +12,7 @@ repo=$PWD
 build=${PERLIN_BUILD_DIR:-$repo/build}
 log=$repo/output/bds-client-validation.log
 
+server=${PERLIN_SERVER:-127.0.0.1:19132}
 if [ "${1:-}" != "--no-build" ]; then
     echo "== building"
     cmake --build "$build" -j"$(nproc)" 2>&1 | grep -E "error:|FAILED|ninja: build stopped" && {
@@ -32,7 +33,7 @@ if pgrep -x Perlin >/dev/null; then
 fi
 pgrep -x Perlin >/dev/null && { echo "!! client still running"; exit 1; }
 
-pgrep -x bedrock_server >/dev/null || echo "note: bedrock_server is not running, --join will not connect"
+[ "$server" != "127.0.0.1:19132" ] || pgrep -x bedrock_server >/dev/null || echo "note: bedrock_server is not running, --join will not connect"
 
 mkdir -p "$repo/output"
 [ -f "$log" ] && mv "$log" "$repo/output/bds-client-validation-prev.log"
@@ -40,7 +41,7 @@ mkdir -p "$repo/output"
 echo "== starting client"
 cd "$repo" || exit 1
 nohup env PERLIN_RENDERER=vulkan mullvad-exclude ./build/Perlin \
-    --join 127.0.0.1:19132 --login --control-port 18765 > "$log" 2>&1 &
+    --join "$server" --login --control-port 18765 > "$log" 2>&1 &
 
 for _ in $(seq 20); do
     sleep 1

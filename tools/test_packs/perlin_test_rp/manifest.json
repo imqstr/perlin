@@ -1,0 +1,29 @@
+{
+ "format_version": 2,
+ "header": {
+  "name": "Perlin test RP",
+  "description": "parity fixtures",
+  "uuid": "e74ee0c8-dbc7-548d-9593-c458b8f870c3",
+  "version": [
+   1,
+   0,
+   1
+  ],
+  "min_engine_version": [
+   1,
+   21,
+   0
+  ]
+ },
+ "modules": [
+  {
+   "type": "resources",
+   "uuid": "07d3585c-dfce-52ec-8938-d71cac7082e9",
+   "version": [
+    1,
+    0,
+    1
+   ]
+  }
+ ]
+}

@@ -1,0 +1,12 @@
+{
+ "resource_pack_name": "perlin_test",
+ "texture_name": "atlas.terrain",
+ "texture_data": {
+  "perlin_wood": {
+   "textures": "textures/blocks/perlin_wood"
+  },
+  "perlin_plant": {
+   "textures": "textures/blocks/perlin_plant"
+  }
+ }
+}

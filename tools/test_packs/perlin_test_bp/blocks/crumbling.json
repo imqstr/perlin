@@ -1,0 +1,20 @@
+{
+ "format_version": "1.21.40",
+ "minecraft:block": {
+  "description": {
+   "identifier": "perlin:crumbling",
+   "menu_category": {
+    "category": "construction"
+   }
+  },
+  "components": {
+   "minecraft:geometry": "minecraft:geometry.full_block",
+   "minecraft:material_instances": {
+    "*": {
+     "texture": "cobblestone",
+     "render_method": "opaque"
+    }
+   }
+  }
+ }
+}

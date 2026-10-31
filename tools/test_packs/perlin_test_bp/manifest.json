@@ -1,0 +1,39 @@
+{
+ "format_version": 2,
+ "header": {
+  "name": "Perlin test BP",
+  "description": "parity fixtures",
+  "uuid": "41616412-3beb-536f-b163-5bafd67d87ae",
+  "version": [
+   1,
+   0,
+   0
+  ],
+  "min_engine_version": [
+   1,
+   21,
+   0
+  ]
+ },
+ "modules": [
+  {
+   "type": "data",
+   "uuid": "970b56b9-b4ca-5766-bed4-08db29e9317b",
+   "version": [
+    1,
+    0,
+    0
+   ]
+  }
+ ],
+ "dependencies": [
+  {
+   "uuid": "e74ee0c8-dbc7-548d-9593-c458b8f870c3",
+   "version": [
+    1,
+    0,
+    1
+   ]
+  }
+ ]
+}
