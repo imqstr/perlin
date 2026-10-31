@@ -1430,10 +1430,11 @@ namespace perlin {
                                 uv[k][1] = v0uv + (quv[i][1] / 16.0f) * (v1uv - v0uv);
                             }
                             const bool bothSides = app && app->doubleSided;
-                            tess.SetLayer(ta.translucent ? RenderLayer::TranslucentCull
-                                          : bothSides    ? RenderLayer::Cutout
-                                          : ta.holes     ? RenderLayer::CutoutCull
-                                                         : RenderLayer::Solid);
+                            // the block's render_method decides culling, not its texture's alpha
+                            tess.SetLayer(bothSides         ? RenderLayer::Cutout
+                                          : ta.translucent  ? RenderLayer::TranslucentCull
+                                          : ta.holes        ? RenderLayer::CutoutCull
+                                                            : RenderLayer::Solid);
                             tess.AddQuad(v, col, uv, false, lt, vertexAo, dirShade);
                         };
                         if (modelEntry->direct) {

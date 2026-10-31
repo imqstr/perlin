@@ -311,6 +311,17 @@ namespace perlin {
                     const ui::Json* comps = perm.Find("components");
                     if (!cond || !cond->IsString() || !comps || !comps->IsObject())
                         continue;
+                    // permutations can swap materials; one double-sided permutation makes the block double-sided
+                    if (const ui::Json* pmi = comps->Find("minecraft:material_instances"); pmi && pmi->IsObject()) {
+                        const ui::Json* pm = pmi->Find("materials");
+                        for (const auto& [face, v] : (pm && pm->IsObject() ? pm : pmi)->object)
+                            if (const ui::Json* rm = v.IsObject() ? v.Find("render_method") : nullptr; rm && rm->IsString()) {
+                                if (rm->string != "opaque")
+                                    def.cutout = true;
+                                if (rm->string == "alpha_test" || rm->string == "double_sided")
+                                    def.doubleSided = true;
+                            }
+                    }
                     CollisionSet set = ParseBlockBoxComponent(comps->Find("minecraft:collision_box"));
                     if (set.defined)
                         collision.permutations.emplace_back(cond->string, std::move(set));
