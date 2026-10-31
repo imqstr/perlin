@@ -1092,8 +1092,7 @@ namespace perlin {
         using mods::CallContext;
         const auto ModEntityClick = [this](const entity::Entity& e) {
             const auto hb = entityRenderer.HitBox(e);
-            const double scale = e.scale > 0 ? e.scale : 1.0;
-            const double halfWidth = hb.first * 0.5 * scale, height = hb.second * scale;
+            const double halfWidth = hb.first * 0.5, height = hb.second;
             const glm::dvec3 centre(e.pos.x, e.pos.y + height * 0.5, e.pos.z);
             return EntityClickOffset({camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), e.pos,
                                      halfWidth, height, centre);

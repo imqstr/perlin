@@ -263,7 +263,7 @@ namespace perlin::entity {
         if (e.boxWidth > 0.0f && e.boxHeight > 0.0f)
             return {e.boxWidth * scale, e.boxHeight * scale};
         if (e.isPlayer)
-            return {0.6f, (e.Has(flag::Gliding) || e.Has(flag::Swimming) || e.crawling) ? 0.6f : e.Has(flag::Sneaking) ? 1.5f : 1.8f};
+            return {0.6f * scale, ((e.Has(flag::Gliding) || e.Has(flag::Swimming) || e.crawling) ? 0.6f : e.Has(flag::Sneaking) ? 1.5f : 1.8f) * scale};
         if (e.isItem)
             return {0.25f, 0.25f};
         float w, h;
@@ -2025,7 +2025,7 @@ namespace perlin::entity {
                     DrawShadow(v.pos, 0.15f, 0.75f, in);
                 } else if (!e.dying || v.deathTime < 0.9f) {
                     const auto hb = HitBox(e);
-                    DrawShadow(v.pos, std::min(hb.first, 1.4f) * 0.8f * (e.scale > 0 ? e.scale : 1.0f), 1.0f, in);
+                    DrawShadow(v.pos, std::min(hb.first, 1.4f) * 0.8f, 1.0f, in);
                 }
             }
             // invisible players hide their name; invisible holograms (armor stands, mobs) keep an always-shown name
@@ -2053,7 +2053,8 @@ namespace perlin::entity {
                     const auto hb = HitBox(e);
                     Tag t;
                     t.text = label;
-                    t.at = v.pos + glm::dvec3(0.0, static_cast<double>(hb.second * (e.scale > 0 ? e.scale : 1.0f)) + 0.5, 0.0);
+                    // HitBox is already in world units, scale included; scaling again put text on scaled entities far above them
+                    t.at = v.pos + glm::dvec3(0.0, static_cast<double>(hb.second) + 0.5, 0.0);
                     t.sneaking = e.Has(flag::Sneaking);
                     tags.push_back(std::move(t));
                 }
