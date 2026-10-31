@@ -54,6 +54,33 @@ namespace perlin::server {
         return BlockRegistry::Instance().Intern(it->second.name, it->second.list);
     }
 
+    uint16_t BlockCatalog::DefaultBlock(const std::string& name) const {
+        const std::string full = !name.contains(':') ? "minecraft:" + name : name;
+        if (const auto it = defaultByName.find(full); it != defaultByName.end())
+            return RegistryId(it->second);
+        return BlockRegistry::Instance().Intern(full);
+    }
+
+    namespace {
+        // blocks the game keeps for itself: old lit/unlit variants, world-edge markers, signs that only exist as placed blocks, education leftovers.
+        // none of them are in the creative menu of a normal bedrock world
+        bool IsTechnicalBlock(const std::string& n) {
+            static const char* const exact[] = {"glowingobsidian", "netherreactor", "info_update", "info_update2", "reserved6", "invisible_bedrock", "moving_block", "allow", "deny",
+                                                "border_block", "camera", "flowing_water", "flowing_lava", "unlit_redstone_torch", "lit_pumpkin", "wall_sign", "standing_sign",
+                                                "standing_banner", "wall_banner", "piston_arm_collision", "sticky_piston_arm_collision", "unpowered_repeater", "powered_repeater",
+                                                "unpowered_comparator", "powered_comparator", "lit_redstone_lamp", "lit_furnace", "lit_blast_furnace", "lit_smoker", "lit_redstone_ore",
+                                                "lit_deepslate_redstone_ore", "water", "lava", "fire", "soul_fire", "portal", "end_portal", "end_gateway", "bubble_column", "light_block"};
+            for (const char* e : exact)
+                if (n == e)
+                    return true;
+            const auto ends = [&](const char* s) {
+                const std::string x = s;
+                return n.size() >= x.size() && n.compare(n.size() - x.size(), x.size(), x) == 0;
+            };
+            return ends("_wall_sign") || ends("_standing_sign");
+        }
+    }
+
     void BlockCatalog::BuildItems(const std::vector<std::string>& names, const std::unordered_map<std::string, int32_t>& defaultHash) {
         items.clear();
         byId.clear();
@@ -64,7 +91,7 @@ namespace perlin::server {
         sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
         for (const std::string& name : sorted) {
             const auto it = defaultHash.find("minecraft:" + name);
-            if (it == defaultHash.end() || name == "air")
+            if (it == defaultHash.end() || name == "air" || IsTechnicalBlock(name))
                 continue;
             CatalogItem item;
             item.name = "minecraft:" + name;
@@ -77,7 +104,7 @@ namespace perlin::server {
         }
     }
 
-    bool BlockCatalog::Load(const std::string& blockStatesPath, const std::string& itemNamesPath, std::string& error) {
+    bool BlockCatalog::Load(const std::string& blockStatesPath, const std::string& itemNamesPath, std::string& error, const std::string& extraItemsPath) {
         std::ifstream states_in(blockStatesPath, std::ios::binary);
         if (!states_in) {
             error = "cannot read " + blockStatesPath;
@@ -131,6 +158,8 @@ namespace perlin::server {
             const std::string hardness = line.substr(tab + 1, next == std::string::npos ? std::string::npos : next - tab - 1);
             if (hardness == "-1" && name != "bedrock" && name != "barrier")
                 continue;
+            if (IsTechnicalBlock(name))
+                continue;
             names.push_back(name);
         }
         if (names.empty()) {
@@ -138,7 +167,25 @@ namespace perlin::server {
             for (const auto& [n, h] : defaultHash)
                 names.push_back(n.substr(10));
         }
+        defaultByName = defaultHash;
         BuildItems(names, defaultHash);
+        if (!extraItemsPath.empty()) {
+            std::ifstream extra(extraItemsPath);
+            std::string item;
+            while (std::getline(extra, item)) {
+                while (!item.empty() && (item.back() == '\r' || item.back() == ' '))
+                    item.pop_back();
+                if (item.empty() || item[0] == '#' || byName.count("minecraft:" + item))
+                    continue;
+                CatalogItem entry;
+                entry.name = "minecraft:" + item;
+                entry.networkId = static_cast<int16_t>(items.size() + 1);
+                entry.block = false;
+                byId[entry.networkId] = items.size();
+                byName[entry.name] = items.size();
+                items.push_back(std::move(entry));
+            }
+        }
         fromFiles = true;
         return !items.empty();
     }
@@ -162,6 +209,7 @@ namespace perlin::server {
             defaultHash.emplace(full, hash);
             names.push_back(n);
         }
+        defaultByName = defaultHash;
         BuildItems(names, defaultHash);
         fromFiles = false;
     }

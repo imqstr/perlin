@@ -85,7 +85,6 @@ namespace rhi::webgpu {
         T object = nullptr;
     };
 
-    // ---- conversions (WebGpuConvert.cpp)
     WGPUTextureFormat ToTextureFormat(Format format);
     Format FromTextureFormat(WGPUTextureFormat format);
     WGPUVertexFormat ToVertexFormat(Format format);
@@ -351,7 +350,6 @@ namespace rhi::webgpu {
         DeviceStats Stats() const override { return stats; }
         float TimestampPeriodNs() const override { return 1.0f; }
 
-        // ---- internals shared with the command list and swapchain
         WGPUDevice Dev() const { return device.Get(); }
         WGPUQueue Queue() const { return queue.Get(); }
         WGPUInstance Inst() const { return instance.Get(); }

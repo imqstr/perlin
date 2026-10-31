@@ -19,7 +19,7 @@ namespace perlin {
         EmbeddedServer& operator=(const EmbeddedServer&) = delete;
 
         // libraryPath: perlin_server.dll / libperlin_server.so / .dylib next to the executable
-        // dataDir: world and config directory; configJson overrides server.json keys (may be empty)
+        // dataDir: world and config directory; configJson overrides config file keys (server.json names) (may be empty)
         bool Start(const std::string& libraryPath, const std::string& dataDir, const std::string& configJson, std::string& error);
         void Stop();
         bool Running() const;

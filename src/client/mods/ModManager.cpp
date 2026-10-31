@@ -16,6 +16,7 @@
 #include <iostream>
 #include <random>
 #include <set>
+#include "util/Log.hpp"
 
 namespace perlin::mods {
     namespace fs = std::filesystem;
@@ -141,7 +142,7 @@ namespace perlin::mods {
         }
 
         bool SafeRelative(const std::string& rel, fs::path& out) {
-            if (rel.empty() || rel.size() > 240 || rel.find('\\') != std::string::npos || rel.find('\0') != std::string::npos)
+            if (rel.empty() || rel.size() > 240 || rel.contains('\\') || rel.contains('\0'))
                 return false;
             const fs::path path = fs::path(rel).lexically_normal();
             if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
@@ -383,9 +384,9 @@ namespace perlin::mods {
                 };
             if (name == "fd_seek" || name == "fd_tell")
                 return Const(kSpipe);
-            if (name.rfind("fd_", 0) == 0)
+            if (name.starts_with("fd_"))
                 return Const(kBadf);
-            if (name.rfind("path_", 0) == 0)
+            if (name.starts_with("path_"))
                 return Const(kNotcapable);
             return Const(kNosys);
         }
@@ -721,7 +722,7 @@ namespace perlin::mods {
         }
         layerVersion++;
         commandVersion++;
-        std::cout << "[mods] " << mod.name << ": " << why << std::endl;
+        Log("mods", "{}: {}", mod.name, why);
     }
 
     void ModManager::Spawn(Plugin& mod) {
@@ -831,7 +832,7 @@ namespace perlin::mods {
             std::lock_guard lock(mutex);
             mod.arch = mod.instance->Is64() ? "wasm64" : "wasm32";
         }
-        std::cout << "[mods] " << mod.name << ": " << mod.arch << " on " << WasmEngineName() << std::endl;
+        Log("mods", "{}: {} on {}", mod.name, mod.arch, WasmEngineName());
         if (mod.instance->HasExport("_initialize") && !mod.instance->Call("_initialize", {}, nullptr, error)) {
             mod.jobError = "_initialize: " + error;
             return;
@@ -898,7 +899,7 @@ namespace perlin::mods {
             mod.runtimeIcon.clear();
             layerVersion++;
             commandVersion++;
-            std::cout << "[mods] " << mod.name << " stopped: " << message << std::endl;
+            Log("mods", "{} stopped: {}", mod.name, message);
             return false;
         }
         cancelled = (mod.flags & abi::kEventCancel) != 0;
@@ -1121,7 +1122,7 @@ namespace perlin::mods {
                 std::lock_guard guard(mutex);
                 mod.error = message;
             }
-            std::cout << "[mods] " << mod.name << ": " << message << std::endl;
+            Log("mods", "{}: {}", mod.name, message);
             Unload(mod);
             return;
         }
@@ -1131,7 +1132,7 @@ namespace perlin::mods {
             mod.loads++;
             mod.loaded = true;
         }
-        std::cout << "[mods] loaded " << mod.name << (mod.loads > 1 ? " (reloaded)" : "") << std::endl;
+        Log("mods", "loaded {}{}", mod.name, (mod.loads > 1 ? " (reloaded)" : ""));
         layerVersion++;
     }
 
@@ -1196,7 +1197,7 @@ namespace perlin::mods {
             if (!reload && !needLoad)
                 continue;
             if (reload && !first)
-                std::cout << "[mods] " << name << (force ? " reloading" : " changed, reloading") << std::endl;
+                Log("mods", "{}{}", name, (force ? " reloading" : " changed, reloading"));
             if (alive || mod->stuck) {
                 const bool wasStuck = mod->stuck;
                 Unload(*mod);

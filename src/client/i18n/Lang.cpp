@@ -4,26 +4,19 @@
 #include "client/ui/Json.hpp"
 #include "client/resources/ServerPacks.hpp"
 #include "util/Resources.hpp"
+#include "util/FileIo.hpp"
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin::i18n {
     namespace fs = std::filesystem;
 
     namespace {
-        bool ReadFile(const fs::path& p, std::string& out) {
-            std::ifstream f(p, std::ios::binary);
-            if (!f)
-                return false;
-            std::stringstream ss;
-            ss << f.rdbuf();
-            out = ss.str();
-            return true;
-        }
 
         size_t LoadLayers(const std::string& code, const std::string& root, const std::string& data,
                           std::unordered_map<std::string, std::string>& out) {
@@ -34,16 +27,16 @@ namespace perlin::i18n {
                 Lang::Parse(BuiltinEnglish(), out);
                 files++;
             }
-            if (!root.empty() && ReadFile(fs::path(root) / "texts" / (code + ".lang"), text)) {
+            if (!root.empty() && file::Read(fs::path(root) / "texts" / (code + ".lang"), text)) {
                 Lang::Parse(text, out);
                 files++;
             }
             for (const std::string& dir : ServerPacks::Instance().Directories())
-                if (ReadFile(fs::path(dir) / "texts" / (code + ".lang"), text)) {
+                if (file::Read(fs::path(dir) / "texts" / (code + ".lang"), text)) {
                     Lang::Parse(text, out);
                     files++;
                 }
-            if (!data.empty() && ReadFile(fs::path(data) / "lang" / (code + ".lang"), text)) {
+            if (!data.empty() && file::Read(fs::path(data) / "lang" / (code + ".lang"), text)) {
                 Lang::Parse(text, out);
                 files++;
             }
@@ -69,7 +62,7 @@ namespace perlin::i18n {
             pos = end + 1;
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
-            if (line.empty() || line.rfind("##", 0) == 0)
+            if (line.empty() || line.starts_with("##"))
                 continue;
             const size_t eq = line.find('=');
             if (eq == std::string::npos)
@@ -102,13 +95,13 @@ namespace perlin::i18n {
         if (code != "en_US") {
             files = LoadLayers(code, root, data, primary);
             if (files == 0 && !root.empty()) {
-                std::cout << "[lang] no strings for " << code << " (texts/" << code << ".lang missing), using en_US" << std::endl;
+                Log("lang", "no strings for {} (texts/{}.lang missing), using en_US", code, code);
                 code = "en_US";
             }
         }
         languages.clear();
         std::string text;
-        if (!root.empty() && ReadFile(fs::path(root) / "texts" / "language_names.json", text)) {
+        if (!root.empty() && file::Read(fs::path(root) / "texts" / "language_names.json", text)) {
             ui::Json doc;
             std::string error;
             if (ui::Json::Parse(text, doc, error) && doc.IsArray())
@@ -119,8 +112,7 @@ namespace perlin::i18n {
         if (languages.empty())
             languages.push_back({"en_US", "English (United States)"});
         version++;
-        std::cout << "[lang] language " << code << ": " << primary.size() + fallback.size() << " strings (" << files
-                  << " file(s)), " << languages.size() << " languages available" << std::endl;
+        Log("lang", "language {}: {} strings ({} file(s)), {} languages available", code, primary.size() + fallback.size(), files, languages.size());
     }
 
     void Lang::LoadFromText(const std::string& primaryText, const std::string& fallbackText) {

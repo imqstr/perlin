@@ -21,7 +21,7 @@ namespace perlin::dynlight {
             {"lit_smoker", 13}, {"nether_portal", 11}, {"portal", 11}, {"end_portal_frame", 1}, {"dragon_egg", 1},
             {"light_block", 15}, {"light", 15}, {"lava", 15}, {"fire", 15}, {"soul_fire", 10}, {"cave_vines", 14},
             {"cave_vines_head_with_berries", 14}, {"torchflower", 0}, {"glowstone_dust", 0}};
-        const std::string n = full.rfind("minecraft:", 0) == 0 ? full.substr(10) : full;
+        const std::string n = full.starts_with("minecraft:") ? full.substr(10) : full;
         if (const auto it = kLevels.find(n); it != kLevels.end())
             return it->second;
         if (n.size() > 7 && n.compare(n.size() - 7, 7, "_candle") == 0)

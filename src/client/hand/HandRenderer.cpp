@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -59,12 +60,12 @@ namespace perlin {
         float Lerp(float t, float a, float b) { return a + (b - a) * t; }
 
         float AttackSpeed(const std::string& fullName) {
-            std::string n = fullName.rfind("minecraft:", 0) == 0 ? fullName.substr(10) : fullName;
+            std::string n = fullName.starts_with("minecraft:") ? fullName.substr(10) : fullName;
             auto ends = [&](const char* suffix) {
                 const size_t l = std::char_traits<char>::length(suffix);
                 return n.size() >= l && n.compare(n.size() - l, l, suffix) == 0;
             };
-            auto starts = [&](const char* prefix) { return n.rfind(prefix, 0) == 0; };
+            auto starts = [&](const char* prefix) { return n.starts_with(prefix); };
             if (ends("_sword")) return 1.6f;
             if (ends("_pickaxe")) return 1.2f;
             if (ends("_shovel")) return 1.0f;
@@ -200,7 +201,7 @@ namespace perlin {
             "poisonous_potato", "beetroot", "beetroot_soup", "mushroom_stew", "rabbit_stew", "suspicious_stew", "melon_slice",
             "sweet_berries", "glow_berries", "cookie", "pumpkin_pie", "cake_slice", "dried_kelp", "rotten_flesh", "spider_eye",
             "chorus_fruit", "honey_bottle", "milk_bucket", "potion", "ominous_bottle"};
-        const std::string n = full.rfind("minecraft:", 0) == 0 ? full.substr(10) : full;
+        const std::string n = full.starts_with("minecraft:") ? full.substr(10) : full;
         for (const char* f : kFood)
             if (n == f)
                 return true;
@@ -208,7 +209,7 @@ namespace perlin {
     }
 
     bool HandRenderer::IsThrowable(const std::string& full) {
-        const std::string n = full.rfind("minecraft:", 0) == 0 ? full.substr(10) : full;
+        const std::string n = full.starts_with("minecraft:") ? full.substr(10) : full;
         return n == "experience_bottle" || n == "splash_potion" || n == "lingering_potion" || n == "snowball" ||
                n == "egg" || n == "ender_pearl";
     }
@@ -465,7 +466,7 @@ namespace perlin {
                 struct Box { glm::vec3 lo, hi; };
                 std::vector<Box> boxes;
                 const std::string& nm = item.name;
-                auto has = [&](const char* k) { return nm.find(k) != std::string::npos; };
+                auto has = [&](const char* k) { return nm.contains(k); };
                 if (has("_stairs"))
                     boxes = {{{0, 0, 0}, {1, 0.5f, 1}}, {{0.5f, 0.5f, 0}, {1, 1, 1}}};
                 else if (has("_slab") && !has("double"))
@@ -785,7 +786,7 @@ namespace perlin {
         if (!model.valid)
             return;
         const float side = left ? -1.0f : 1.0f;
-        std::string n = item.name.rfind("minecraft:", 0) == 0 ? item.name.substr(10) : item.name;
+        std::string n = item.name.starts_with("minecraft:") ? item.name.substr(10) : item.name;
         const auto ends = [&](const char* suffix) {
             const size_t l = std::char_traits<char>::length(suffix);
             return n.size() >= l && n.compare(n.size() - l, l, suffix) == 0;
@@ -1168,7 +1169,7 @@ namespace perlin {
         static const bool debug = PERLIN_ENV("PERLIN_ATTACH_DEBUG") != nullptr;
         if (!attachables.Has(item.name)) {
             if (debug)
-                std::cout << "[attach] no attachable for " << item.name << " root=" << ui::UiAssets::Instance().VanillaRoot() << std::endl;
+                Log("attach", "no attachable for {} root={}", item.name, ui::UiAssets::Instance().VanillaRoot());
             return false;
         }
         if (!(item.name == "minecraft:bow" && PERLIN_ENV("PERLIN_BOW_ATTACHABLE")) && !(item.name == "minecraft:crossbow" && PERLIN_ENV("PERLIN_CROSSBOW_ATTACHABLE")))
@@ -1210,7 +1211,7 @@ namespace perlin {
             return false;
         static const glm::mat4 kCrossbow = T(0.2f, 0.3f, -0.3f) * Ry(90.0f) * S(0.5f);
         glm::mat4 m = hand * (item.name == "minecraft:crossbow" && !PERLIN_ENV("PERLIN_ATTACH_K") ? kCrossbow : kAttachableAttach) * glm::scale(glm::mat4(1.0f), glm::vec3(s.scale / 16.0f));
-        if (!frame.parts.empty() && frame.parts[0].texture.rfind("textures/entity/", 0) == 0) {
+        if (!frame.parts.empty() && frame.parts[0].texture.starts_with("textures/entity/")) {
             glm::vec3 lo(1e9f), hi(-1e9f);
             for (const auto& p : frame.parts)
                 for (const auto& q : p.quads)

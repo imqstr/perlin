@@ -5,6 +5,7 @@
 #include "client/renderer/gpu/RenderContext_rhi.hpp"
 
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin {
     bool RenderContext_rhi::AttachJavaPack() {
@@ -23,7 +24,7 @@ namespace perlin {
     bool RenderContext_rhi::SetJavaShaderPack(const std::string& path, const std::map<std::string, std::string>& options, std::string& error) {
         ClearJavaShaderPack();
         if (!PERLIN_ENV("PERLIN_JAVA_RUNTIME") && options.empty() &&
-            path.find("ComplementaryReimagined_r5.9.3") != std::string::npos)
+            path.contains("ComplementaryReimagined_r5.9.3"))
             return SetBakedJavaShaderPack(path, options, error);
         if (!initialized) {
             error = "renderer is not ready";
@@ -81,7 +82,7 @@ namespace perlin {
             const std::string path = jpackPath;
             const auto options = jpackOptions;
             if (!SetJavaShaderPack(path, options, error))
-                std::cout << "[javapack] " << error << std::endl;
+                Log("javapack", "{}", error);
         }
     }
 

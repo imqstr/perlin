@@ -26,6 +26,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -100,7 +101,7 @@ namespace perlin::ui {
         if (!backend.Initialize(renderer))
             return false;
         WriteDefaults();
-        std::cout << "[ui] font: " << UiAssets::Instance().LoadFont(dataDir) << std::endl;
+        Log("ui", "font: {}", UiAssets::Instance().LoadFont(dataDir));
         std::error_code ec;
         fs::create_directories(fs::path(dataDir) / "ui", ec);
         {
@@ -130,7 +131,7 @@ namespace perlin::ui {
             std::string full = ref;
             if (!full.empty() && full[0] == '@')
                 full.erase(0, 1);
-            if (full.find('.') == std::string::npos)
+            if (!full.contains('.'))
                 full = ns + "." + full;
             const auto cached = animCache.find(full);
             if (cached != animCache.end())
@@ -186,7 +187,7 @@ namespace perlin::ui {
                 for (const auto& entry : fs::directory_iterator(fs::path(dir) / "font", ec)) {
                     const std::string name = entry.path().filename().string();
                     unsigned page = 0;
-                    if (name.size() != 12 || name.rfind("glyph_", 0) != 0 || name.substr(8) != ".png" ||
+                    if (name.size() != 12 || !name.starts_with("glyph_") || name.substr(8) != ".png" ||
                         std::sscanf(name.c_str() + 6, "%2x", &page) != 1)
                         continue;
                     Texture t;
@@ -197,7 +198,7 @@ namespace perlin::ui {
                 }
             }
             if (loaded)
-                std::cout << "[ui] glyph pages: " << loaded << " loaded" << std::endl;
+                Log("ui", "glyph pages: {} loaded", loaded);
         }
     }
 
@@ -221,18 +222,18 @@ namespace perlin::ui {
             library.SetRoots(std::move(roots));
         }
         if (!library.Scan()) {
-            std::cout << "[ui] no ui folder found under " << vanillaRoot << "/ui (waiting for the Bedrock samples)" << std::endl;
+            Log("ui", "no ui folder found under {}/ui (waiting for the Bedrock samples)", vanillaRoot);
             tree.reset();
             return false;
         }
         BuildReport report;
         auto built = BuildTree(library, "hud.hud_screen", EngineRootVariables(), report);
         for (const std::string& problem : library.Problems())
-            std::cout << "[ui] " << problem << std::endl;
+            Log("ui", "{}", problem);
         for (const std::string& missing : report.missingControls)
-            std::cout << "[ui] missing control " << missing << std::endl;
+            Log("ui", "missing control {}", missing);
         if (!built) {
-            std::cout << "[ui] hud.hud_screen could not be built" << std::endl;
+            Log("ui", "hud.hud_screen could not be built");
             return false;
         }
         tree = std::move(built);
@@ -255,7 +256,7 @@ namespace perlin::ui {
         animHost.recs.clear();
         animHost.destroyed.clear();
         rebuilds++;
-        std::cout << "[ui] hud built: " << report.nodes << " controls from " << library.FileCount() << " files" << std::endl;
+        Log("ui", "hud built: {} controls from {} files", report.nodes, library.FileCount());
         return true;
     }
 
@@ -336,7 +337,7 @@ namespace perlin::ui {
                 emitter.SetTemplates(std::move(hudT), std::move(chatT));
                 lastSignature = 0;
                 templatesStale = false;
-                std::cout << "[ui] loaded " << dataDir << "/ui/hud_screen.rml and chat_screen.rml" << std::endl;
+                Log("ui", "loaded {}/ui/hud_screen.rml and chat_screen.rml", dataDir);
             }
         }
 
@@ -373,7 +374,7 @@ namespace perlin::ui {
         backend.Resize(static_cast<int>(guiW), static_cast<int>(guiH), scale);
         std::string error;
         if (!backend.SetDocument(lastRml, error)) {
-            std::cout << "[ui] " << error << std::endl;
+            Log("ui", "{}", error);
             if (!emitterDefault) {
                 emitterDefault = true;
                 emitter.SetTemplates(std::string(), std::string());
@@ -387,7 +388,7 @@ namespace perlin::ui {
             dumped = true;
             Write(fs::path(dataDir) / "ui_generated" / "hud.rml", lastRml);
             for (const std::string& u : emitter.UnknownRenderers())
-                std::cout << "[ui] custom renderer not implemented: " << u << std::endl;
+                Log("ui", "custom renderer not implemented: {}", u);
         }
         backend.Update();
         return scale;

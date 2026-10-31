@@ -1,4 +1,5 @@
 #include "client/resources/JavaPack.hpp"
+#include "util/Strings.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -8,10 +9,6 @@
 
 namespace perlin::javapack {
     namespace {
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
 
         bool StartsWith(std::string_view s, std::string_view p) { return s.substr(0, p.size()) == p; }
         bool EndsWith(std::string_view s, std::string_view p) { return s.size() >= p.size() && s.substr(s.size() - p.size()) == p; }
@@ -309,7 +306,7 @@ namespace perlin::javapack {
 
     std::vector<Source> Sources(const std::string& bedrockPath) {
         std::vector<Source> out;
-        const std::string path = StripExtension(Lower(bedrockPath));
+        const std::string path = StripExtension(str::Lower(bedrockPath));
         const auto after = [&](std::string_view prefix) { return StartsWith(path, prefix) ? path.substr(prefix.size()) : std::string(); };
 
         if (const std::string n = after("textures/blocks/"); !n.empty()) {

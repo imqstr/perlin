@@ -199,7 +199,6 @@ namespace rhi::webgpu {
                 set(fmt, S | L);
     }
 
-    // ---- resources ----------------------------------------------------------------------------------------------------
 
     BufferHandle WebGpuDevice::CreateBuffer(const BufferDesc& desc) {
         Buffer b;
@@ -442,7 +441,6 @@ namespace rhi::webgpu {
         wgpuBufferUnmap(b->buffer.Get());
     }
 
-    // ---- fences, frames ----------------------------------------------------------------------------------------------
 
     FenceHandle WebGpuDevice::CreateFence(uint64_t initialValue) {
         Fence f;
@@ -536,7 +534,6 @@ namespace rhi::webgpu {
         return m;
     }
 
-    // ---- command lists, submission -----------------------------------------------------------------------------------
 
     CommandList* WebGpuDevice::AcquireCommandList(QueueType queueType) {
         std::lock_guard lock(listMutex);
@@ -584,7 +581,6 @@ namespace rhi::webgpu {
         }
     }
 
-    // ---- texture views, native bind layouts and groups ---------------------------------------------------------------
 
     WGPUTextureView WebGpuDevice::ViewOf(Texture& texture, const SubresourceRange& range, TextureDim dim, Format format, bool stencil,
                                          bool attachment) {
@@ -797,7 +793,6 @@ namespace rhi::webgpu {
         return made;
     }
 
-    // ---- surface textures ---------------------------------------------------------------------------------------------
 
     TextureHandle WebGpuDevice::CreateSurfaceTexture(Format format, uint32_t width, uint32_t height, bool sampled) {
         Texture t;

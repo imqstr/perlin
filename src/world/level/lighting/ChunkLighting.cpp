@@ -166,7 +166,7 @@ namespace perlin {
         }
     }
 
-    void ChunkLighting::Compute(Level& level, const ChunkPos& pos, int yLo, int yHi, Result& out) {
+    bool ChunkLighting::Compute(Level& level, const ChunkPos& pos, int yLo, int yHi, Result& out, bool tryLock) {
         Scratch& scratch = Local();
         Grid& grid = scratch.grid;
 
@@ -174,7 +174,11 @@ namespace perlin {
         bool present[3][3];
         int lo = Chunk::MIN_Y + Chunk::HEIGHT, hi = Chunk::MIN_Y;
         {
-            std::lock_guard lock(level.mutex);
+            std::unique_lock lock(level.mutex, std::defer_lock);
+            if (!tryLock)
+                lock.lock();
+            else if (!lock.try_lock())
+                return false;
             for (int dz = 0; dz < 3; dz++)
                 for (int dx = 0; dx < 3; dx++) {
                     const auto it = level.chunks.find({pos.x + dx - 1, pos.z + dz - 1});
@@ -190,7 +194,7 @@ namespace perlin {
                 out.yBase = yLo;
                 out.rows = yHi - yLo + 1;
                 out.packed.assign(static_cast<size_t>(out.rows) * kPadded * kPadded, Result::kSkyOnly);
-                return;
+                return true;
             }
             grid.yBase = std::max(std::max(Chunk::MIN_Y, std::min(lo, yLo) - 1), yLo - 16);
             const int top = std::min(Chunk::MIN_Y + Chunk::HEIGHT - 1, std::max(hi, yHi) + 1);
@@ -239,5 +243,6 @@ namespace perlin {
 
         Propagate(grid, scratch.emitters);
         Extract(grid, yLo, yHi, out);
+        return true;
     }
 }

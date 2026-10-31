@@ -51,7 +51,7 @@ namespace {
                     continue;
                 // A template suffix is inheritance, not part of the control's name.
                 const std::string name = key.substr(0, key.find('@'));
-                if (name.find('/') == std::string::npos && name.ends_with("_screen"))
+                if (!name.contains('/') && name.ends_with("_screen"))
                     out.push_back(ns->string + "." + name);
             }
         }
@@ -80,7 +80,7 @@ namespace {
                 s.nullText++;
             // undecoded text: raw "$var", "#binding" or control reference left in a label
             if (n.text[0] == '$' || n.text[0] == '#' ||
-                (n.text.find('@') == 0 && n.text.find('.') != std::string::npos))
+                (n.text.find('@') == 0 && n.text.contains('.')))
                 s.rawText++;
         }
         for (const auto& k : n.kids)

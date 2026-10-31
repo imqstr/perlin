@@ -31,7 +31,7 @@ namespace perlin::server {
             while (std::getline(in, line)) {
                 if (!line.empty() && line.back() == '\r')
                     line.pop_back();
-                if (line.rfind("a=identity", 0) == 0)
+                if (line.starts_with("a=identity"))
                     continue;
                 out += line + "\r\n";
             }
@@ -172,7 +172,7 @@ namespace perlin::server {
 
             bool Start(EventQueue& q, std::string& error) override {
                 queue = &q;
-                rtc::InitLogger(std::getenv("PS_RTC_LOG") ? rtc::LogLevel::Debug : rtc::LogLevel::Warning);
+                rtc::InitLogger(std::getenv("PS_RTC_LOG") ? rtc::LogLevel::Debug : rtc::LogLevel::Error);
 
                 http.Get("/v1/join", [this](const httplib::Request&, httplib::Response& res) {
                     res.set_content(infoJson(), "application/json");
@@ -216,7 +216,7 @@ namespace perlin::server {
 
         private:
             void HandleOffer(const httplib::Request& req, httplib::Response& res) {
-                if (req.body.size() < 16 || req.body.rfind("v=", 0) != 0) {
+                if (req.body.size() < 16 || !req.body.starts_with("v=")) {
                     res.status = 400;
                     res.set_content("expected an sdp offer", "text/plain");
                     return;
@@ -244,8 +244,15 @@ namespace perlin::server {
                     }
                     if (!config.iceBindAddress.empty())
                         rc.bindAddress = config.iceBindAddress;
-                    // one udp port for every peer: a single forwarded port is enough
-                    if (config.iceUdpMux) {
+                    if (config.udpPortsSet) {
+                        // server-udp-ports: one shared port, a range spread over connections, or (0) whatever the os gives
+                        if (config.udpPortBegin != 0) {
+                            rc.portRangeBegin = config.udpPortBegin;
+                            rc.portRangeEnd = config.udpPortEnd;
+                            rc.enableIceUdpMux = config.udpPortBegin == config.udpPortEnd;
+                        }
+                    } else if (config.iceUdpMux) {
+                        // one udp port for every peer: a single forwarded port is enough
                         rc.enableIceUdpMux = true;
                         rc.portRangeBegin = config.port;
                         rc.portRangeEnd = config.port;

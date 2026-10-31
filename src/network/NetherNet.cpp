@@ -17,6 +17,7 @@
 #include <random>
 #include <sstream>
 #include <thread>
+#include "util/Log.hpp"
 
 namespace perlin {
 
@@ -37,7 +38,7 @@ namespace perlin {
             while (std::getline(in, line)) {
                 if (!line.empty() && line.back() == '\r')
                     line.pop_back();
-                if (line.rfind("a=identity", 0) == 0)
+                if (line.starts_with("a=identity"))
                     continue;
                 out += line + "\r\n";
             }
@@ -117,8 +118,7 @@ namespace perlin {
 
         if (!Probe(host, port, serverInfo, lastError))
             return false;
-        std::cout << "[nethernet] probe ok: '" << serverInfo.name << "' protocol " << serverInfo.protocol
-                  << " version " << serverInfo.version << std::endl;
+        Log("nethernet", "probe ok: '{}' protocol {} version {}", serverInfo.name, serverInfo.protocol, serverInfo.version);
 
         std::random_device rd;
         std::mt19937_64 rng((static_cast<uint64_t>(rd()) << 32) | rd());
@@ -190,7 +190,7 @@ namespace perlin {
         });
 
         impl->pc->setLocalDescription();
-        std::cout << "[nethernet] offer requested, gathering ICE..." << std::endl;
+        Log("nethernet", "offer requested, gathering ICE...");
 
         bool gathered = false;
         {
@@ -246,7 +246,7 @@ namespace perlin {
             return false;
         }
         offer.swap(identified);
-        std::cout << "[nethernet] offer identity added (" << offer.size() << " bytes)" << std::endl;
+        Log("nethernet", "offer identity added ({} bytes)", offer.size());
 
         std::string netIdStr = std::to_string(netId);
         HttpRequest(host, port, "GET",
@@ -254,11 +254,9 @@ namespace perlin {
                         "&platform=1&id=" + netIdStr,
                     "", "", 5);
         std::string wpath = "/v1/join/" + netIdStr;
-        std::cout << "[nethernet] offer ready (" << offer.size() << " bytes), POSTing to /v1/join/"
-                  << netIdStr << "..." << std::endl;
+        Log("nethernet", "offer ready ({} bytes), POSTing to /v1/join/{}...", offer.size(), netIdStr);
         auto [status, answer] = HttpRequest(host, port, "POST", wpath, offer, "application/sdp");
-        std::cout << "[nethernet] POST status " << status << ", answer " << answer.size() << " bytes"
-                  << std::endl;
+        Log("nethernet", "POST status {}, answer {} bytes", status, answer.size());
         if (status == 0) {
             lastError = "POST offer: HTTP connect failed";
             Disconnect();
@@ -281,7 +279,7 @@ namespace perlin {
             }
             std::cout << std::endl;
         }
-        if (answer.size() < 16 || answer.rfind("v=", 0) != 0) {
+        if (answer.size() < 16 || !answer.starts_with("v=")) {
             lastError = "signaling refused the offer (session error " + answer.substr(0, 32) + ")";
             Disconnect();
             return false;
@@ -296,7 +294,7 @@ namespace perlin {
             return false;
         }
 
-        std::cout << "[nethernet] remote description set, waiting for datachannel..." << std::endl;
+        Log("nethernet", "remote description set, waiting for datachannel...");
         bool openFlag = false;
         {
             auto start = std::chrono::steady_clock::now();
@@ -318,7 +316,7 @@ namespace perlin {
         }
 
         connected = true;
-        std::cout << "[nethernet] ReliableDataChannel open" << std::endl;
+        Log("nethernet", "ReliableDataChannel open");
         return true;
     }
 
@@ -339,13 +337,13 @@ namespace perlin {
             std::string transport = "udp";
             if (const size_t q = rest.find('?'); q != std::string::npos) {
                 const std::string query = LowerAscii(rest.substr(q + 1));
-                if (query.find("transport=tcp") != std::string::npos)
+                if (query.contains("transport=tcp"))
                     transport = "tcp";
                 rest.resize(q);
             }
             std::string host = rest;
             uint16_t port = scheme == "turns" || scheme == "stuns" ? 5349 : 3478;
-            if (const size_t p = rest.rfind(':'); p != std::string::npos && rest.find(']') == std::string::npos) {
+            if (const size_t p = rest.rfind(':'); p != std::string::npos && !rest.contains(']')) {
                 host = rest.substr(0, p);
                 port = static_cast<uint16_t>(std::atoi(rest.c_str() + p + 1));
             }
@@ -384,7 +382,7 @@ namespace perlin {
         std::vector<friendworld::IceServerInfo> relays;
         std::string relayError;
         if (!lease.signaling->Credentials(relays, relayError))
-            std::cout << "[nethernet] no relay servers: " << relayError << std::endl;
+            Log("nethernet", "no relay servers: {}", relayError);
 
         impl = std::make_unique<Impl>();
         try {
@@ -395,7 +393,7 @@ namespace perlin {
                     if (MakeIceServer(relay, url, server))
                         config.iceServers.push_back(server);
                 }
-            std::cout << "[nethernet] " << config.iceServers.size() << " ICE servers" << std::endl;
+            Log("nethernet", "{} ICE servers", config.iceServers.size());
             impl->pc = std::make_shared<rtc::PeerConnection>(config);
         } catch (const std::exception& e) {
             lastError = std::string("PeerConnection create failed: ") + e.what();
@@ -411,19 +409,19 @@ namespace perlin {
         auto localMutex = std::make_shared<std::mutex>();
         impl->pc->onLocalCandidate([localCandidates, localMutex](rtc::Candidate c) {
             std::string text = std::string(c);
-            if (text.rfind("a=", 0) == 0)
+            if (text.starts_with("a="))
                 text.erase(0, 2);
             std::lock_guard lock(*localMutex);
             localCandidates->push_back(std::move(text));
         });
         impl->pc->onIceStateChange([](rtc::PeerConnection::IceState state) {
-            std::cout << "[nethernet] ICE state " << static_cast<int>(state) << " (0 new, 1 checking, 2 connected, 3 completed, 4 failed, 5 disconnected, 6 closed)" << std::endl;
+            Log("nethernet", "ICE state {} (0 new, 1 checking, 2 connected, 3 completed, 4 failed, 5 disconnected, 6 closed)", static_cast<int>(state));
         });
         impl->pc->onStateChange([raw = impl.get(), w = std::weak_ptr<int>(life)](rtc::PeerConnection::State state) {
             const auto keep = w.lock();
             if (!keep)
                 return;
-            std::cout << "[nethernet] peer state " << static_cast<int>(state) << " (0 new, 1 connecting, 2 connected, 3 disconnected, 4 failed, 5 closed)" << std::endl;
+            Log("nethernet", "peer state {} (0 new, 1 connecting, 2 connected, 3 disconnected, 4 failed, 5 closed)", static_cast<int>(state));
             if (state == rtc::PeerConnection::State::Failed || state == rtc::PeerConnection::State::Closed)
                 raw->failed = true;
         });
@@ -532,7 +530,7 @@ namespace perlin {
             return false;
         }
 
-        std::cout << "[nethernet] sending the offer to " << lease.hostNetworkId << " (connection " << idText << ")" << std::endl;
+        Log("nethernet", "sending the offer to {} (connection {})", lease.hostNetworkId, idText);
         std::string sendError;
         if (!lease.signaling->Send(lease.hostNetworkId, "CONNECTREQUEST " + idText + " " + identified, true, sendError)) {
             detach();
@@ -547,7 +545,7 @@ namespace perlin {
                 std::lock_guard lock(*localMutex);
                 mine = *localCandidates;
             }
-            std::cout << "[nethernet] sending " << mine.size() << " local candidates" << std::endl;
+            Log("nethernet", "sending {} local candidates", mine.size());
             for (const std::string& c : mine) {
                 std::string ignored;
                 lease.signaling->Send(lease.hostNetworkId, "CANDIDATEADD " + idText + " " + c, false, ignored);
@@ -561,10 +559,10 @@ namespace perlin {
                 std::string mid = "0";
                 if (auto remote = impl->pc->remoteDescription(); remote && remote->mediaCount() > 0)
                     mid = std::visit([](auto* m) { return m->mid(); }, remote->media(0));
-                std::cout << "[nethernet] remote candidate: " << text << std::endl;
+                Log("nethernet", "remote candidate: {}", text);
                 impl->pc->addRemoteCandidate(rtc::Candidate(text, mid));
             } catch (const std::exception& e) {
-                std::cout << "[nethernet] bad remote candidate: " << e.what() << std::endl;
+                Log("nethernet", "bad remote candidate: {}", e.what());
             }
         };
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -592,7 +590,7 @@ namespace perlin {
                 try {
                     impl->pc->setRemoteDescription(rtc::Description(StripIdentityLines(item.second), rtc::Description::Type::Answer));
                     haveAnswer = true;
-                    std::cout << "[nethernet] answer received:\n" << StripIdentityLines(item.second) << std::endl;
+                    Log("nethernet", "answer received:\n{}", StripIdentityLines(item.second));
                     for (const std::string& c : pendingCandidates)
                         addCandidate(c);
                     pendingCandidates.clear();
@@ -622,7 +620,7 @@ namespace perlin {
             return false;
         }
         connected = true;
-        std::cout << "[nethernet] ReliableDataChannel open" << std::endl;
+        Log("nethernet", "ReliableDataChannel open");
         return true;
     }
 

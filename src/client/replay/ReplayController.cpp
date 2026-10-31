@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <set>
+#include "util/Log.hpp"
 
 namespace perlin::replay {
     namespace fs = std::filesystem;
@@ -115,7 +116,7 @@ namespace perlin::replay {
             adds.push_back(idx);
             std::string packError;
             if (!AddArchiveFiles(outPath, adds, packError))
-                std::cout << "[replay] could not store the resource packs: " << packError << std::endl;
+                Log("replay", "could not store the resource packs: {}", packError);
         }
         recordingPacks.clear();
         return true;
@@ -128,7 +129,7 @@ namespace perlin::replay {
             return false;
         std::vector<fs::path> files;
         for (const auto& e : fs::directory_iterator(dir, ec))
-            if (e.path().filename().string().rfind("chunk_", 0) == 0)
+            if (e.path().filename().string().starts_with("chunk_"))
                 files.push_back(e.path());
         if (files.empty()) {
             fs::remove_all(dir, ec);

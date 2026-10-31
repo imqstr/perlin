@@ -1,6 +1,7 @@
 #include "world/Generator.hpp"
 
 #include "core/Log.hpp"
+#include "world/BlockCatalog.hpp"
 #include "world/Blocks.hpp"
 
 #include <algorithm>
@@ -8,11 +9,10 @@
 namespace perlin::server {
 
     FlatCpuBackend::FlatCpuBackend(const ServerConfig& config) {
-        BlockRegistry& blocks = BlockRegistry::Instance();
         profile.assign(static_cast<size_t>(kHeight), BlockRegistry::kAir);
         size_t y = 0;
         for (const FlatLayer& layer : config.flatLayers) {
-            const uint16_t id = blocks.Intern(layer.block);
+            const uint16_t id = BlockCatalog::Instance().DefaultBlock(layer.block);
             for (int i = 0; i < layer.count && y < profile.size(); i++)
                 profile[y++] = id;
         }

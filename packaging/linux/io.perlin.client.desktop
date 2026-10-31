@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Perlin
-Exec=Perlin
-TryExec=Perlin
+Exec=perlin
+TryExec=perlin
 Icon=io.perlin.client
 Terminal=false
 Categories=Game;

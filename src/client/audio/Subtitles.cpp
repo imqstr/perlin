@@ -18,8 +18,8 @@ namespace perlin::audio {
             return s;
         }
 
-        bool StartsWith(const std::string& s, const char* prefix) { return s.rfind(prefix, 0) == 0; }
-        bool Contains(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
+        bool StartsWith(const std::string& s, const char* prefix) { return s.starts_with(prefix); }
+        bool Contains(const std::string& s, const char* part) { return s.contains(part); }
 
         std::vector<std::string> Split(const std::string& s) {
             std::vector<std::string> parts;

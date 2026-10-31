@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin::friends {
     namespace {
@@ -89,7 +90,7 @@ namespace perlin::friends {
                         }
                 }
             } else {
-                std::cout << "[friends] could not list hosted worlds (HTTP " << h.status << ")" << std::endl;
+                Log("friends", "could not list hosted worlds (HTTP {})", h.status);
             }
         }
         std::stable_sort(out.begin(), out.end(), [](const Friend& a, const Friend& b) {

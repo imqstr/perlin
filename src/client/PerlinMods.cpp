@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include "client/resources/ServerPacks.hpp"
 #include <filesystem>
 #include "client/Perlin.hpp"
@@ -24,6 +25,12 @@
 #include <functional>
 
 namespace perlin {
+    namespace {
+        constexpr uint32_t kControl = static_cast<uint32_t>(abi::Permission::Control);
+        constexpr uint32_t kNetwork = static_cast<uint32_t>(abi::Permission::Network);
+        constexpr uint32_t kPackets = static_cast<uint32_t>(abi::Permission::Packets);
+    }
+
     namespace {
         using abi::Status;
 
@@ -117,9 +124,12 @@ namespace perlin {
 
         std::string StateText(const BlockPalette::StateValue& v) {
             switch (v.kind) {
-            case BlockPalette::StateValue::Bool: return v.i ? "true" : "false";
-            case BlockPalette::StateValue::Int: return std::to_string(v.i);
-            default: return v.s;
+            case BlockPalette::StateValue::Bool:
+                return v.i ? "true" : "false";
+            case BlockPalette::StateValue::Int:
+                return std::to_string(v.i);
+            default:
+                return v.s;
             }
         }
 
@@ -128,7 +138,7 @@ namespace perlin {
                 return false;
             if (exact)
                 return have == want || have == "minecraft:" + want;
-            return have.find(want) != std::string::npos;
+            return have.contains(want);
         }
 
         abi::Item ToItem(const ui::HudItem& s) {
@@ -148,10 +158,13 @@ namespace perlin {
         }
 
         bool BlockIsAir(const std::string& name) {
-            return name.empty() || name == "minecraft:air" || name == "minecraft:cave_air" || name == "minecraft:void_air";
+            return name.empty() || name == "minecraft:air" || name == "minecraft:cave_air" ||
+                   name == "minecraft:void_air";
         }
 
-        bool Finite(double v) { return std::isfinite(v) && std::fabs(v) < 1.0e7; }
+        bool Finite(double v) {
+            return std::isfinite(v) && std::fabs(v) < 1.0e7;
+        }
 
         std::string Trim(std::string s) {
             while (!s.empty() && (s.back() == ' ' || s.back() == '\n' || s.back() == '\r'))
@@ -169,135 +182,45 @@ namespace perlin {
     abi::Screen Perlin::CurrentScreen() const {
         if (modHooks.customOpen)
             return abi::Screen::Custom;
-        if (deathShown)
+        if (death.shown)
             return abi::Screen::Death;
-        if (invShown)
-            return invWorkbench ? abi::Screen::Workbench : abi::Screen::Inventory;
-        if (pauseShown) {
-            switch (pauseView) {
-            case 1: return abi::Screen::Options;
-            case 4: return abi::Screen::Mods;
-            case 5: return abi::Screen::Wardrobe;
-            default: return abi::Screen::Pause;
+        if (inventory.shown)
+            return inventory.workbench ? abi::Screen::Workbench : abi::Screen::Inventory;
+        if (pause.shown) {
+            switch (pause.view) {
+            case 1:
+                return abi::Screen::Options;
+            case 4:
+                return abi::Screen::Mods;
+            case 5:
+                return abi::Screen::Wardrobe;
+            default:
+                return abi::Screen::Pause;
             }
         }
         if (chat.IsOpen())
             return abi::Screen::Chat;
-        if (disconnectShown)
+        if (disconnect.shown)
             return abi::Screen::Other;
         return abi::Screen::None;
     }
 
     void Perlin::SetupMods() {
+        mods::ModManager::Instance().SetEnvironment(kBedrockVersion, PlatformName());
+        SetupModPlayerApi();
+        SetupModWorldApi();
+        SetupModClientApi();
+        SetupModActions();
+        SetupModAdvanced();
+        SetupModHooks();
+        // registered last: these replace any earlier handler for the same op
+        SetupModInteractionApi();
+    }
+
+    void Perlin::SetupModPlayerApi() {
         auto& mm = mods::ModManager::Instance();
-        mm.SetEnvironment(kBedrockVersion, PlatformName());
-        using mods::CallContext;
-        const uint32_t control = static_cast<uint32_t>(abi::Permission::Control);
-        const uint32_t network = static_cast<uint32_t>(abi::Permission::Network);
-        const uint32_t packets = static_cast<uint32_t>(abi::Permission::Packets);
         using abi::Op;
-
-        const auto ModEntityClick = [this](const entity::Entity& e) {
-            const auto hb = entityRenderer.HitBox(e);
-            const double scale = e.scale > 0 ? e.scale : 1.0;
-            const double halfWidth = hb.first * 0.5 * scale, height = hb.second * scale;
-            const glm::dvec3 centre(e.pos.x, e.pos.y + height * 0.5, e.pos.z);
-            return EntityClickOffset({camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), e.pos, halfWidth, height, centre);
-        };
-
-        const auto optionTable = [this]() {
-            std::vector<OptionAccess> t;
-            const auto boolean = [&](const char* key, bool& ref) {
-                t.push_back({key, [&ref] { return std::string(ref ? "true" : "false"); },
-                             [&ref](const std::string& v) {
-                                 if (v != "true" && v != "false")
-                                     return false;
-                                 ref = v == "true";
-                                 return true;
-                             }});
-            };
-            const auto integer = [&](const char* key, int& ref, int lo, int hi) {
-                t.push_back({key, [&ref] { return std::to_string(ref); }, [&ref, lo, hi](const std::string& v) {
-                                 char* end = nullptr;
-                                 const long n = std::strtol(v.c_str(), &end, 10);
-                                 if (!end || *end || v.empty())
-                                     return false;
-                                 ref = static_cast<int>(std::clamp<long>(n, lo, hi));
-                                 return true;
-                             }});
-            };
-            const auto real = [&](const char* key, float& ref, float lo, float hi) {
-                t.push_back({key, [&ref] { return std::to_string(ref); }, [&ref, lo, hi](const std::string& v) {
-                                 char* end = nullptr;
-                                 const float n = std::strtof(v.c_str(), &end);
-                                 if (!end || *end || v.empty() || !std::isfinite(n))
-                                     return false;
-                                 ref = std::clamp(n, lo, hi);
-                                 return true;
-                             }});
-            };
-            const auto choice = [&](const char* key, std::string& ref, std::vector<std::string> allowed) {
-                t.push_back({key, [&ref] { return ref; }, [&ref, allowed](const std::string& v) {
-                                 if (std::find(allowed.begin(), allowed.end(), v) == allowed.end())
-                                     return false;
-                                 ref = v;
-                                 return true;
-                             }});
-            };
-            integer("maxFps", options.maxFps, 0, 260);
-            boolean("vsync", options.vsync);
-            integer("renderDistance", options.renderDistance, 2, 256);
-            real("fov", options.fov, 30.0f, 110.0f);
-            real("gamma", options.gamma, 0.0f, 1.0f);
-            real("mouseSensitivity", options.mouseSensitivity, 0.0f, 1.0f);
-            boolean("invertMouse", options.invertMouse);
-            boolean("fancyGraphics", options.fancyGraphics);
-            integer("cloudRange", options.cloudRange, 0, 512);
-            integer("guiScale", options.guiScale, 0, 6);
-            boolean("shadows", options.shadows);
-            boolean("fovEffects", options.fovEffects);
-            real("motionBlur", options.motionBlur, 0.0f, 1.0f);
-            integer("damageTilt", options.damageTilt, 0, 100);
-            boolean("damageTint", options.damageTint);
-            boolean("thirdPersonCrosshair", options.thirdPersonCrosshair);
-            boolean("thirdPersonNametag", options.thirdPersonNametag);
-            integer("menuBlur", options.menuBlur, 0, 10);
-            boolean("betterGrass", options.betterGrass);
-            boolean("showHud", options.showHud);
-            choice("glass", options.glass, {"normal", "connected", "connectedClear", "clear"});
-            choice("dynamicLights", options.dynamicLights, {"off", "fast", "fancy"});
-            choice("sprintMode", options.sprintMode, {"hold", "toggle"});
-            choice("sneakMode", options.sneakMode, {"hold", "toggle"});
-            choice("capePhysics", options.capePhysics, {"off", "noshoulder", "shoulder"});
-            t.push_back({"renderer", [this] { return options.renderer; }, nullptr});
-            t.push_back({"language", [this] { return options.language; }, [this](const std::string& v) {
-                             if (v.empty() || v.size() > 16)
-                                 return false;
-                             options.language = v;
-                             return true;
-                         }});
-            t.push_back({"playerName", [this] { return options.playerName; }, nullptr});
-            t.push_back({"server", [this] { return options.server; }, nullptr});
-            t.push_back({"texturePack", [this] { return options.texturePack; }, nullptr});
-            t.push_back({"shaderPack", [this] { return options.shaderPack; }, nullptr});
-            for (const ShaderSetting& st : ShaderPack::Instance().Settings())
-                t.push_back({"shader." + st.id,
-                             [this, st] {
-                                 const auto found = options.shaderSettings.find(st.id);
-                                 const double v = found == options.shaderSettings.end() ? st.def : found->second;
-                                 return std::to_string(v);
-                             },
-                             [this, st](const std::string& v) {
-                                 char* end = nullptr;
-                                 const double d = std::strtod(v.c_str(), &end);
-                                 if (end == v.c_str() || !std::isfinite(d))
-                                     return false;
-                                 options.shaderSettings[st.id] = std::clamp(d, st.min, st.max);
-                                 return true;
-                             }});
-            return t;
-        };
-
+        using mods::CallContext;
         mm.Register(Op::PlayerState, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             abi::PlayerState p;
             const physics::State& st = player.State();
@@ -395,64 +318,88 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::InventorySelect, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const int32_t slot = r.get<int32_t>();
-            if (!r.Ok() || slot < 0 || slot > 8)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            hudState.selectedSlot = slot;
-            modLive->SelectHotbarSlot(slot);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::InventorySelect,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const int32_t slot = r.get<int32_t>();
+                if (!r.Ok() || slot < 0 || slot > 8)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                hudState.selectedSlot = slot;
+                modLive->SelectHotbarSlot(slot);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::InventoryDrop, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const int32_t count = r.get<int32_t>();
-            if (!r.Ok() || count < 1 || count > 64)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            modLive->SendDropSelected(count);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::InventoryDrop,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const int32_t count = r.get<int32_t>();
+                if (!r.Ok() || count < 1 || count > 64)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                modLive->SendDropSelected(count);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::InventorySwap, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const int32_t a = r.get<int32_t>(), b = r.get<int32_t>();
-            if (!r.Ok() || a < 0 || b < 0 || a >= BedrockSession::kInvSlots || b >= BedrockSession::kInvSlots)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            modLive->SwapInventorySlots(a, b);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::InventorySwap,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const int32_t a = r.get<int32_t>(), b = r.get<int32_t>();
+                if (!r.Ok() || a < 0 || b < 0 || a >= BedrockSession::kInvSlots ||
+                    b >= BedrockSession::kInvSlots)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                modLive->SwapInventorySlots(a, b);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::InventoryClick, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const int32_t slot = r.get<int32_t>();
-            const bool right = r.boolean();
-            const bool shift = r.boolean();
-            if (!r.Ok() || slot < 0 || slot >= BedrockSession::kInvSlots)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            if (shift)
-                modLive->InvShiftClick(slot);
-            else
-                modLive->InvClick(slot, right);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::InventoryClick,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const int32_t slot = r.get<int32_t>();
+                const bool right = r.boolean();
+                const bool shift = r.boolean();
+                if (!r.Ok() || slot < 0 || slot >= BedrockSession::kInvSlots)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                if (shift)
+                    modLive->InvShiftClick(slot);
+                else
+                    modLive->InvClick(slot, right);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::InventoryOpen, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            if (!modLive)
-                return Status::Unavailable;
-            return modLive->OpenInventory() ? Status::Ok : Status::Failed;
-        }, control);
+        mm.Register(
+            Op::InventoryOpen,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                if (!modLive)
+                    return Status::Unavailable;
+                return modLive->OpenInventory() ? Status::Ok : Status::Failed;
+            },
+            kControl);
 
-        mm.Register(Op::InventoryClose, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            if (!modLive)
-                return Status::Unavailable;
-            return modLive->CloseInventory() ? Status::Ok : Status::Failed;
-        }, control);
+        mm.Register(
+            Op::InventoryClose,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                if (!modLive)
+                    return Status::Unavailable;
+                return modLive->CloseInventory() ? Status::Ok : Status::Failed;
+            },
+            kControl);
+    }
 
+    void Perlin::SetupModWorldApi() {
+        auto& mm = mods::ModManager::Instance();
+        using abi::Op;
+        using mods::CallContext;
         mm.Register(Op::WorldState, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             abi::WorldState s;
             s.rain = rainLevel;
@@ -514,7 +461,7 @@ namespace perlin {
             std::string name = r.str();
             if (!r.Ok() || name.empty() || name.size() > 128)
                 return Status::BadArguments;
-            if (name.find(':') == std::string::npos)
+            if (!name.contains(':'))
                 name = "minecraft:" + name;
             abi::BlockProps out;
             const destroy::BlockInfo info = destroy::Lookup(name);
@@ -569,7 +516,8 @@ namespace perlin {
                 std::string shortName = id;
                 if (const size_t colon = shortName.find(':'); colon != std::string::npos)
                     shortName = shortName.substr(colon + 1);
-                if (!i18n::Lang::Get().Find("entity." + shortName + ".name", text) && !i18n::Lang::Get().Find("entity." + id + ".name", text))
+                if (!i18n::Lang::Get().Find("entity." + shortName + ".name", text) &&
+                    !i18n::Lang::Get().Find("entity." + id + ".name", text))
                     text = id;
             } else {
                 text = ui::UiAssets::Instance().ItemName(id, aux);
@@ -578,8 +526,8 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::BreakProgress, [](CallContext&, abi::Reader&, abi::Writer& w) {
-            const LocalBreakState state = GetLocalBreakState();
+        mm.Register(Op::BreakProgress, [this](CallContext&, abi::Reader&, abi::Writer& w) {
+            const LocalBreakState state = LocalBreak();
             abi::BreakState out;
             out.active = state.active;
             out.x = state.x;
@@ -621,12 +569,14 @@ namespace perlin {
             std::unordered_map<std::string, uint16_t> index;
             region.palette.push_back(std::string());
             index[std::string()] = 0;
-            region.cells.reserve(static_cast<size_t>(region.sx) * static_cast<size_t>(region.sy) * static_cast<size_t>(region.sz));
+            region.cells.reserve(static_cast<size_t>(region.sx) * static_cast<size_t>(region.sy) *
+                                 static_cast<size_t>(region.sz));
             for (int y = 0; y < region.sy; y++)
                 for (int z = 0; z < region.sz; z++)
                     for (int x = 0; x < region.sx; x++) {
                         bool loaded = false;
-                        const uint16_t id = modLevel->GetBlock(region.x0 + x, region.y0 + y, region.z0 + z, loaded);
+                        const uint16_t id =
+                            modLevel->GetBlock(region.x0 + x, region.y0 + y, region.z0 + z, loaded);
                         const std::string& name = loaded ? names.Get(id) : region.palette[0];
                         auto it = index.find(name);
                         if (it == index.end()) {
@@ -647,8 +597,8 @@ namespace perlin {
                 d = r.get<double>();
             const double maxDistance = r.get<double>();
             const bool liquids = r.boolean();
-            if (!r.Ok() || !Finite(v[0]) || !Finite(v[1]) || !Finite(v[2]) || !Finite(v[3]) || !Finite(v[4]) || !Finite(v[5]) ||
-                !Finite(maxDistance))
+            if (!r.Ok() || !Finite(v[0]) || !Finite(v[1]) || !Finite(v[2]) || !Finite(v[3]) ||
+                !Finite(v[4]) || !Finite(v[5]) || !Finite(maxDistance))
                 return Status::BadArguments;
             if (!modLevel || !levelRenderer)
                 return Status::Unavailable;
@@ -658,7 +608,9 @@ namespace perlin {
             dir = glm::normalize(dir);
             const glm::dvec3 origin(v[0], v[1], v[2]);
             const double reach = std::clamp(maxDistance, 0.0, 256.0);
-            const AimHit hit = Raycast(*modLevel, &levelRenderer->Blocks(), {}, [](const entity::Entity&) { return glm::vec2(0.6f, 1.8f); }, origin, dir, reach);
+            const AimHit hit = Raycast(
+                *modLevel, &levelRenderer->Blocks(), {},
+                [](const entity::Entity&) { return glm::vec2(0.6f, 1.8f); }, origin, dir, reach);
             abi::RayHit out;
             double blockDistance = reach;
             if (hit.kind == AimHit::Kind::Block) {
@@ -676,10 +628,14 @@ namespace perlin {
                 blockDistance = hit.distance;
             }
             if (liquids) {
-                glm::ivec3 previous(static_cast<int>(std::floor(origin.x)), static_cast<int>(std::floor(origin.y)), static_cast<int>(std::floor(origin.z)));
+                glm::ivec3 previous(static_cast<int>(std::floor(origin.x)),
+                                    static_cast<int>(std::floor(origin.y)),
+                                    static_cast<int>(std::floor(origin.z)));
                 for (double t = 0.0; t < blockDistance; t += 0.05) {
                     const glm::dvec3 p = origin + dir * t;
-                    const glm::ivec3 cell(static_cast<int>(std::floor(p.x)), static_cast<int>(std::floor(p.y)), static_cast<int>(std::floor(p.z)));
+                    const glm::ivec3 cell(static_cast<int>(std::floor(p.x)),
+                                          static_cast<int>(std::floor(p.y)),
+                                          static_cast<int>(std::floor(p.z)));
                     if (modLevel->GetLiquid(cell.x, cell.y, cell.z) != 0) {
                         out = abi::RayHit{};
                         out.hit = true;
@@ -687,7 +643,12 @@ namespace perlin {
                         out.y = cell.y;
                         out.z = cell.z;
                         const glm::ivec3 d = previous - cell;
-                        out.face = d.y < 0 ? abi::Face::Down : d.y > 0 ? abi::Face::Up : d.z < 0 ? abi::Face::North : d.z > 0 ? abi::Face::South : d.x < 0 ? abi::Face::West : abi::Face::East;
+                        out.face = d.y < 0   ? abi::Face::Down
+                                   : d.y > 0 ? abi::Face::Up
+                                   : d.z < 0 ? abi::Face::North
+                                   : d.z > 0 ? abi::Face::South
+                                   : d.x < 0 ? abi::Face::West
+                                             : abi::Face::East;
                         out.hx = p.x;
                         out.hy = p.y;
                         out.hz = p.z;
@@ -705,14 +666,17 @@ namespace perlin {
         mm.Register(Op::Aim, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             abi::AimState a;
             if (modLevel && levelRenderer) {
-                const std::vector<entity::Entity> entities = modLive ? modLive->Entities().Snapshot() : previewEntities.Snapshot();
+                const std::vector<entity::Entity> entities =
+                    modLive ? modLive->Entities().Snapshot() : previewEntities.Snapshot();
                 const bool creative = hudState.mode == ui::GameMode::Creative;
-                const AimHit hit = Raycast(*modLevel, &levelRenderer->Blocks(), entities,
-                                           [&](const entity::Entity& e) {
-                                               const auto hb = entityRenderer.HitBox(e);
-                                               return glm::vec2(hb.first, hb.second);
-                                           },
-                                           {camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), 5.7, creative ? 7.0 : 3.0);
+                const AimHit hit = Raycast(
+                    *modLevel, &levelRenderer->Blocks(), entities,
+                    [&](const entity::Entity& e) {
+                        const auto hb = entityRenderer.HitBox(e);
+                        return glm::vec2(hb.first, hb.second);
+                    },
+                    {camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), 5.7,
+                    creative ? 7.0 : 3.0);
                 a.distance = hit.distance;
                 if (hit.kind == AimHit::Kind::Block) {
                     a.kind = abi::AimKind::Block;
@@ -726,7 +690,8 @@ namespace perlin {
                     a.block.hz = hit.point.z;
                     a.block.distance = hit.distance;
                     bool loaded = false;
-                    a.block.block = BlockPalette::Instance().Name(modLevel->GetBlock(hit.bx, hit.by, hit.bz, loaded));
+                    a.block.block =
+                        BlockPalette::Instance().Name(modLevel->GetBlock(hit.bx, hit.by, hit.bz, loaded));
                 } else if (hit.kind == AimHit::Kind::Entity) {
                     a.kind = abi::AimKind::Entity;
                     a.entity = hit.entity;
@@ -775,7 +740,8 @@ namespace perlin {
                 const double dx = b.x - cx, dy = b.y - cy, dz = b.z - cz;
                 return dx * dx + dy * dy + dz * dz;
             };
-            std::sort(found.begin(), found.end(), [&](const abi::FoundBlock& a, const abi::FoundBlock& b) { return dist(a) < dist(b); });
+            std::sort(found.begin(), found.end(),
+                      [&](const abi::FoundBlock& a, const abi::FoundBlock& b) { return dist(a) < dist(b); });
             if (found.size() > static_cast<size_t>(limit))
                 found.resize(static_cast<size_t>(limit));
             w.put<uint32_t>(static_cast<uint32_t>(found.size()));
@@ -799,9 +765,11 @@ namespace perlin {
             const bool includeItems = r.boolean();
             if (!r.Ok())
                 return Status::BadArguments;
-            const std::vector<entity::Entity> list = modLive ? modLive->Entities().Snapshot() : previewEntities.Snapshot();
+            const std::vector<entity::Entity> list =
+                modLive ? modLive->Entities().Snapshot() : previewEntities.Snapshot();
             const physics::State& st = player.State();
-            const double rx = modLive ? st.x : camera.x, ry = modLive ? st.y : camera.y - 1.62, rz = modLive ? st.z : camera.z;
+            const double rx = modLive ? st.x : camera.x, ry = modLive ? st.y : camera.y - 1.62,
+                         rz = modLive ? st.z : camera.z;
             std::vector<const entity::Entity*> picked;
             for (const entity::Entity& e : list) {
                 if (e.isSelf)
@@ -810,7 +778,7 @@ namespace perlin {
                     continue;
                 if (!includeItems && e.isItem)
                     continue;
-                if (!type.empty() && e.type.find(type) == std::string::npos)
+                if (!type.empty() && !e.type.contains(type))
                     continue;
                 if (radius > 0) {
                     const double dx = e.pos.x - rx, dy = e.pos.y - ry, dz = e.pos.z - rz;
@@ -854,6 +822,109 @@ namespace perlin {
             }
             return Status::Ok;
         });
+    }
+
+    void Perlin::SetupModClientApi() {
+        auto& mm = mods::ModManager::Instance();
+        using abi::Op;
+        using mods::CallContext;
+        const auto optionTable = [this]() {
+            std::vector<OptionAccess> t;
+            const auto boolean = [&](const char* key, bool& ref) {
+                t.push_back({key, [&ref] { return std::string(ref ? "true" : "false"); },
+                             [&ref](const std::string& v) {
+                                 if (v != "true" && v != "false")
+                                     return false;
+                                 ref = v == "true";
+                                 return true;
+                             }});
+            };
+            const auto integer = [&](const char* key, int& ref, int lo, int hi) {
+                t.push_back({key, [&ref] { return std::to_string(ref); },
+                             [&ref, lo, hi](const std::string& v) {
+                                 char* end = nullptr;
+                                 const long n = std::strtol(v.c_str(), &end, 10);
+                                 if (!end || *end || v.empty())
+                                     return false;
+                                 ref = static_cast<int>(std::clamp<long>(n, lo, hi));
+                                 return true;
+                             }});
+            };
+            const auto real = [&](const char* key, float& ref, float lo, float hi) {
+                t.push_back({key, [&ref] { return std::to_string(ref); },
+                             [&ref, lo, hi](const std::string& v) {
+                                 char* end = nullptr;
+                                 const float n = std::strtof(v.c_str(), &end);
+                                 if (!end || *end || v.empty() || !std::isfinite(n))
+                                     return false;
+                                 ref = std::clamp(n, lo, hi);
+                                 return true;
+                             }});
+            };
+            const auto choice = [&](const char* key, std::string& ref, std::vector<std::string> allowed) {
+                t.push_back({key, [&ref] { return ref; },
+                             [&ref, allowed](const std::string& v) {
+                                 if (std::find(allowed.begin(), allowed.end(), v) == allowed.end())
+                                     return false;
+                                 ref = v;
+                                 return true;
+                             }});
+            };
+            integer("maxFps", options.maxFps, 0, 260);
+            boolean("vsync", options.vsync);
+            integer("renderDistance", options.renderDistance, 2, 256);
+            real("fov", options.fov, 30.0f, 110.0f);
+            real("gamma", options.gamma, 0.0f, 1.0f);
+            real("mouseSensitivity", options.mouseSensitivity, 0.0f, 1.0f);
+            boolean("invertMouse", options.invertMouse);
+            boolean("fancyGraphics", options.fancyGraphics);
+            integer("cloudRange", options.cloudRange, 0, 512);
+            integer("guiScale", options.guiScale, 0, 6);
+            boolean("shadows", options.shadows);
+            boolean("fovEffects", options.fovEffects);
+            real("motionBlur", options.motionBlur, 0.0f, 1.0f);
+            integer("damageTilt", options.damageTilt, 0, 100);
+            boolean("damageTint", options.damageTint);
+            boolean("thirdPersonCrosshair", options.thirdPersonCrosshair);
+            boolean("thirdPersonNametag", options.thirdPersonNametag);
+            integer("menuBlur", options.menuBlur, 0, 10);
+            boolean("betterGrass", options.betterGrass);
+            boolean("showHud", options.showHud);
+            choice("glass", options.glass, {"normal", "connected", "connectedClear", "clear"});
+            choice("dynamicLights", options.dynamicLights, {"off", "fast", "fancy"});
+            choice("sprintMode", options.sprintMode, {"hold", "toggle"});
+            choice("sneakMode", options.sneakMode, {"hold", "toggle"});
+            choice("capePhysics", options.capePhysics, {"off", "noshoulder", "shoulder"});
+            t.push_back({"renderer", [this] { return options.renderer; }, nullptr});
+            t.push_back({"language", [this] { return options.language; },
+                         [this](const std::string& v) {
+                             if (v.empty() || v.size() > 16)
+                                 return false;
+                             options.language = v;
+                             return true;
+                         }});
+            t.push_back({"playerName", [this] { return options.playerName; }, nullptr});
+            t.push_back({"server", [this] { return options.server; }, nullptr});
+            t.push_back({"texturePack", [this] { return options.texturePack; }, nullptr});
+            t.push_back({"shaderPack", [this] { return options.shaderPack; }, nullptr});
+            for (const ShaderSetting& st : ShaderPack::Instance().Settings())
+                t.push_back({"shader." + st.id,
+                             [this, st] {
+                                 const auto found = options.shaderSettings.find(st.id);
+                                 const double v =
+                                     found == options.shaderSettings.end() ? st.def : found->second;
+                                 return std::to_string(v);
+                             },
+                             [this, st](const std::string& v) {
+                                 char* end = nullptr;
+                                 const double d = std::strtod(v.c_str(), &end);
+                                 if (end == v.c_str() || !std::isfinite(d))
+                                     return false;
+                                 options.shaderSettings[st.id] = std::clamp(d, st.min, st.max);
+                                 return true;
+                             }});
+            return t;
+        };
 
         mm.Register(Op::Options, [this, optionTable](CallContext&, abi::Reader&, abi::Writer& w) {
             ui::Json json = ui::Json::MakeObject();
@@ -877,22 +948,25 @@ namespace perlin {
             return Status::NotFound;
         });
 
-        mm.Register(Op::OptionSet, [this, optionTable](CallContext&, abi::Reader& r, abi::Writer&) {
-            const std::string key = r.str();
-            const std::string value = r.str();
-            if (!r.Ok())
-                return Status::BadArguments;
-            for (const OptionAccess& o : optionTable())
-                if (o.key == key) {
-                    if (!o.set)
-                        return Status::Denied;
-                    if (!o.set(value))
-                        return Status::BadArguments;
-                    options.Save();
-                    return Status::Ok;
-                }
-            return Status::NotFound;
-        }, control);
+        mm.Register(
+            Op::OptionSet,
+            [this, optionTable](CallContext&, abi::Reader& r, abi::Writer&) {
+                const std::string key = r.str();
+                const std::string value = r.str();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                for (const OptionAccess& o : optionTable())
+                    if (o.key == key) {
+                        if (!o.set)
+                            return Status::Denied;
+                        if (!o.set(value))
+                            return Status::BadArguments;
+                        options.Save();
+                        return Status::Ok;
+                    }
+                return Status::NotFound;
+            },
+            kControl);
 
         mm.Register(Op::Screen, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             abi::ScreenState s;
@@ -904,13 +978,13 @@ namespace perlin {
                 renderer->FramebufferSize(fw, fh);
             s.framebufferWidth = fw;
             s.framebufferHeight = fh;
-            s.fps = static_cast<float>(fpsShown);
-            s.frameMs = fpsShown > 0 ? 1000.0f / static_cast<float>(fpsShown) : 0.0f;
+            s.fps = static_cast<float>(debug.fps);
+            s.frameMs = debug.fps > 0 ? 1000.0f / static_cast<float>(debug.fps) : 0.0f;
             s.screen = CurrentScreen();
-            s.paused = pauseShown;
+            s.paused = pause.shown;
             s.connected = modLive && modLive->GetState() == BedrockSession::State::InGame;
             s.hudHidden = !options.showHud;
-            s.debug = debugOn;
+            s.debug = debug.on;
             s.server = options.server;
             s.language = options.language;
             s.platform = PlatformName();
@@ -928,11 +1002,14 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::ReloadResources, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            packFoundAt = {};
-            hotTexStamp = "reload";
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::ReloadResources,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                packUi.foundAt = {};
+                hotTexStamp = "reload";
+                return Status::Ok;
+            },
+            kControl);
 
         mm.Register(Op::InputActions, [](CallContext&, abi::Reader&, abi::Writer& w) {
             w.put<uint32_t>(static_cast<uint32_t>(kActionCount));
@@ -1007,10 +1084,20 @@ namespace perlin {
             w.write(out);
             return Status::Ok;
         });
+    }
 
-        SetupModActions();
-        SetupModAdvanced();
-        SetupModHooks();
+    void Perlin::SetupModInteractionApi() {
+        auto& mm = mods::ModManager::Instance();
+        using abi::Op;
+        using mods::CallContext;
+        const auto ModEntityClick = [this](const entity::Entity& e) {
+            const auto hb = entityRenderer.HitBox(e);
+            const double scale = e.scale > 0 ? e.scale : 1.0;
+            const double halfWidth = hb.first * 0.5 * scale, height = hb.second * scale;
+            const glm::dvec3 centre(e.pos.x, e.pos.y + height * 0.5, e.pos.z);
+            return EntityClickOffset({camera.x, camera.y, camera.z}, glm::dvec3(camera.Direction()), e.pos,
+                                     halfWidth, height, centre);
+        };
 
         mm.Register(Op::MousePosition, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             const float scale = static_cast<float>(modHud ? std::max(1, modHud->Scale()) : 1);
@@ -1031,59 +1118,76 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::NativeInfo, [this](CallContext&, abi::Reader&, abi::Writer& w) {
-            std::lock_guard lock(modNativeMutex);
-            if (!modNativeReady)
-                return Status::Unavailable;
-            w.write(modNative);
-            return Status::Ok;
-        }, static_cast<uint32_t>(abi::Permission::Native));
+        mm.Register(
+            Op::NativeInfo,
+            [this](CallContext&, abi::Reader&, abi::Writer& w) {
+                std::lock_guard lock(modNativeMutex);
+                if (!modNativeReady)
+                    return Status::Unavailable;
+                w.write(modNative);
+                return Status::Ok;
+            },
+            static_cast<uint32_t>(abi::Permission::Native));
 
-        mm.Register(Op::InputOverride, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::InputOverrideState s = r.read<abi::InputOverrideState>();
-            if (!r.Ok())
-                return Status::BadArguments;
-            const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::clamp(s.ticks, 0, 200) * 50);
-            const auto epoch = std::chrono::steady_clock::time_point{};
-            inputManager.Hold(Action::Forward, s.forward > 0.3f ? until : epoch);
-            inputManager.Hold(Action::Back, s.forward < -0.3f ? until : epoch);
-            inputManager.Hold(Action::Right, s.strafe > 0.3f ? until : epoch);
-            inputManager.Hold(Action::Left, s.strafe < -0.3f ? until : epoch);
-            inputManager.Hold(Action::Jump, s.jump ? until : epoch);
-            inputManager.Hold(Action::Sneak, s.sneak ? until : epoch);
-            inputManager.Hold(Action::Sprint, s.sprint ? until : epoch);
-            inputManager.Hold(Action::Attack, s.attack ? until : epoch);
-            inputManager.Hold(Action::Use, s.use ? until : epoch);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::InputOverride,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::InputOverrideState s = r.read<abi::InputOverrideState>();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                const auto until = std::chrono::steady_clock::now() +
+                                   std::chrono::milliseconds(std::clamp(s.ticks, 0, 200) * 50);
+                const auto epoch = std::chrono::steady_clock::time_point{};
+                inputManager.Hold(Action::Forward, s.forward > 0.3f ? until : epoch);
+                inputManager.Hold(Action::Back, s.forward < -0.3f ? until : epoch);
+                inputManager.Hold(Action::Right, s.strafe > 0.3f ? until : epoch);
+                inputManager.Hold(Action::Left, s.strafe < -0.3f ? until : epoch);
+                inputManager.Hold(Action::Jump, s.jump ? until : epoch);
+                inputManager.Hold(Action::Sneak, s.sneak ? until : epoch);
+                inputManager.Hold(Action::Sprint, s.sprint ? until : epoch);
+                inputManager.Hold(Action::Attack, s.attack ? until : epoch);
+                inputManager.Hold(Action::Use, s.use ? until : epoch);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::Jump, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            inputManager.Hold(Action::Jump, std::chrono::steady_clock::now() + std::chrono::milliseconds(120));
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::Jump,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                inputManager.Hold(Action::Jump,
+                                  std::chrono::steady_clock::now() + std::chrono::milliseconds(120));
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::Chat, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            std::string text = r.str();
-            if (!r.Ok() || text.empty() || text.size() > 512)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            if (text[0] == '/')
-                modLive->SendCommand(text.substr(1));
-            else
-                modLive->SendChat(text);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::Chat,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                std::string text = r.str();
+                if (!r.Ok() || text.empty() || text.size() > 512)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                if (text[0] == '/')
+                    modLive->SendCommand(text.substr(1));
+                else
+                    modLive->SendChat(text);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::Command, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            std::string text = r.str();
-            if (!r.Ok() || text.empty() || text.size() > 512)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            modLive->SendCommand(text[0] == '/' ? text.substr(1) : text);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::Command,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                std::string text = r.str();
+                if (!r.Ok() || text.empty() || text.size() > 512)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                modLive->SendCommand(text[0] == '/' ? text.substr(1) : text);
+                return Status::Ok;
+            },
+            kControl);
 
         mm.Register(Op::LocalMessage, [this](CallContext&, abi::Reader& r, abi::Writer&) {
             const std::string text = r.str();
@@ -1109,7 +1213,8 @@ namespace perlin {
             if (!r.Ok() || text.size() > 256)
                 return Status::BadArguments;
             modToastText = text;
-            modToastUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::clamp(ms, 100, 30000));
+            modToastUntil =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(std::clamp(ms, 100, 30000));
             return Status::Ok;
         });
 
@@ -1125,120 +1230,151 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::SwingArm, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            if (!modLive)
-                return Status::Unavailable;
-            handRenderer.Swing(options.hand);
-            modLive->SendSwingArm("build");
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::SwingArm,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                if (!modLive)
+                    return Status::Unavailable;
+                handRenderer.Swing(options.hand);
+                modLive->SendSwingArm("build");
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::UseItem, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            if (!modLive)
-                return Status::Unavailable;
-            const float eye[3] = {camera.x, camera.y, camera.z};
-            modLive->SendUseItemInAir(eye, false);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::UseItem,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                if (!modLive)
+                    return Status::Unavailable;
+                const float eye[3] = {camera.x, camera.y, camera.z};
+                modLive->SendUseItemInAir(eye, false);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::UseOnBlock, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const int32_t x = r.get<int32_t>(), y = r.get<int32_t>(), z = r.get<int32_t>(), face = r.get<int32_t>();
-            if (!r.Ok() || face < 0 || face > 5)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            static const int kOff[6][3] = {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}};
-            const auto nameAt = [&](int bx, int by, int bz) {
-                bool loaded = false;
-                const uint16_t id = modLive->NetLevel().GetBlock(bx, by, bz, loaded);
-                return loaded ? BlockPalette::Instance().Name(id) : std::string();
-            };
-            const ui::HudItem& held = hudState.hotbar[std::clamp(hudState.selectedSlot, 0, 8)];
-            int clicked[3] = {x, y, z};
-            const blockuse::Result use = blockuse::Classify(nameAt(x, y, z), nameAt(x + kOff[face][0], y + kOff[face][1], z + kOff[face][2]), clicked,
-                                                           face, !held.Empty(), !held.Empty() && held.blockRuntimeId != 0, player.Sneaking());
-            const float click[3] = {0.5f, 0.5f, 0.5f};
-            const float eye[3] = {camera.x, camera.y, camera.z};
-            int dest[3];
-            std::copy(use.dest, use.dest + 3, dest);
-            handRenderer.Swing(options.hand);
-            modLive->SendSwingArm("build");
-            modLive->SendUseItemOnBlock(x, y, z, face, click, eye, static_cast<int>(use.use), dest);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::UseOnBlock,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const int32_t x = r.get<int32_t>(), y = r.get<int32_t>(), z = r.get<int32_t>(),
+                              face = r.get<int32_t>();
+                if (!r.Ok() || face < 0 || face > 5)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                static const int kOff[6][3] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
+                                               {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
+                const auto nameAt = [&](int bx, int by, int bz) {
+                    bool loaded = false;
+                    const uint16_t id = modLive->NetLevel().GetBlock(bx, by, bz, loaded);
+                    return loaded ? BlockPalette::Instance().Name(id) : std::string();
+                };
+                const ui::HudItem& held = hudState.hotbar[std::clamp(hudState.selectedSlot, 0, 8)];
+                int clicked[3] = {x, y, z};
+                const blockuse::Result use = blockuse::Classify(
+                    nameAt(x, y, z), nameAt(x + kOff[face][0], y + kOff[face][1], z + kOff[face][2]), clicked,
+                    face, !held.Empty(), !held.Empty() && held.blockRuntimeId != 0, player.Sneaking());
+                const float click[3] = {0.5f, 0.5f, 0.5f};
+                const float eye[3] = {camera.x, camera.y, camera.z};
+                int dest[3];
+                std::copy(use.dest, use.dest + 3, dest);
+                handRenderer.Swing(options.hand);
+                modLive->SendSwingArm("build");
+                modLive->SendUseItemOnBlock(x, y, z, face, click, eye, static_cast<int>(use.use), dest);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::AttackEntity, [this, ModEntityClick](CallContext&, abi::Reader& r, abi::Writer&) {
-            const uint64_t id = r.get<uint64_t>();
-            if (!r.Ok())
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            entity::Entity e;
-            if (!modLive->Entities().Find(id, e))
-                return Status::NotFound;
-            const float eye[3] = {camera.x, camera.y, camera.z};
-            const glm::vec3 offset = ModEntityClick(e);
-            const float click[3] = {offset.x, offset.y, offset.z};
-            handRenderer.Swing(options.hand);
-            modLive->SendSwingArm("attack");
-            modLive->SendAttackEntity(id, eye, click);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::AttackEntity,
+            [this, ModEntityClick](CallContext&, abi::Reader& r, abi::Writer&) {
+                const uint64_t id = r.get<uint64_t>();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                entity::Entity e;
+                if (!modLive->Entities().Find(id, e))
+                    return Status::NotFound;
+                const float eye[3] = {camera.x, camera.y, camera.z};
+                const glm::vec3 offset = ModEntityClick(e);
+                const float click[3] = {offset.x, offset.y, offset.z};
+                handRenderer.Swing(options.hand);
+                modLive->SendSwingArm("attack");
+                modLive->SendAttackEntity(id, eye, click);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::InteractEntity, [this, ModEntityClick](CallContext&, abi::Reader& r, abi::Writer&) {
-            const uint64_t id = r.get<uint64_t>();
-            if (!r.Ok())
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            entity::Entity e;
-            if (!modLive->Entities().Find(id, e))
-                return Status::NotFound;
-            const float eye[3] = {camera.x, camera.y, camera.z};
-            const glm::vec3 offset = ModEntityClick(e);
-            const float click[3] = {offset.x, offset.y, offset.z};
-            handRenderer.Swing(options.hand);
-            modLive->SendSwingArm("interact");
-            modLive->SendInteractEntity(id, eye, click);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::InteractEntity,
+            [this, ModEntityClick](CallContext&, abi::Reader& r, abi::Writer&) {
+                const uint64_t id = r.get<uint64_t>();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                entity::Entity e;
+                if (!modLive->Entities().Find(id, e))
+                    return Status::NotFound;
+                const float eye[3] = {camera.x, camera.y, camera.z};
+                const glm::vec3 offset = ModEntityClick(e);
+                const float click[3] = {offset.x, offset.y, offset.z};
+                handRenderer.Swing(options.hand);
+                modLive->SendSwingArm("interact");
+                modLive->SendInteractEntity(id, eye, click);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::BreakBlock, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const int32_t x = r.get<int32_t>(), y = r.get<int32_t>(), z = r.get<int32_t>(), face = r.get<int32_t>();
-            if (!r.Ok() || face < 0 || face > 5)
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            handRenderer.Swing(options.hand);
-            modLive->SendSwingArm("mine");
-            modLive->SendPlayerAuthInputBlockAction(0, x, y, z, face);
-            if (modLive->GameType() == 1)
-                modLive->SendPlayerAuthInputBlockAction(1, x, y, z, face);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::BreakBlock,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const int32_t x = r.get<int32_t>(), y = r.get<int32_t>(), z = r.get<int32_t>(),
+                              face = r.get<int32_t>();
+                if (!r.Ok() || face < 0 || face > 5)
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                handRenderer.Swing(options.hand);
+                modLive->SendSwingArm("mine");
+                modLive->SendPlayerAuthInputBlockAction(0, x, y, z, face);
+                if (modLive->GameType() == 1)
+                    modLive->SendPlayerAuthInputBlockAction(1, x, y, z, face);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::Look, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const float yaw = r.get<float>(), pitch = r.get<float>();
-            if (!r.Ok() || !std::isfinite(yaw) || !std::isfinite(pitch))
-                return Status::BadArguments;
-            camera.yaw = yaw + 90.0f;
-            camera.pitch = std::clamp(-pitch, -89.0f, 89.0f);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::Look,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const float yaw = r.get<float>(), pitch = r.get<float>();
+                if (!r.Ok() || !std::isfinite(yaw) || !std::isfinite(pitch))
+                    return Status::BadArguments;
+                camera.yaw = yaw + 90.0f;
+                camera.pitch = std::clamp(-pitch, -89.0f, 89.0f);
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::Respawn, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            if (!modLive)
-                return Status::Unavailable;
-            modLive->RequestRespawn();
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::Respawn,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                if (!modLive)
+                    return Status::Unavailable;
+                modLive->RequestRespawn();
+                return Status::Ok;
+            },
+            kControl);
 
-        mm.Register(Op::Disconnect, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            if (!platform)
-                return Status::Unavailable;
-            platform->isRunning = false;
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::Disconnect,
+            [this](CallContext&, abi::Reader&, abi::Writer&) {
+                if (!platform)
+                    return Status::Unavailable;
+                platform->isRunning = false;
+                return Status::Ok;
+            },
+            kControl);
 
         mm.Register(Op::PlaySound, [this](CallContext&, abi::Reader& r, abi::Writer&) {
             const std::string name = r.str();
@@ -1248,7 +1384,8 @@ namespace perlin {
             if (!r.Ok() || name.empty() || name.size() > 128)
                 return Status::BadArguments;
             const glm::dvec3 at = positional ? glm::dvec3(x, y, z) : glm::dvec3(camera.x, camera.y, camera.z);
-            sounds.PlayNamed(name, at, std::clamp(volume, 0.0f, 4.0f), std::clamp(pitch, 0.25f, 4.0f), positional);
+            sounds.PlayNamed(name, at, std::clamp(volume, 0.0f, 4.0f), std::clamp(pitch, 0.25f, 4.0f),
+                             positional);
             return Status::Ok;
         });
 
@@ -1261,37 +1398,45 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::HttpRequest, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
-            const uint32_t id = r.get<uint32_t>();
-            std::string method = r.str();
-            std::string url = r.str();
-            const int32_t timeout = r.get<int32_t>();
-            const uint32_t count = r.get<uint32_t>();
-            std::vector<std::pair<std::string, std::string>> headers;
-            for (uint32_t i = 0; i < count && i < 64 && r.Ok(); i++) {
-                std::string k = r.str();
-                headers.emplace_back(std::move(k), r.str());
-            }
-            std::vector<uint8_t> body = r.bytes();
-            if (!r.Ok() || body.size() > (4u << 20))
-                return Status::BadArguments;
-            if (method != "GET" && method != "POST" && method != "PUT" && method != "DELETE" && method != "PATCH" && method != "HEAD")
-                return Status::BadArguments;
-            if (modHttpActive.load() >= 6)
-                return Status::Unavailable;
-            StartModHttp(ctx.plugin, id, std::move(method), std::move(url), std::clamp(timeout, 500, 60000), std::move(headers), std::move(body));
-            return Status::Ok;
-        }, network);
+        mm.Register(
+            Op::HttpRequest,
+            [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
+                const uint32_t id = r.get<uint32_t>();
+                std::string method = r.str();
+                std::string url = r.str();
+                const int32_t timeout = r.get<int32_t>();
+                const uint32_t count = r.get<uint32_t>();
+                std::vector<std::pair<std::string, std::string>> headers;
+                for (uint32_t i = 0; i < count && i < 64 && r.Ok(); i++) {
+                    std::string k = r.str();
+                    headers.emplace_back(std::move(k), r.str());
+                }
+                std::vector<uint8_t> body = r.bytes();
+                if (!r.Ok() || body.size() > (4u << 20))
+                    return Status::BadArguments;
+                if (method != "GET" && method != "POST" && method != "PUT" && method != "DELETE" &&
+                    method != "PATCH" && method != "HEAD")
+                    return Status::BadArguments;
+                if (modHttpActive.load() >= 6)
+                    return Status::Unavailable;
+                StartModHttp(ctx.plugin, id, std::move(method), std::move(url),
+                             std::clamp(timeout, 500, 60000), std::move(headers), std::move(body));
+                return Status::Ok;
+            },
+            kNetwork);
 
-        mm.Register(Op::PacketSend, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const uint32_t id = r.get<uint32_t>();
-            std::vector<uint8_t> body = r.bytes();
-            if (!r.Ok() || body.size() > (64u << 20))
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            return modLive->SendRaw(id, body) ? Status::Ok : Status::Failed;
-        }, packets);
+        mm.Register(
+            Op::PacketSend,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const uint32_t id = r.get<uint32_t>();
+                std::vector<uint8_t> body = r.bytes();
+                if (!r.Ok() || body.size() > (64u << 20))
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                return modLive->SendRaw(id, body) ? Status::Ok : Status::Failed;
+            },
+            kPackets);
 
         mm.Register(Op::PacketName, [](CallContext&, abi::Reader& r, abi::Writer& w) {
             const uint32_t id = r.get<uint32_t>();
@@ -1317,7 +1462,9 @@ namespace perlin {
             }
         if (pending) {
             auto& a = options.approvedMods;
-            a.erase(std::remove_if(a.begin(), a.end(), [&](const std::string& e) { return e.rfind(name + "=", 0) == 0; }), a.end());
+            a.erase(std::remove_if(a.begin(), a.end(),
+                                   [&](const std::string& e) { return e.starts_with(name + "="); }),
+                    a.end());
             a.push_back(name + "=" + std::to_string(requested));
             if (it != d.end())
                 d.erase(it);
@@ -1345,11 +1492,20 @@ namespace perlin {
                 return Status::BadArguments;
             int view = 0;
             switch (screen) {
-            case abi::Screen::Pause: view = 0; break;
-            case abi::Screen::Options: view = 1; break;
-            case abi::Screen::Mods: view = 4; break;
-            case abi::Screen::Wardrobe: view = 5; break;
-            default: return Status::BadArguments;
+            case abi::Screen::Pause:
+                view = 0;
+                break;
+            case abi::Screen::Options:
+                view = 1;
+                break;
+            case abi::Screen::Mods:
+                view = 4;
+                break;
+            case abi::Screen::Wardrobe:
+                view = 5;
+                break;
+            default:
+                return Status::BadArguments;
             }
             mods::ModManager::Instance().PostMain([this, view] {
                 modOpenView = view;
@@ -1381,7 +1537,9 @@ namespace perlin {
         });
 
         mm.Register(Op::CyclePerspective, [this](CallContext&, abi::Reader&, abi::Writer&) {
-            mods::ModManager::Instance().PostMain([this] { camera.mode = static_cast<PerspectiveMode>((static_cast<int>(camera.mode) + 1) % 3); });
+            mods::ModManager::Instance().PostMain([this] {
+                camera.mode = static_cast<PerspectiveMode>((static_cast<int>(camera.mode) + 1) % 3);
+            });
             return Status::Ok;
         });
 
@@ -1396,34 +1554,47 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::OpenUrl, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            std::string url = r.str();
-            if (!r.Ok() || url.rfind("https://", 0) != 0 || url.size() > 2048)
-                return Status::BadArguments;
-            mods::ModManager::Instance().PostMain([this, url = std::move(url)] {
-                if (platform)
-                    platform->OpenUrl(url);
-            });
-            return Status::Ok;
-        }, network);
+        mm.Register(
+            Op::OpenUrl,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                std::string url = r.str();
+                if (!r.Ok() || !url.starts_with("https://") || url.size() > 2048)
+                    return Status::BadArguments;
+                mods::ModManager::Instance().PostMain([this, url = std::move(url)] {
+                    if (platform)
+                        platform->OpenUrl(url);
+                });
+                return Status::Ok;
+            },
+            network);
 
         mm.Register(Op::ToggleHud, [this](CallContext&, abi::Reader&, abi::Writer&) {
             mods::ModManager::Instance().PostMain([this] { options.showHud = !options.showHud; });
             return Status::Ok;
         });
 
-        const auto resolve = [](const CallContext& ctx, const abi::FileLocation& at, std::filesystem::path& out) {
+        const auto resolve = [](const CallContext& ctx, const abi::FileLocation& at,
+                                std::filesystem::path& out) {
             const std::string& rel = at.path;
-            if (rel.empty() || rel.size() > 300 || rel[0] == '/' || rel[0] == '\\' || rel.find("..") != std::string::npos ||
-                rel.find('\\') != std::string::npos || rel.find(':') != std::string::npos)
+            if (rel.empty() || rel.size() > 300 || rel[0] == '/' || rel[0] == '\\' || rel.contains("..") ||
+                rel.contains('\\') || rel.contains(':'))
                 return false;
             std::filesystem::path root;
             switch (at.area) {
-            case abi::Area::Mod: root = ctx.storageRoot; break;
-            case abi::Area::Screenshots: root = std::filesystem::path(paths::DataDir()) / "screenshots"; break;
-            case abi::Area::ResourcePacks: root = std::filesystem::path(paths::DataDir()) / "texturepacks"; break;
-            case abi::Area::ShaderPacks: root = std::filesystem::path(paths::DataDir()) / "shaderpacks"; break;
-            default: return false;
+            case abi::Area::Mod:
+                root = ctx.storageRoot;
+                break;
+            case abi::Area::Screenshots:
+                root = std::filesystem::path(paths::DataDir()) / "screenshots";
+                break;
+            case abi::Area::ResourcePacks:
+                root = std::filesystem::path(paths::DataDir()) / "texturepacks";
+                break;
+            case abi::Area::ShaderPacks:
+                root = std::filesystem::path(paths::DataDir()) / "shaderpacks";
+                break;
+            default:
+                return false;
             }
             out = root / rel;
             return true;
@@ -1454,22 +1625,31 @@ namespace perlin {
             }
             return ec ? Status::Failed : Status::Ok;
         };
-        mm.Register(Op::CopyFile, [transfer](CallContext& ctx, abi::Reader& r, abi::Writer&) { return transfer(false, ctx, r); }, files);
-        mm.Register(Op::MoveFile, [transfer](CallContext& ctx, abi::Reader& r, abi::Writer&) { return transfer(true, ctx, r); }, files);
-        mm.Register(Op::DownloadFile, [this, resolve](CallContext& ctx, abi::Reader& r, abi::Writer&) {
-            const uint32_t request = r.get<uint32_t>();
-            const std::string url = r.str();
-            const auto to = r.read<abi::FileLocation>();
-            std::filesystem::path dst;
-            if (!r.Ok() || url.rfind("https://", 0) != 0 || url.size() > 2048 || !resolve(ctx, to, dst))
-                return Status::BadArguments;
-            std::error_code ec;
-            if (to.area != abi::Area::Mod && std::filesystem::exists(dst, ec))
-                return Status::Failed;
-            if (modHttpActive.load() >= 6)
-                return Status::Unavailable;
-            StartModHttp(ctx.plugin, request, "GET", url, 30000, {}, {}, dst.string());
-            return Status::Ok;
-        }, network | files);
+        mm.Register(
+            Op::CopyFile,
+            [transfer](CallContext& ctx, abi::Reader& r, abi::Writer&) { return transfer(false, ctx, r); },
+            files);
+        mm.Register(
+            Op::MoveFile,
+            [transfer](CallContext& ctx, abi::Reader& r, abi::Writer&) { return transfer(true, ctx, r); },
+            files);
+        mm.Register(
+            Op::DownloadFile,
+            [this, resolve](CallContext& ctx, abi::Reader& r, abi::Writer&) {
+                const uint32_t request = r.get<uint32_t>();
+                const std::string url = r.str();
+                const auto to = r.read<abi::FileLocation>();
+                std::filesystem::path dst;
+                if (!r.Ok() || !url.starts_with("https://") || url.size() > 2048 || !resolve(ctx, to, dst))
+                    return Status::BadArguments;
+                std::error_code ec;
+                if (to.area != abi::Area::Mod && std::filesystem::exists(dst, ec))
+                    return Status::Failed;
+                if (modHttpActive.load() >= 6)
+                    return Status::Unavailable;
+                StartModHttp(ctx.plugin, request, "GET", url, 30000, {}, {}, dst.string());
+                return Status::Ok;
+            },
+            network | files);
     }
 }

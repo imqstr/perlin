@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include "client/Perlin.hpp"
 
 #include "client/mods/ModManager.hpp"
@@ -17,16 +18,19 @@ namespace perlin {
         using Clock = std::chrono::steady_clock;
         namespace fs = std::filesystem;
 
-        Clock::time_point After(int32_t ticks) { return Clock::now() + std::chrono::milliseconds(std::clamp(ticks, 1, 200) * 50); }
+        Clock::time_point After(int32_t ticks) {
+            return Clock::now() + std::chrono::milliseconds(std::clamp(ticks, 1, 200) * 50);
+        }
 
         constexpr size_t kMaxMeshVertices = 60000;
         constexpr size_t kMaxEntityRules = 512;
 
         // in abi::HudElement order
-        constexpr const char* kHudRenderers[] = {"heart_renderer",        "armor_renderer",    "hunger_renderer",      "bubbles_renderer",
-                                                 "hotbar_renderer",       "progress_bar_renderer", "debug_renderer",   "chat_renderer",
-                                                 "mob_effects_renderer",  "locator_bar",       "fire_renderer",        "subtitle_renderer",
-                                                 "cursor_renderer"};
+        constexpr const char* kHudRenderers[] = {
+            "heart_renderer",       "armor_renderer",        "hunger_renderer", "bubbles_renderer",
+            "hotbar_renderer",      "progress_bar_renderer", "debug_renderer",  "chat_renderer",
+            "mob_effects_renderer", "locator_bar",           "fire_renderer",   "subtitle_renderer",
+            "cursor_renderer"};
 
         void ToRgba(uint32_t argb, float out[4]) {
             out[0] = ((argb >> 16) & 0xFF) / 255.0f;
@@ -35,9 +39,13 @@ namespace perlin {
             out[3] = ((argb >> 24) & 0xFF) / 255.0f;
         }
 
-        uint32_t ArgbToAbgr(uint32_t c) { return (c & 0xFF00FF00u) | ((c >> 16) & 0xFFu) | ((c & 0xFFu) << 16); }
+        uint32_t ArgbToAbgr(uint32_t c) {
+            return (c & 0xFF00FF00u) | ((c >> 16) & 0xFFu) | ((c & 0xFFu) << 16);
+        }
 
-        std::string ItemKey(const ui::HudItem& i) { return i.name + "|" + std::to_string(i.aux) + "|" + std::to_string(i.count) + "|" + i.customName; }
+        std::string ItemKey(const ui::HudItem& i) {
+            return i.name + "|" + std::to_string(i.aux) + "|" + std::to_string(i.count) + "|" + i.customName;
+        }
 
         abi::Item ToAbi(const ui::HudItem& s) {
             abi::Item i;
@@ -58,9 +66,9 @@ namespace perlin {
 
     void Perlin::SetupModHooks() {
         auto& mm = mods::ModManager::Instance();
-        using mods::CallContext;
         using abi::Op;
         using abi::Status;
+        using mods::CallContext;
         const uint32_t control = static_cast<uint32_t>(abi::Permission::Control);
         const uint32_t files = static_cast<uint32_t>(abi::Permission::Files);
         const uint32_t network = static_cast<uint32_t>(abi::Permission::Network);
@@ -110,7 +118,8 @@ namespace perlin {
         mm.Register(Op::HudElementSet, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
             const abi::HudElementState s = r.read<abi::HudElementState>();
             const int index = static_cast<int>(s.element);
-            if (!r.Ok() || index < 0 || index >= static_cast<int>(std::size(kHudRenderers)) || !std::isfinite(s.dx) || !std::isfinite(s.dy))
+            if (!r.Ok() || index < 0 || index >= static_cast<int>(std::size(kHudRenderers)) ||
+                !std::isfinite(s.dx) || !std::isfinite(s.dy))
                 return Status::BadArguments;
             {
                 std::lock_guard lock(modHooks.mutex);
@@ -157,14 +166,15 @@ namespace perlin {
 
         mm.Register(Op::EntityRenderOverride, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
             abi::EntityOverride o = r.read<abi::EntityOverride>();
-            if (!r.Ok() || (o.entity == 0 && o.type.empty()) || o.texture.size() > 256 || o.nameText.size() > 256)
+            if (!r.Ok() || (o.entity == 0 && o.type.empty()) || o.texture.size() > 256 ||
+                o.nameText.size() > 256)
                 return Status::BadArguments;
             if (!std::isfinite(o.scaleX) || !std::isfinite(o.scaleY) || !std::isfinite(o.scaleZ))
                 return Status::BadArguments;
             o.scaleX = std::clamp(o.scaleX, 0.01f, 16.0f);
             o.scaleY = std::clamp(o.scaleY, 0.01f, 16.0f);
             o.scaleZ = std::clamp(o.scaleZ, 0.01f, 16.0f);
-            if (o.type.find(':') == std::string::npos && !o.type.empty())
+            if (!o.type.contains(':') && !o.type.empty())
                 o.type = "minecraft:" + o.type;
             const std::string key = o.entity ? "id:" + std::to_string(o.entity) : "type:" + o.type;
             std::lock_guard lock(modHooks.mutex);
@@ -177,7 +187,8 @@ namespace perlin {
 
         mm.Register(Op::WorldMesh, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
             abi::WorldMeshData m = r.read<abi::WorldMeshData>();
-            if (!r.Ok() || m.id.empty() || m.id.size() > 64 || m.triangles.size() > kMaxMeshVertices || m.triangles.size() % 3)
+            if (!r.Ok() || m.id.empty() || m.id.size() > 64 || m.triangles.size() > kMaxMeshVertices ||
+                m.triangles.size() % 3)
                 return Status::BadArguments;
             for (const abi::MeshVertex& v : m.triangles)
                 if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
@@ -225,12 +236,16 @@ namespace perlin {
 
         mm.Register(Op::ScreenButtonAdd, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
             abi::ScreenButtonDef def = r.read<abi::ScreenButtonDef>();
-            if (!r.Ok() || def.id.empty() || def.id.size() > 64 || def.label.size() > 128 || def.width <= 0 || def.height <= 0)
+            if (!r.Ok() || def.id.empty() || def.id.size() > 64 || def.label.size() > 128 || def.width <= 0 ||
+                def.height <= 0)
                 return Status::BadArguments;
             std::lock_guard lock(modHooks.mutex);
             auto& list = modHooks.buttons;
-            std::erase_if(list, [&](const ModHooks::Button& b) { return b.plugin == ctx.plugin && b.def.id == def.id; });
-            if (std::count_if(list.begin(), list.end(), [&](const ModHooks::Button& b) { return b.plugin == ctx.plugin; }) >= 32)
+            std::erase_if(list, [&](const ModHooks::Button& b) {
+                return b.plugin == ctx.plugin && b.def.id == def.id;
+            });
+            if (std::count_if(list.begin(), list.end(),
+                              [&](const ModHooks::Button& b) { return b.plugin == ctx.plugin; }) >= 32)
                 return Status::Failed;
             list.push_back({ctx.plugin, std::move(def)});
             return Status::Ok;
@@ -241,7 +256,9 @@ namespace perlin {
             if (!r.Ok())
                 return Status::BadArguments;
             std::lock_guard lock(modHooks.mutex);
-            std::erase_if(modHooks.buttons, [&](const ModHooks::Button& b) { return b.plugin == ctx.plugin && b.def.id == id; });
+            std::erase_if(modHooks.buttons, [&](const ModHooks::Button& b) {
+                return b.plugin == ctx.plugin && b.def.id == id;
+            });
             return Status::Ok;
         });
 
@@ -284,7 +301,8 @@ namespace perlin {
                 return Status::BadArguments;
             if (!d.png.empty()) {
                 Texture t;
-                if (!LoadTextureMemory(d.png.data(), d.png.size(), t) || t.width != 64 || (t.height != 64 && t.height != 32))
+                if (!LoadTextureMemory(d.png.data(), d.png.size(), t) || t.width != 64 ||
+                    (t.height != 64 && t.height != 32))
                     return Status::BadArguments;
             }
             std::lock_guard lock(modHooks.mutex);
@@ -298,7 +316,8 @@ namespace perlin {
 
         mm.Register(Op::AmbientSound, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
             abi::AmbientSoundData d = r.read<abi::AmbientSoundData>();
-            if (!r.Ok() || d.id.empty() || d.id.size() > 64 || d.sound.empty() || d.sound.size() > 128 || !std::isfinite(d.volume) || !std::isfinite(d.pitch))
+            if (!r.Ok() || d.id.empty() || d.id.size() > 64 || d.sound.empty() || d.sound.size() > 128 ||
+                !std::isfinite(d.volume) || !std::isfinite(d.pitch))
                 return Status::BadArguments;
             d.volume = std::clamp(d.volume, 0.0f, 4.0f);
             d.pitch = std::clamp(d.pitch, 0.1f, 4.0f);
@@ -315,80 +334,91 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::ServerPing, [this](CallContext& ctx, abi::Reader& r, abi::Writer& w) {
-            const abi::ServerPingRequest q = r.read<abi::ServerPingRequest>();
-            if (!r.Ok() || q.host.empty() || q.host.size() > 253 || q.port == 0)
-                return Status::BadArguments;
-            const uint32_t id = modHooks.nextPing++;
-            std::thread([this, plugin = ctx.plugin, q, id] {
-                const auto start = Clock::now();
-                std::string ad, error;
-                abi::EventServerPing e;
-                e.id = id;
-                e.ok = RakNet::Ping(q.host, q.port, ad, error, 2500);
-                e.latencyMs = std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-                if (e.ok) {
-                    // MCPE;motd;protocol;version;players;max;...
-                    std::vector<std::string> f;
-                    size_t from = 0;
-                    for (size_t at; (at = ad.find(';', from)) != std::string::npos; from = at + 1)
-                        f.push_back(ad.substr(from, at - from));
-                    f.push_back(ad.substr(from));
-                    if (f.size() > 1)
-                        e.motd = f[1];
-                    if (f.size() > 2)
-                        e.protocol = std::atoi(f[2].c_str());
-                    if (f.size() > 3)
-                        e.version = f[3];
-                    if (f.size() > 5) {
-                        e.players = std::atoi(f[4].c_str());
-                        e.maxPlayers = std::atoi(f[5].c_str());
+        mm.Register(
+            Op::ServerPing,
+            [this](CallContext& ctx, abi::Reader& r, abi::Writer& w) {
+                const abi::ServerPingRequest q = r.read<abi::ServerPingRequest>();
+                if (!r.Ok() || q.host.empty() || q.host.size() > 253 || q.port == 0)
+                    return Status::BadArguments;
+                const uint32_t id = modHooks.nextPing++;
+                std::thread([this, plugin = ctx.plugin, q, id] {
+                    const auto start = Clock::now();
+                    std::string ad, error;
+                    abi::EventServerPing e;
+                    e.id = id;
+                    e.ok = RakNet::Ping(q.host, q.port, ad, error, 2500);
+                    e.latencyMs = std::chrono::duration<float, std::milli>(Clock::now() - start).count();
+                    if (e.ok) {
+                        // MCPE;motd;protocol;version;players;max;...
+                        std::vector<std::string> f;
+                        size_t from = 0;
+                        for (size_t at; (at = ad.find(';', from)) != std::string::npos; from = at + 1)
+                            f.push_back(ad.substr(from, at - from));
+                        f.push_back(ad.substr(from));
+                        if (f.size() > 1)
+                            e.motd = f[1];
+                        if (f.size() > 2)
+                            e.protocol = std::atoi(f[2].c_str());
+                        if (f.size() > 3)
+                            e.version = f[3];
+                        if (f.size() > 5) {
+                            e.players = std::atoi(f[4].c_str());
+                            e.maxPlayers = std::atoi(f[5].c_str());
+                        }
                     }
+                    std::lock_guard lock(modHooks.mutex);
+                    modHooks.pings.emplace_back(plugin, std::move(e));
+                }).detach();
+                w.write(id);
+                return Status::Ok;
+            },
+            network);
+
+        mm.Register(
+            Op::PackRegister,
+            [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
+                const abi::PackRegistration p = r.read<abi::PackRegistration>();
+                if (!r.Ok() || p.path.empty() || p.path.size() > 256 || p.path.contains("..") ||
+                    fs::path(p.path).is_absolute())
+                    return Status::BadArguments;
+                const std::string full = (fs::path(ctx.storageRoot) / p.path).lexically_normal().string();
+                std::error_code ec;
+                if (p.enabled && !fs::exists(full, ec))
+                    return Status::NotFound;
+                {
+                    std::lock_guard lock(modHooks.mutex);
+                    auto& packs = modHooks.packs;
+                    const auto it = std::find(packs.begin(), packs.end(), std::make_pair(ctx.plugin, full));
+                    if (p.enabled == (it != packs.end()))
+                        return Status::Ok;
+                    if (p.enabled)
+                        packs.emplace_back(ctx.plugin, full);
+                    else
+                        packs.erase(it);
                 }
-                std::lock_guard lock(modHooks.mutex);
-                modHooks.pings.emplace_back(plugin, std::move(e));
-            }).detach();
-            w.write(id);
-            return Status::Ok;
-        }, network);
+                mods::ModManager::Instance().PostMain([this] { ApplyTexturePacks(); });
+                return Status::Ok;
+            },
+            files);
 
-        mm.Register(Op::PackRegister, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
-            const abi::PackRegistration p = r.read<abi::PackRegistration>();
-            if (!r.Ok() || p.path.empty() || p.path.size() > 256 || p.path.find("..") != std::string::npos || fs::path(p.path).is_absolute())
-                return Status::BadArguments;
-            const std::string full = (fs::path(ctx.storageRoot) / p.path).lexically_normal().string();
-            std::error_code ec;
-            if (p.enabled && !fs::exists(full, ec))
-                return Status::NotFound;
-            {
-                std::lock_guard lock(modHooks.mutex);
-                auto& packs = modHooks.packs;
-                const auto it = std::find(packs.begin(), packs.end(), std::make_pair(ctx.plugin, full));
-                if (p.enabled == (it != packs.end()))
-                    return Status::Ok;
-                if (p.enabled)
-                    packs.emplace_back(ctx.plugin, full);
-                else
-                    packs.erase(it);
-            }
-            mods::ModManager::Instance().PostMain([this] { ApplyTexturePacks(); });
-            return Status::Ok;
-        }, files);
-
-        mm.Register(Op::ShaderPackSet, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const std::string name = r.str();
-            if (!r.Ok() || name.size() > 128 || name.find("..") != std::string::npos || name.find('/') != std::string::npos)
-                return Status::BadArguments;
-            mods::ModManager::Instance().PostMain([this, name] {
-                options.shaderPack = name;
-                ApplyShaderPack();
-            });
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::ShaderPackSet,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const std::string name = r.str();
+                if (!r.Ok() || name.size() > 128 || name.contains("..") || name.contains('/'))
+                    return Status::BadArguments;
+                mods::ModManager::Instance().PostMain([this, name] {
+                    options.shaderPack = name;
+                    ApplyShaderPack();
+                });
+                return Status::Ok;
+            },
+            control);
 
         mm.Register(Op::ParticleSpawn, [this](CallContext&, abi::Reader& r, abi::Writer&) {
             abi::ParticleRequest p = r.read<abi::ParticleRequest>();
-            if (!r.Ok() || p.name.empty() || p.name.size() > 128 || !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.spread))
+            if (!r.Ok() || p.name.empty() || p.name.size() > 128 || !std::isfinite(p.x) ||
+                !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.spread))
                 return Status::BadArguments;
             p.count = std::clamp(p.count, 1, 64);
             p.spread = std::clamp(p.spread, 0.0f, 8.0f);
@@ -406,20 +436,21 @@ namespace perlin {
             hudChanged = modHooks.hud.erase(plugin) > 0;
             modHooks.debug.erase(plugin);
             modHooks.entities.erase(plugin);
-            std::erase_if(modHooks.meshes, [&](const auto& m) { return m.first.rfind(plugin + "/", 0) == 0; });
+            std::erase_if(modHooks.meshes, [&](const auto& m) { return m.first.starts_with(plugin + "/"); });
             modHooks.frame.erase(plugin);
             std::erase_if(modHooks.buttons, [&](const ModHooks::Button& b) { return b.plugin == plugin; });
             if (modHooks.customOwner == plugin)
                 modHooks.customOpen = false;
             modHooks.loadingHidden.erase(plugin);
             for (auto it = modHooks.ambient.begin(); it != modHooks.ambient.end();)
-                if (it->first.rfind(plugin + "/", 0) == 0) {
+                if (it->first.starts_with(plugin + "/")) {
                     sounds.Stop(it->second.sound);
                     it = modHooks.ambient.erase(it);
                 } else {
                     ++it;
                 }
-            packsChanged = std::erase_if(modHooks.packs, [&](const auto& p) { return p.first == plugin; }) > 0;
+            packsChanged =
+                std::erase_if(modHooks.packs, [&](const auto& p) { return p.first == plugin; }) > 0;
         }
         if (hudChanged)
             ui::BumpHudFilter();
@@ -563,7 +594,8 @@ namespace perlin {
         }
         std::erase_if(modHooks.entities, [](const auto& p) { return p.second.empty(); });
         if (!modFrameStyles.empty() || !modFrameTypeStyles.empty())
-            in.modStyle = [this](const entity::Entity& e) -> const entity::EntityRenderer::FrameIn::ModStyle* {
+            in.modStyle =
+                [this](const entity::Entity& e) -> const entity::EntityRenderer::FrameIn::ModStyle* {
                 if (const auto it = modFrameStyles.find(e.runtimeId); it != modFrameStyles.end())
                     return &it->second;
                 if (const auto it = modFrameTypeStyles.find(e.type); it != modFrameTypeStyles.end())
@@ -586,8 +618,9 @@ namespace perlin {
             }
             out.vertices.reserve(m.triangles.size());
             for (const abi::MeshVertex& v : m.triangles)
-                out.vertices.push_back({static_cast<float>(v.x - out.origin.x), static_cast<float>(v.y - out.origin.y), static_cast<float>(v.z - out.origin.z),
-                                        ArgbToAbgr(v.color), v.u, v.v});
+                out.vertices.push_back(
+                    {static_cast<float>(v.x - out.origin.x), static_cast<float>(v.y - out.origin.y),
+                     static_cast<float>(v.z - out.origin.z), ArgbToAbgr(v.color), v.u, v.v});
             modFrameMeshes.push_back(std::move(out));
         }
         if (!modFrameMeshes.empty())
@@ -607,7 +640,8 @@ namespace perlin {
         const float w = static_cast<float>(fbW), h = static_cast<float>(fbH);
         std::vector<UiVertex> v;
         std::vector<uint32_t> idx;
-        const auto quad = [&](float x0, float y0, float x1, float y1, uint32_t c00, uint32_t c10, uint32_t c11, uint32_t c01) {
+        const auto quad = [&](float x0, float y0, float x1, float y1, uint32_t c00, uint32_t c10,
+                              uint32_t c11, uint32_t c01) {
             const uint32_t base = static_cast<uint32_t>(v.size());
             v.push_back({x0, y0, 0, c00, 0, 0});
             v.push_back({x1, y0, 0, c10, 0, 0});
@@ -628,7 +662,8 @@ namespace perlin {
             quad(0, 0, w, eh, dark, dark, clear, clear);
             quad(0, h - eh, w, h, clear, clear, dark, dark);
         }
-        const uint32_t mesh = renderer->UiCreateMesh(v.data(), static_cast<uint32_t>(v.size()), idx.data(), static_cast<uint32_t>(idx.size()));
+        const uint32_t mesh = renderer->UiCreateMesh(v.data(), static_cast<uint32_t>(v.size()), idx.data(),
+                                                     static_cast<uint32_t>(idx.size()));
         if (!mesh)
             return;
         UiDraw draw;
@@ -652,16 +687,26 @@ namespace perlin {
                     running.insert(info.name);
             {
                 std::lock_guard lock(modHooks.mutex);
-                for (const auto& p : modHooks.hud) owners.insert(p.first);
-                for (const auto& p : modHooks.debug) owners.insert(p.first);
-                for (const auto& p : modHooks.entities) owners.insert(p.first);
-                for (const auto& p : modHooks.frame) owners.insert(p.first);
-                for (const auto& b : modHooks.buttons) owners.insert(b.plugin);
-                for (const auto& p : modHooks.packs) owners.insert(p.first);
-                for (const auto& p : modHooks.loadingHidden) owners.insert(p);
-                for (const auto& m : modHooks.meshes) owners.insert(m.first.substr(0, m.first.find('/')));
-                for (const auto& a : modHooks.ambient) owners.insert(a.first.substr(0, a.first.find('/')));
-                if (modHooks.customOpen) owners.insert(modHooks.customOwner);
+                for (const auto& p : modHooks.hud)
+                    owners.insert(p.first);
+                for (const auto& p : modHooks.debug)
+                    owners.insert(p.first);
+                for (const auto& p : modHooks.entities)
+                    owners.insert(p.first);
+                for (const auto& p : modHooks.frame)
+                    owners.insert(p.first);
+                for (const auto& b : modHooks.buttons)
+                    owners.insert(b.plugin);
+                for (const auto& p : modHooks.packs)
+                    owners.insert(p.first);
+                for (const auto& p : modHooks.loadingHidden)
+                    owners.insert(p);
+                for (const auto& m : modHooks.meshes)
+                    owners.insert(m.first.substr(0, m.first.find('/')));
+                for (const auto& a : modHooks.ambient)
+                    owners.insert(a.first.substr(0, a.first.find('/')));
+                if (modHooks.customOpen)
+                    owners.insert(modHooks.customOwner);
             }
             for (const std::string& owner : owners)
                 if (!running.count(owner))
@@ -722,7 +767,8 @@ namespace perlin {
         };
         for (const abi::ParticleRequest& p : particleQueue)
             for (int i = 0; i < p.count; i++)
-                particles.SpawnNamed(p.name, glm::dvec3(p.x + jitter(p.spread), p.y + jitter(p.spread), p.z + jitter(p.spread)));
+                particles.SpawnNamed(p.name, glm::dvec3(p.x + jitter(p.spread), p.y + jitter(p.spread),
+                                                        p.z + jitter(p.spread)));
         for (const abi::AmbientSoundData& a : ambient)
             if (!audioEngine.Playing(a.sound))
                 sounds.PlayNamed(a.sound, glm::dvec3(camera.x, camera.y, camera.z), a.volume, a.pitch, false);
@@ -741,7 +787,7 @@ namespace perlin {
                 modHooks.customOpen = false;
                 customOpen = false;
             }
-            if (!customOpen && !chat.IsOpen() && !pauseShown && !invShown)
+            if (!customOpen && !chat.IsOpen() && !pause.shown && !inventory.shown)
                 input.SetTextMode(false);
         }
 
@@ -771,7 +817,8 @@ namespace perlin {
         wasDown = down;
         modScreenButtons.clear();
         for (const ModHooks::Button& b : buttons) {
-            const bool hover = mx >= b.def.x && mx < b.def.x + b.def.width && my >= b.def.y && my < b.def.y + b.def.height;
+            const bool hover =
+                mx >= b.def.x && mx < b.def.x + b.def.width && my >= b.def.y && my < b.def.y + b.def.height;
             modScreenButtons.push_back({b.def, hover});
             if (hover && clicked) {
                 abi::Writer w;

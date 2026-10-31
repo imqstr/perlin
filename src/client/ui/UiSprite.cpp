@@ -14,7 +14,7 @@
 namespace perlin::ui {
     namespace {
         bool PackReplacement(const std::string& resource, Texture& out) {
-            if (!TexturePack::Instance().Active() || resource.rfind("ui_", 0) != 0 || resource.size() < 8)
+            if (!TexturePack::Instance().Active() || !resource.starts_with("ui_") || resource.size() < 8)
                 return false;
             std::string stem = resource.substr(3);
             if (stem.size() > 4 && stem.compare(stem.size() - 4, 4, ".png") == 0)

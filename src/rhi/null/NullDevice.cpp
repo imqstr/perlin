@@ -385,7 +385,6 @@ namespace rhi {
             uint64_t frame = 0;
         };
 
-        // ---- command list
 
         void NullCommandList::Error(const std::string& message) {
             device.ReportDeviceError(message);

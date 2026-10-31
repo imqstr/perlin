@@ -274,7 +274,6 @@ namespace rhi::metal {
         DeviceStats Stats() const override { return stats; }
         float TimestampPeriodNs() const override { return 1.0f; }
 
-        // ---- internals shared with the command list and the swapchain
         id<MTLDevice> Dev() const { return device; }
         id<MTLCommandQueue> Queue() const { return queue; }
         const DeviceOptions& Options() const { return options; }

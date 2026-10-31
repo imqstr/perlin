@@ -87,7 +87,7 @@ namespace perlin::http {
     Response Request(const std::string& host, uint16_t port, bool tls, const std::string& method,
                      const std::string& path, const std::string& body, const std::string& contentType,
                      const std::map<std::string, std::string>& extra, int timeoutSecs) {
-        if (host.empty() && (path.rfind("http://", 0) == 0 || path.rfind("https://", 0) == 0))
+        if (host.empty() && (path.starts_with("http://") || path.starts_with("https://")))
             return Fetch(path, method, body, contentType, extra, timeoutSecs);
         const std::string url = std::string(tls ? "https://" : "http://") + host + ":" + std::to_string(port) + path;
         Response direct = Fetch(url, method, body, contentType, extra, timeoutSecs);

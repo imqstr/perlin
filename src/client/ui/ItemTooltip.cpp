@@ -57,7 +57,7 @@ namespace perlin::ui {
         int Tier(const std::string& name) {
             static const char* const kTiers[] = {"wooden_", "stone_", "iron_", "golden_", "diamond_", "netherite_"};
             for (int i = 0; i < 6; i++)
-                if (name.rfind(kTiers[i], 0) == 0)
+                if (name.starts_with(kTiers[i]))
                     return i;
             return -1;
         }
@@ -125,7 +125,7 @@ namespace perlin::ui {
         for (const char* k : kUncommon) if (n == k) rarity = 1;
         for (const char* k : kRare) if (n == k) rarity = 2;
         for (const char* k : kEpic) if (n == k) rarity = 3;
-        if (n.rfind("music_disc_", 0) == 0)
+        if (n.starts_with("music_disc_"))
             rarity = 2;
         if (!item.enchants.empty() && n != "enchanted_book")
             rarity = rarity <= 1 ? 2 : 3;

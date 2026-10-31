@@ -161,7 +161,6 @@ namespace rhi::d3d11 {
         }
     }
 
-    // ---- resources ----------------------------------------------------------------------------------------------------
 
     BufferHandle Device::CreateBuffer(const BufferDesc& desc) {
         Buffer b;
@@ -437,7 +436,6 @@ namespace rhi::d3d11 {
         }
     }
 
-    // ---- views --------------------------------------------------------------------------------------------------------
 
     ID3D11ShaderResourceView* Device::SrvOf(Texture& t, const SubresourceRange& range, TextureDim dim, Format format, bool stencil) {
         const SubresourceRange r = ResolveRange(range, t.desc);
@@ -662,7 +660,6 @@ namespace rhi::d3d11 {
 
     void Device::ReleaseBackbuffer(TextureHandle handle) { Destroy(handle); }
 
-    // ---- shaders and pipelines ----------------------------------------------------------------------------------------
 
     // slang numbers registers by rhi binding and uses spaces for sets; d3d11 has neither, and only 16 sampler slots
     bool Device::CompileStage(const Shader& sh, const PipelineLayoutDesc& layout, uint32_t stageIndex, std::vector<StageSlot>& slots,
@@ -856,7 +853,6 @@ namespace rhi::d3d11 {
         return pipelines.Alloc(std::move(p));
     }
 
-    // ---- fences, frames -----------------------------------------------------------------------------------------------
 
     FenceHandle Device::CreateFence(uint64_t initialValue) {
         Fence f;
@@ -982,7 +978,6 @@ namespace rhi::d3d11 {
         return m;
     }
 
-    // ---- command lists, submission ------------------------------------------------------------------------------------
 
     CommandList* Device::AcquireCommandList(QueueType queue) {
         std::lock_guard lock(listMutex);

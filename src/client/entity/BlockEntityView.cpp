@@ -102,7 +102,7 @@ namespace perlin::entity {
         const char* forced = std::getenv("PERLIN_PREVIEW_SIGNTEXT");
         for (const SpecialBlock& s : specials) {
             const std::string name = palette.Name(s.id);
-            const std::string shortName = name.rfind("minecraft:", 0) == 0 ? name.substr(10) : name;
+            const std::string shortName = name.starts_with("minecraft:") ? name.substr(10) : name;
             BlockEntity be;
             if (shortName == "bed") {
                 const int direction = palette.StateInt(s.id, "direction", 0);
@@ -162,9 +162,9 @@ namespace perlin::entity {
                 bool large = side > 0;
                 const int px = s.x + rx, pz = s.z + rz;
                 const bool ender = shortName == "ender_chest", trapped = shortName == "trapped_chest";
-                const int copper = shortName.find("oxidized") != std::string::npos   ? 4
-                                   : shortName.find("weathered") != std::string::npos ? 3
-                                   : shortName.find("exposed") != std::string::npos   ? 2
+                const int copper = shortName.contains("oxidized")   ? 4
+                                   : shortName.contains("weathered") ? 3
+                                   : shortName.contains("exposed")   ? 2
                                    : shortName.ends_with("copper_chest")              ? 1
                                                                                       : 0;
                 if (ender)
@@ -211,10 +211,10 @@ namespace perlin::entity {
                 out.push_back(std::move(d));
                 continue;
             }
-            if (shortName.find("copper_golem_statue") != std::string::npos) {
-                const int level = shortName.find("oxidized") != std::string::npos ? 3
-                                  : shortName.find("weathered") != std::string::npos ? 2
-                                  : shortName.find("exposed") != std::string::npos ? 1 : 0;
+            if (shortName.contains("copper_golem_statue")) {
+                const int level = shortName.contains("oxidized") ? 3
+                                  : shortName.contains("weathered") ? 2
+                                  : shortName.contains("exposed") ? 1 : 0;
                 BlockEntityDraw d;
                 d.kind = BlockEntityDraw::Kind::Skull;
                 d.skull = 7 + level;
@@ -242,8 +242,8 @@ namespace perlin::entity {
             BlockEntityDraw d;
             d.kind = BlockEntityDraw::Kind::Sign;
             d.origin = {static_cast<double>(s.x), static_cast<double>(s.y), static_cast<double>(s.z)};
-            const bool wall = shortName.find("wall_sign") != std::string::npos;
-            const bool hangingSign = shortName.find("hanging_sign") != std::string::npos;
+            const bool wall = shortName.contains("wall_sign");
+            const bool hangingSign = shortName.contains("hanging_sign");
             if (!store.Get(s.x, s.y, s.z, be) && !forced)
                 continue;
             if (forced && be.front.text.empty())

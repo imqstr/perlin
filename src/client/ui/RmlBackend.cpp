@@ -29,6 +29,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include "util/Log.hpp"
 
 namespace perlin::ui {
     namespace {
@@ -119,12 +120,12 @@ namespace perlin::ui {
             if (source == "mc:white") {
                 t.width = t.height = 1;
                 t.pixels = {255, 255, 255, 255};
-            } else if (source.rfind("mcfont:", 0) == 0) {
+            } else if (source.starts_with("mcfont:")) {
                 const McFont& f = McFont::Instance();
                 t.width = f.AtlasWidth();
                 t.height = f.AtlasHeight();
                 t.pixels = f.Atlas();
-            } else if (source.rfind("mcten:atlas#", 0) == 0) {
+            } else if (source.starts_with("mcten:atlas#")) {
                 const int emPx = std::atoi(source.c_str() + 12);
                 const TenFont::Page* page = TenFont::Instance().PageFor(emPx);
                 if (!page || page->rgba.empty())
@@ -132,11 +133,11 @@ namespace perlin::ui {
                 t.width = page->width;
                 t.height = page->height;
                 t.pixels = page->rgba;
-            } else if (source.rfind("mcres:", 0) == 0) {
+            } else if (source.starts_with("mcres:")) {
                 std::string bytes;
                 std::string stem = source.substr(6);
                 bool fromPack = false;
-                if (TexturePack::Instance().Active() && stem.rfind("ui_menu_btn", 0) == 0) {
+                if (TexturePack::Instance().Active() && stem.starts_with("ui_menu_btn")) {
                     if (stem.size() > 4 && stem.compare(stem.size() - 4, 4, ".png") == 0)
                         stem.resize(stem.size() - 4);
                     fromPack = TexturePack::Instance().Load("textures/ui/screen_" + stem.substr(3) + ".png", t) && t.width > 0;
@@ -144,15 +145,15 @@ namespace perlin::ui {
                 if (!fromPack && (!resources::Read(source.substr(6), bytes) ||
                     !LoadTextureMemory(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), t)))
                     return 0;
-            } else if (source.rfind("mcurl:", 0) == 0) {
+            } else if (source.starts_with("mcurl:")) {
                 std::string bytes;
                 if (!FormImageBytes(source.substr(6), bytes) ||
                     !LoadTextureMemory(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), t))
                     return 0;
-            } else if (source.rfind("mchead:", 0) == 0) {
+            } else if (source.starts_with("mchead:")) {
                 if (!UiAssets::Instance().Head(source.substr(7), t))
                     return 0;
-            } else if (source.rfind("mcicon:", 0) == 0) {
+            } else if (source.starts_with("mcicon:")) {
                 if (!UiAssets::Instance().ItemIcon(source.substr(7), t))
                     return 0;
             } else if (!UiAssets::Instance().Image(source, t)) {
@@ -166,7 +167,7 @@ namespace perlin::ui {
                     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                 if (tail == "null" || tail == "null.png" || tail == "null.tga")
                     return 0;
-                std::cout << "[ui] missing texture " << source << std::endl;
+                Log("ui", "missing texture {}", source);
                 t.width = t.height = 2;
                 t.pixels = {248, 0, 248, 255, 0, 0, 0, 255, 0, 0, 0, 255, 248, 0, 248, 255};
             }
@@ -232,7 +233,7 @@ namespace perlin::ui {
             static std::unordered_map<std::string, uint64_t> seen;
             const uint64_t n = ++seen[message];
             if (n <= 3 || n % 100000 == 0)
-                std::cout << "[rml] " << message << (n > 3 ? " (repeated " + std::to_string(n) + " times)" : std::string()) << std::endl;
+                Log("rml", "{}{}", message, (n > 3 ? " (repeated " + std::to_string(n) + " times)" : std::string()));
             return true;
         }
     };
@@ -711,28 +712,6 @@ namespace perlin::ui {
                     const float alpha = HasAttribute("alpha") ? GetAttribute<float>("alpha", 1.0f) : 1.0f;
                     Rml::MeshUtilities::GenerateQuad(mesh, {0, 0}, size, Colour(1, 1, 1, alpha), {0, 0}, {1, 1});
                     geometry = manager->MakeGeometry(std::move(mesh));
-                    Rml::Mesh bar = wear.Release(Rml::Geometry::ReleaseMode::ClearMesh);
-                    bar.vertices.clear();
-                    bar.indices.clear();
-                    const int max = GetAttribute<int>("max", 0), damage = GetAttribute<int>("dmg", 0);
-                    if (max > 0 && damage > 0) {
-                        // the game's bar: 13x2 black at (2, 13) of the 16px icon, a 1px line coloured green to red by wear
-                        const float px = size.x / 16.0f;
-                        const double left = std::clamp(static_cast<double>(max - damage) / max, 0.0, 1.0);
-                        const float fill = static_cast<float>(std::lround(13.0 * left));
-                        const double hue = left / 3.0 * 6.0;
-                        const double f = hue - std::floor(hue);
-                        float r = 0, g = 0, b = 0;
-                        switch (static_cast<int>(hue) % 6) {
-                        case 0: r = 1; g = static_cast<float>(f); break;
-                        case 1: r = static_cast<float>(1 - f); g = 1; break;
-                        default: g = 1; b = static_cast<float>(f); break;
-                        }
-                        Rml::MeshUtilities::GenerateQuad(bar, {2 * px, 13 * px}, {13 * px, 2 * px}, Colour(0, 0, 0, alpha));
-                        if (fill > 0)
-                            Rml::MeshUtilities::GenerateQuad(bar, {2 * px, 13 * px}, {fill * px, px}, Colour(r, g, b, alpha));
-                    }
-                    wear = manager->MakeGeometry(std::move(bar));
                 }
                 if (geometry) {
                     geometry.Render(GetAbsoluteOffset(Rml::BoxArea::Border), texture);
@@ -742,13 +721,10 @@ namespace perlin::ui {
                         gGlintPass = false;
                     }
                 }
-                if (wear)
-                    wear.Render(GetAbsoluteOffset(Rml::BoxArea::Border));
             }
 
         private:
             Rml::Geometry geometry;
-            Rml::Geometry wear;
             Rml::Texture texture;
             bool loaded = false;
             bool dirty = true;
@@ -773,7 +749,7 @@ namespace perlin::ui {
         Rml::SetRenderInterface(renderInterface.get());
         Rml::SetFontEngineInterface(fontEngine.get());
         if (!Rml::Initialise()) {
-            std::cout << "[ui] RmlUi failed to initialise" << std::endl;
+            Log("ui", "RmlUi failed to initialise");
             return false;
         }
         Rml::Factory::RegisterElementInstancer("mcimg", &gImgInstancer);
@@ -781,7 +757,7 @@ namespace perlin::ui {
         Rml::Factory::RegisterElementInstancer("mclayer", &gLayerInstancer);
         context = Rml::CreateContext("hud", Rml::Vector2i(427, 240));
         if (!context) {
-            std::cout << "[ui] RmlUi context creation failed" << std::endl;
+            Log("ui", "RmlUi context creation failed");
             Rml::Shutdown();
             return false;
         }
@@ -963,7 +939,7 @@ namespace perlin::ui {
         if (!context)
             return {};
         for (Rml::Element* e = context->GetHoverElement(); e; e = e->GetParentNode())
-            if (e->GetId().rfind("link:", 0) == 0)
+            if (e->GetId().starts_with("link:"))
                 return e->GetId();
         return {};
     }
@@ -984,7 +960,7 @@ namespace perlin::ui {
             if (++frameCounter - lastRelease > (gMeshStarved ? 20 : 120)) {
                 gMeshStarved = false;
                 lastRelease = frameCounter;
-                std::cout << "[render] " << gRenderer->UiLiveMeshes() << " UI meshes alive; releasing RmlUi's compiled geometry" << std::endl;
+                Log("render", "{} UI meshes alive; releasing RmlUi's compiled geometry", gRenderer->UiLiveMeshes());
                 Rml::ReleaseCompiledGeometry();
             }
         } else {

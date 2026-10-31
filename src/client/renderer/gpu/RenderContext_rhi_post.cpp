@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -107,7 +108,7 @@ namespace perlin {
         post.javaChainH = h;
         if (!post.javaC1 || !post.javaC2 || !post.javaC3 || !post.javaC4 || !post.javaC5 || !post.javaC7 || !post.javaTempA ||
             !post.javaTempB || !post.javaTempC) {
-            std::cout << "[render] could not create java chain targets" << std::endl;
+            Log("render", "could not create java chain targets");
             return false;
         }
         return true;
@@ -247,7 +248,7 @@ namespace perlin {
                 ok = static_cast<bool>(post.hist[i]);
             }
         if (!ok) {
-            std::cout << "[render] could not create the offscreen targets; post effects off" << std::endl;
+            Log("render", "could not create the offscreen targets; post effects off");
             DestroyPostTargets();
             post.failed = true;
             return false;
@@ -271,7 +272,7 @@ namespace perlin {
                         gpu.DestroyTexture(post.bloom[j]);
                         post.bloom[j] = {};
                     }
-                std::cout << "[bloom] could not create the bloom targets; bloom off" << std::endl;
+                Log("bloom", "could not create the bloom targets; bloom off");
                 return false;
             }
             postTextures.push_back(post.bloom[i]);
@@ -299,7 +300,7 @@ namespace perlin {
                         gpu.DestroyTexture(t);
                         t = {};
                     }
-                std::cout << "[render] could not create the upscaler targets; using plain bilinear" << std::endl;
+                Log("render", "could not create the upscaler targets; using plain bilinear");
                 return false;
             }
             postTextures.push_back(post.up[i]);

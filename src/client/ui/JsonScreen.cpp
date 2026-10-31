@@ -17,6 +17,7 @@
 #include <cctype>
 #include <map>
 #include <thread>
+#include "util/Log.hpp"
 
 namespace perlin::ui {
     namespace {
@@ -127,7 +128,7 @@ namespace perlin::ui {
             std::string full = ref;
             if (!full.empty() && full[0] == '@')
                 full.erase(0, 1);
-            if (full.find('.') == std::string::npos)
+            if (!full.contains('.'))
                 full = ns + "." + full;
             if (auto cached = animCache.find(full); cached != animCache.end())
                 return cached->second;
@@ -208,7 +209,7 @@ namespace perlin::ui {
                 if (!library.Changed())
                     return;
             }
-            std::cout << "[screens] ui files changed, reloading" << std::endl;
+            Log("screens", "ui files changed, reloading");
             key.clear();
         }
         if (state.load() == 1 || (state.load() != 0 && wanted == key))
@@ -241,14 +242,13 @@ namespace perlin::ui {
             animCache.clear();
             anim.recs.clear();
             if (!library.Scan()) {
-                std::cout << "[screens] no ui folder yet (waiting for the Bedrock samples)" << std::endl;
+                Log("screens", "no ui folder yet (waiting for the Bedrock samples)");
                 state = 3;
                 return;
             }
             generation++;
             state = 2;
-            std::cout << "[screens] ui stack ready: " << library.FileCount() << " files, " << library.NamespaceCount()
-                      << " namespaces, " << roots.size() << " roots" << std::endl;
+            Log("screens", "ui stack ready: {} files, {} namespaces, {} roots", library.FileCount(), library.NamespaceCount(), roots.size());
         });
     }
 
@@ -284,7 +284,7 @@ namespace perlin::ui {
         BuildReport report;
         auto built = BuildTree(library, reference, vars, report);
         if (!built) {
-            std::cout << "[screens] " << reference << " could not be built" << std::endl;
+            Log("screens", "{} could not be built", reference);
             failed.insert(key);
             return nullptr;
         }
@@ -293,7 +293,7 @@ namespace perlin::ui {
             std::cout << ", " << report.missingControls.size() << " missing references";
         std::cout << std::endl;
         for (const std::string& m : report.missingControls)
-            std::cout << "[screens]   missing " << m << std::endl;
+            Log("screens", "  missing {}", m);
         const Node* raw = built.get();
         trees[key] = std::move(built);
         return raw;

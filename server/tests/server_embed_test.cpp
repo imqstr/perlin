@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     std::string error;
     // a library that is not there is an error, not a crash
     CHECK(!embedded.Start((dir / "missing.so").string(), dir.string(), "", error) && !error.empty());
-    CHECK(embedded.Start(argv[1], dir.string(), "{\"terrain_backend\":\"cpu\",\"view_distance\":4}", error));
+    CHECK(embedded.Start(argv[1], dir.string(), "{\"terrain_backend\":\"cpu\",\"generator\":\"flat\",\"view_distance\":4}", error));
     if (!embedded.Running()) {
         std::fprintf(stderr, "start: %s\n", error.c_str());
         return 1;

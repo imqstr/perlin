@@ -37,7 +37,7 @@ namespace perlin::replay {
         else
             std::snprintf(buf, sizeof buf, "%.3f", fps);
         std::string s = buf;
-        if (s.find('.') != std::string::npos) {
+        if (s.contains('.')) {
             while (s.back() == '0') s.pop_back();
             if (s.back() == '.') s.pop_back();
         }

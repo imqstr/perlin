@@ -72,7 +72,7 @@ namespace perlin::ui {
             for (char& c : out) {
                 for (const char* cls : kClasses) {
                     const std::string_view set(cls);
-                    if (set.find(c) == std::string_view::npos)
+                    if (!set.contains(c))
                         continue;
                     state ^= state << 13;
                     state ^= state >> 17;

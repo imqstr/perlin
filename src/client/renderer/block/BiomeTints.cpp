@@ -2,22 +2,18 @@
 #include "client/resources/TextureLoader.hpp"
 #include "client/resources/TexturePack.hpp"
 #include "util/Json.hpp"
+#include "util/FileIo.hpp"
 
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <filesystem>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
 
-        std::string ReadFile(const std::string& path) {
-            std::ifstream f(path, std::ios::binary);
-            if (!f)
-                return {};
-            return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-        }
 
         bool ParseHex(const std::string& hex, std::array<float, 3>& out) {
             if (hex.size() != 7 || hex[0] != '#')
@@ -115,7 +111,7 @@ namespace perlin {
 
         {
             std::string defs =
-                ReadFile(vanillaRpRoot + "/../metadata/vanilladata_modules/mojang-biomes.json");
+                file::Read(vanillaRpRoot + "/../metadata/vanilladata_modules/mojang-biomes.json");
             if (const auto document = json::Document::Parse(defs)) {
                 for (const json::View e : document->root()["data_items"].items()) {
                     if (!e["id"].isNumber() || !e["name"].isString())
@@ -136,7 +132,7 @@ namespace perlin {
                     continue;
                 {
                     std::string full = dirEntry.path().string();
-                    std::string txt = ReadFile(full);
+                    std::string txt = file::Read(full);
                     if (txt.empty())
                         continue;
                     const auto document = json::Document::Parse(txt, true);
@@ -184,7 +180,7 @@ namespace perlin {
                 if (packLayer) {
                     std::string name = ident.str();
                     packWater[name] = c;
-                    if (name.rfind("minecraft:", 0) == 0)
+                    if (name.starts_with("minecraft:"))
                         packWater[name.substr(10)] = c;
                 }
             }
@@ -194,7 +190,7 @@ namespace perlin {
             for (const auto& dirEntry : std::filesystem::directory_iterator(vanillaRpRoot + "/biomes", dirEc)) {
                 if (!dirEntry.path().filename().string().ends_with(".client_biome.json"))
                     continue;
-                applyClientBiome(ReadFile(dirEntry.path().string()), false);
+                applyClientBiome(file::Read(dirEntry.path().string()), false);
             }
         }
         if (TexturePack::Instance().Active()) {
@@ -222,7 +218,7 @@ namespace perlin {
                             packDefaultWater = c;
                         else {
                             packWater[key] = c;
-                            if (key.rfind("minecraft:", 0) == 0)
+                            if (key.starts_with("minecraft:"))
                                 packWater[key.substr(10)] = c;
                         }
                     }
@@ -234,12 +230,7 @@ namespace perlin {
         };
         std::array<float, 3> plainsG = Grass("minecraft:plains");
         std::array<float, 3> plainsF = Foliage("minecraft:plains");
-        std::cout << "[biomes] colormaps=" << mapAvg.size() << " rules=" << rules.size()
-                  << " climates=" << climate.size() << " plainsGrass=(" << plainsG[0] << "," << plainsG[1]
-                  << "," << plainsG[2] << ") plainsFoliage=(" << plainsF[0] << "," << plainsF[1] << ","
-                  << plainsF[2] << ")" << " grassAvg=(" << avg("grass", {0, 0, 0})[0] << ","
-                  << avg("grass", {0, 0, 0})[1] << "," << avg("grass", {0, 0, 0})[2] << ")" << " water=("
-                  << defaultWater[0] << "," << defaultWater[1] << "," << defaultWater[2] << ")" << std::endl;
+        Log("biomes", "colormaps={} rules={} climates={} plainsGrass=({},{},{}) plainsFoliage=({},{},{}) grassAvg=({},{},{}) water=({},{},{})", mapAvg.size(), rules.size(), climate.size(), plainsG[0], plainsG[1], plainsG[2], plainsF[0], plainsF[1], plainsF[2], avg("grass", {0, 0, 0})[0], avg("grass", {0, 0, 0})[1], avg("grass", {0, 0, 0})[2], defaultWater[0], defaultWater[1], defaultWater[2]);
 
         bool complete = mapRGB.count("grass") && mapRGB.count("foliage") && !climate.empty() &&
                         !rules.empty() && !idToName.empty();
@@ -333,7 +324,7 @@ namespace perlin {
         if (const auto it = packWater.find(biomeName); it != packWater.end())
             return it->second;
         for (const Entry& entry : kJava)
-            if (biomeName.find(entry.name) != std::string::npos)
+            if (biomeName.contains(entry.name))
                 return {((entry.color >> 16) & 255) / 255.0f, ((entry.color >> 8) & 255) / 255.0f,
                         (entry.color & 255) / 255.0f};
         if (packDefaultWater)
@@ -358,7 +349,7 @@ namespace perlin {
 
     std::array<float, 3> ResolveDefaultWater(const std::string& vanillaRpRoot) {
         std::array<float, 3> water = {0.266f, 0.686f, 0.961f};
-        if (const auto document = json::Document::Parse(ReadFile(vanillaRpRoot + "/biomes_client.json"), true)) {
+        if (const auto document = json::Document::Parse(file::Read(vanillaRpRoot + "/biomes_client.json"), true)) {
             const json::View biomes = document->root()["biomes"];
             const json::View pick = biomes.contains("default") ? biomes["default"] : biomes["minecraft:plains"];
             std::array<float, 3> parsed;

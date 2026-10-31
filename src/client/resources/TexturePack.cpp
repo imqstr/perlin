@@ -2,6 +2,7 @@
 
 #include "client/resources/JavaPack.hpp"
 #include "util/ZipFile.hpp"
+#include "util/Strings.hpp"
 
 #include <miniz.h>
 
@@ -13,6 +14,7 @@
 #include <iterator>
 #include <mutex>
 #include <unordered_map>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace fs = std::filesystem;
@@ -62,10 +64,6 @@ namespace perlin {
     }
 
     namespace {
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-            return s;
-        }
 
         bool HasTextures(const fs::path& dir) {
             std::error_code ec;
@@ -122,7 +120,7 @@ namespace perlin {
                 layer.label = name;
                 layer.java = fs::path(layer.folder).parent_path().filename() == "assets";
                 if (layer.java)
-                    std::cout << "[textures] " << name << " is a Java Edition pack" << std::endl;
+                    Log("textures", "{} is a Java Edition pack", name);
                 return true;
             }
             if (!OpenZipReader(layer.zip, source, layer.zipFile)) {
@@ -143,7 +141,7 @@ namespace perlin {
                     continue;
                 std::string path = st.m_filename;
                 std::replace(path.begin(), path.end(), '\\', '/');
-                entries.emplace_back(Lower(path), i);
+                entries.emplace_back(str::Lower(path), i);
             }
             for (const auto& [lower, idx] : entries) {
                 const size_t java = lower.find("assets/minecraft/textures/");
@@ -171,7 +169,7 @@ namespace perlin {
                     layer.index.emplace(path.substr(prefix.size()), idx);
             layer.label = name;
             layer.java = prefix.size() >= 17 && prefix.compare(prefix.size() - 17, 17, "assets/minecraft/") == 0;
-            std::cout << "[textures] opened " << name << " (" << layer.index.size() << " files" << (layer.java ? ", Java Edition" : "") << ")" << std::endl;
+            Log("textures", "opened {} ({} files{})", name, layer.index.size(), (layer.java ? ", Java Edition" : ""));
             return true;
         }
     }
@@ -203,15 +201,15 @@ namespace perlin {
         for (const auto& l : impl->layers) {
             if (l->java)
                 for (const javapack::Source& source : javapack::Sources(rel)) {
-                    if (l->zipMode ? (l->zipOpen && l->index.count(Lower(source.path)))
+                    if (l->zipMode ? (l->zipOpen && l->index.count(str::Lower(source.path)))
                                    : (!l->folder.empty() && fs::exists(fs::path(l->folder) / source.path)))
                         return true;
                 }
             if (l->zipMode) {
-                if (l->zipOpen && l->index.count(Lower(rel)))
+                if (l->zipOpen && l->index.count(str::Lower(rel)))
                     return true;
                 if (const size_t dot = rel.find_last_of('.'); l->zipOpen && dot != std::string::npos &&
-                                                               l->index.count(Lower(rel.substr(0, dot) + ".texture_set.json")))
+                                                               l->index.count(str::Lower(rel.substr(0, dot) + ".texture_set.json")))
                     return true;
             } else if (!l->folder.empty()) {
                 std::error_code ec;
@@ -231,13 +229,13 @@ namespace perlin {
             if (l->zipMode) {
                 if (!l->zipOpen)
                     return false;
-                const auto it = l->index.find(Lower(rel));
+                const auto it = l->index.find(str::Lower(rel));
                 if (it == l->index.end()) {
                     const size_t dot = rel.find_last_of('.');
                     if (dot == std::string::npos)
                         return false;
                     const std::string base = rel.substr(0, dot);
-                    const auto setIt = l->index.find(Lower(base + ".texture_set.json"));
+                    const auto setIt = l->index.find(str::Lower(base + ".texture_set.json"));
                     if (setIt == l->index.end())
                         return false;
                     size_t setSize = 0;
@@ -257,7 +255,7 @@ namespace perlin {
                     const size_t slash = rel.find_last_of('/');
                     const std::string dir = slash == std::string::npos ? std::string() : rel.substr(0, slash + 1);
                     for (const char* extension : {".png", ".tga"}) {
-                        const auto imageIt = l->index.find(Lower(dir + image + extension));
+                        const auto imageIt = l->index.find(str::Lower(dir + image + extension));
                         if (imageIt == l->index.end())
                             continue;
                         size_t imageSize = 0;
@@ -291,7 +289,7 @@ namespace perlin {
             if (l.zipMode) {
                 if (!l.zipOpen)
                     return false;
-                const auto it = l.index.find(Lower(path));
+                const auto it = l.index.find(str::Lower(path));
                 if (it == l.index.end())
                     return false;
                 size_t size = 0;
@@ -319,8 +317,8 @@ namespace perlin {
         std::lock_guard lock(impl->mutex);
         // packs may ship default skins in legacy 2:1 layout; everything downstream expects square
         const auto finish = [&]() {
-            if (rel.find("entity/steve") != std::string::npos || rel.find("entity/alex") != std::string::npos ||
-                rel.find("entity/player/") != std::string::npos)
+            if (rel.contains("entity/steve") || rel.contains("entity/alex") ||
+                rel.contains("entity/player/"))
                 UpgradeLegacySkinTexture(out);
             return true;
         };
@@ -341,7 +339,7 @@ namespace perlin {
             if (l->zipMode) {
                 if (!l->zipOpen)
                     continue;
-                const auto found = l->index.find(Lower(rel));
+                const auto found = l->index.find(str::Lower(rel));
                 if (found == l->index.end())
                     continue;
                 size_t size = 0;
@@ -363,10 +361,10 @@ namespace perlin {
     std::vector<std::string> TexturePack::ListFiles(const std::string& dirRel, const std::string& suffix) const {
         std::lock_guard lock(impl->mutex);
         std::vector<std::string> out;
-        std::string prefix = Lower(dirRel);
+        std::string prefix = str::Lower(dirRel);
         if (!prefix.empty() && prefix.back() != '/')
             prefix += '/';
-        const std::string lowerSuffix = Lower(suffix);
+        const std::string lowerSuffix = str::Lower(suffix);
         const auto matches = [&](const std::string& lowerPath) {
             return lowerPath.compare(0, prefix.size(), prefix) == 0 && lowerPath.find('/', prefix.size()) == std::string::npos &&
                    lowerPath.size() >= lowerSuffix.size() && lowerPath.compare(lowerPath.size() - lowerSuffix.size(), lowerSuffix.size(), lowerSuffix) == 0;
@@ -382,7 +380,7 @@ namespace perlin {
                 for (const auto& entry : fs::directory_iterator(fs::path(l->folder) / dirRel, ec))
                     if (entry.is_regular_file(ec)) {
                         const std::string rel = (dirRel.empty() || dirRel.back() == '/' ? dirRel : dirRel + "/") + entry.path().filename().string();
-                        if (matches(Lower(rel)))
+                        if (matches(str::Lower(rel)))
                             out.push_back(rel);
                     }
             }

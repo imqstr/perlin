@@ -26,6 +26,7 @@
 #include <random>
 #include <set>
 #include <thread>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -836,7 +837,7 @@ namespace perlin {
         std::string ad;
         std::string pingError;
         if (Ping(host, port, ad, pingError, 1500)) {
-            std::cout << "[raknet] server: " << ad << std::endl;
+            Log("raknet", "server: {}", ad);
             info.name = ad;
             size_t a = 0;
             std::vector<std::string> parts;
@@ -851,8 +852,7 @@ namespace perlin {
                 info.advertisedProtocol = theirs;
                 info.advertisedVersion = parts[3];
                 if (theirs != 0 && theirs != kBedrockProtocol)
-                    std::cout << "[raknet] note: the server advertises protocol " << theirs << " (" << parts[3]
-                              << "), Perlin speaks " << kBedrockProtocol << " (" << kBedrockVersion << ")" << std::endl;
+                    Log("raknet", "note: the server advertises protocol {} ({}), Perlin speaks {} ({})", theirs, parts[3], kBedrockProtocol, kBedrockVersion);
             }
         }
         info.protocol = kBedrockProtocol;
@@ -934,7 +934,7 @@ namespace perlin {
             return false;
         }
         s.mtu = mtu;
-        std::cout << "[raknet] connected at MTU " << mtu << std::endl;
+        Log("raknet", "connected at MTU {}", mtu);
 
         SetTimeout(s.sock, 5);
         s.lastRecv = NowMs();

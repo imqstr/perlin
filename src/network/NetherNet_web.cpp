@@ -15,6 +15,7 @@
 #include <random>
 #include <sstream>
 #include <thread>
+#include "util/Log.hpp"
 
 extern "C" {
 void perlin_nn_js_begin(const char* iceServers);
@@ -41,7 +42,7 @@ namespace perlin {
             while (std::getline(in, line)) {
                 if (!line.empty() && line.back() == '\r')
                     line.pop_back();
-                if (line.rfind("a=identity", 0) == 0)
+                if (line.starts_with("a=identity"))
                     continue;
                 out += line + "\r\n";
             }
@@ -153,8 +154,7 @@ namespace perlin {
 
         if (!Probe(host, port, serverInfo, lastError))
             return false;
-        std::cout << "[nethernet] probe ok: '" << serverInfo.name << "' protocol " << serverInfo.protocol
-                  << " version " << serverInfo.version << std::endl;
+        Log("nethernet", "probe ok: '{}' protocol {} version {}", serverInfo.name, serverInfo.protocol, serverInfo.version);
 
         std::random_device rd;
         std::mt19937_64 rng((static_cast<uint64_t>(rd()) << 32) | rd());
@@ -171,7 +171,7 @@ namespace perlin {
             ice = g_iceServers;
         }
         perlin_nn_js_begin(ice.c_str());
-        std::cout << "[nethernet] offer requested, gathering ICE..." << std::endl;
+        Log("nethernet", "offer requested, gathering ICE...");
         if (!WaitForState(kOfferReady, 20000)) {
             lastError = "WebRTC offer failed: " + JsError();
             Disconnect();
@@ -204,12 +204,10 @@ namespace perlin {
         offer.swap(identified);
 
         const std::string netIdStr = std::to_string(netId);
-        std::cout << "[nethernet] offer ready (" << offer.size() << " bytes), POSTing to /v1/join/" << netIdStr
-                  << "..." << std::endl;
+        Log("nethernet", "offer ready ({} bytes), POSTing to /v1/join/{}...", offer.size(), netIdStr);
         http::Response answer = http::Request(host, port, g_secureSignaling.load(), "POST", "/v1/join/" + netIdStr,
                                               offer, "application/sdp", {}, 15);
-        std::cout << "[nethernet] POST status " << answer.status << ", answer " << answer.body.size() << " bytes"
-                  << std::endl;
+        Log("nethernet", "POST status {}, answer {} bytes", answer.status, answer.body.size());
         if (answer.status == 0) {
             lastError = "POST offer: request failed (CORS or connection)";
             Disconnect();
@@ -221,14 +219,14 @@ namespace perlin {
             Disconnect();
             return false;
         }
-        if (answer.body.size() < 16 || answer.body.rfind("v=", 0) != 0) {
+        if (answer.body.size() < 16 || !answer.body.starts_with("v=")) {
             lastError = "signaling refused the offer (session error " + answer.body.substr(0, 32) + ")";
             Disconnect();
             return false;
         }
 
         perlin_nn_js_set_answer(StripIdentityLines(answer.body).c_str());
-        std::cout << "[nethernet] remote description set, waiting for datachannel..." << std::endl;
+        Log("nethernet", "remote description set, waiting for datachannel...");
         if (!WaitForState(kOpen, 25000)) {
             const std::string detail = JsError();
             lastError = "ReliableDataChannel never opened (ICE/DTLS failed" +
@@ -238,7 +236,7 @@ namespace perlin {
         }
 
         connected = true;
-        std::cout << "[nethernet] ReliableDataChannel open" << std::endl;
+        Log("nethernet", "ReliableDataChannel open");
         return true;
     }
 

@@ -54,7 +54,6 @@ namespace rhi {
             return text.substr(b, e - b);
         }
 
-        // ---- hlsl -----------------------------------------------------------------------------------------------------
         void ReflectHlsl(std::string_view src, ShaderInterface& out) {
             size_t pos = 0;
             while ((pos = src.find("register(", pos)) != std::string_view::npos) {
@@ -142,14 +141,13 @@ namespace rhi {
             }
         }
 
-        // ---- wgsl -----------------------------------------------------------------------------------------------------
         void ReflectWgsl(std::string_view src, ShaderInterface& out) {
             size_t pos = 0;
             while (pos < src.size()) {
                 size_t lineBegin;
                 const std::string_view line = LineAt(src, pos, lineBegin);
                 pos = lineBegin + line.size() + 1;
-                if (line.find("var<push_constant>") != std::string_view::npos)
+                if (line.contains("var<push_constant>"))
                     out.usesPushConstants = true;
                 if (line.empty() || line[0] != '@')
                     continue;
@@ -200,7 +198,7 @@ namespace rhi {
                 if (space.substr(0, 7) == "uniform") {
                     r.kind = ResourceKind::UniformBuffer;
                 } else if (space.substr(0, 7) == "storage") {
-                    r.kind = space.find("read_write") != std::string_view::npos ? ResourceKind::StorageBufferRW : ResourceKind::StorageBuffer;
+                    r.kind = space.contains("read_write") ? ResourceKind::StorageBufferRW : ResourceKind::StorageBuffer;
                 } else if (starts("sampler_comparison")) {
                     r.kind = ResourceKind::Sampler;
                     r.comparison = true;
@@ -225,7 +223,6 @@ namespace rhi {
             }
         }
 
-        // ---- msl ------------------------------------------------------------------------------------------------------
         void ReflectMsl(std::string_view src, ShaderInterface& out) {
             // resources are entry point parameters: `texture2d<float, access::sample> name [[texture(28)]]`
             size_t pos = 0;
@@ -278,7 +275,7 @@ namespace rhi {
                         r.kind = ResourceKind::SampledTexture;
                         r.dim = starts("depth2d_array") ? TextureDim::Tex2DArray : starts("depthcube") ? TextureDim::Cube : TextureDim::Tex2D;
                     } else {
-                        const bool write = decl.find("access::write") != std::string_view::npos || decl.find("access::read_write") != std::string_view::npos;
+                        const bool write = decl.contains("access::write") || decl.contains("access::read_write");
                         r.kind = write ? ResourceKind::StorageTexture : ResourceKind::SampledTexture;
                         r.dim = starts("texture2d_array") ? TextureDim::Tex2DArray : starts("texture3d") ? TextureDim::Tex3D
                                 : starts("texturecube")        ? TextureDim::Cube

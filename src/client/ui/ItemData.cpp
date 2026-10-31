@@ -4,12 +4,12 @@
 
 namespace perlin::ui {
     namespace {
-        std::string Short(const std::string& id) { return id.rfind("minecraft:", 0) == 0 ? id.substr(10) : id; }
+        std::string Short(const std::string& id) { return id.starts_with("minecraft:") ? id.substr(10) : id; }
         bool Ends(const std::string& n, const char* suffix) {
             const size_t l = std::strlen(suffix);
             return n.size() >= l && n.compare(n.size() - l, l, suffix) == 0;
         }
-        bool Starts(const std::string& n, const char* prefix) { return n.rfind(prefix, 0) == 0; }
+        bool Starts(const std::string& n, const char* prefix) { return n.starts_with(prefix); }
         int Slot(const std::string& n) {
             if (Ends(n, "_helmet")) return 0;
             if (Ends(n, "_chestplate")) return 1;

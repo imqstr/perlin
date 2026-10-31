@@ -58,7 +58,7 @@ namespace perlin::ui {
                         const std::string path = r.str();
                         (void)tint;
                         if (r.Ok() && Valid(x) && Valid(y) && Valid(w) && Valid(h) && !path.empty() && path.size() < 256 &&
-                            path.find("..") == std::string::npos && path.find("://") == std::string::npos)
+                            !path.contains("..") && !path.contains("://"))
                             out += "<mcimg src=\"" + EscapeRml(path) + "\" style=\"left:" + F(x) + "px;top:" + F(y) + "px;width:" + F(w) +
                                    "px;height:" + F(h) + "px;\"></mcimg>\n";
                     }

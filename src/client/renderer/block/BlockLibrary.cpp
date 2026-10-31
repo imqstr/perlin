@@ -24,16 +24,12 @@
 #include "util/ThreadPool.hpp"
 #include <unordered_map>
 #include "client/Options.hpp"
+#include "util/FileIo.hpp"
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
 
-        std::string ReadFile(const std::string& path) {
-            std::ifstream f(path, std::ios::binary);
-            if (!f)
-                return {};
-            return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-        }
 
         void WriteFile(const std::string& path, const char* content) {
             if (FILE* f = fopen(path.c_str(), "w")) {
@@ -77,8 +73,7 @@ namespace perlin {
         while (size < widest && size < 256)
             size <<= 1;
         tilePxValue = size;
-        std::cout << "[textures] pack=" << (active ? TexturePack::Instance().Description() : "<vanilla>")
-                  << " tile=" << size << "px" << std::endl;
+        Log("textures", "pack={} tile={}px", (active ? TexturePack::Instance().Description() : "<vanilla>"), size);
     }
 
     namespace {
@@ -144,9 +139,9 @@ namespace perlin {
         std::vector<int> bases;
         std::unordered_set<int> tinted;
         for (const auto& [path, tile] : tileByPng) {
-            const bool tintedGlass = path.find("textures/blocks/tinted_glass") != std::string::npos && path.find("pane") == std::string::npos;
-            const bool plain = path.find("textures/blocks/glass.") != std::string::npos || path == "textures/blocks/glass";
-            if (plain || tintedGlass || (path.find("textures/blocks/glass_") != std::string::npos && path.find("pane") == std::string::npos)) {
+            const bool tintedGlass = path.contains("textures/blocks/tinted_glass") && !path.contains("pane");
+            const bool plain = path.contains("textures/blocks/glass.") || path == "textures/blocks/glass";
+            if (plain || tintedGlass || (path.contains("textures/blocks/glass_") && !path.contains("pane"))) {
                 bases.push_back(tile);
                 if (!plain)
                     tinted.insert(tile);
@@ -157,7 +152,7 @@ namespace perlin {
         constexpr int kPerBase = 2;
         for (int base : bases) {
             if (nextTile + kPerBase + 32 > MaxTiles()) {
-                std::cout << "[blocks] atlas full: glass connection disabled for remaining glass tiles" << std::endl;
+                Log("blocks", "atlas full: glass connection disabled for remaining glass tiles");
                 break;
             }
             const std::vector<uint8_t> src(atlas.begin() + (size_t)base * T * T * 4, atlas.begin() + ((size_t)base + 1) * T * T * 4);
@@ -228,26 +223,26 @@ namespace perlin {
 
     int BlockLibrary::TileContaining(const std::string& part) const {
         for (const auto& [path, tile] : tileByPng)
-            if (path.find(part) != std::string::npos)
+            if (path.contains(part))
                 return tile;
         return -1;
     }
 
     std::vector<uint8_t> BlockLibrary::FoliageFlags() const {
         std::vector<uint8_t> flags;
-        const auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
+        const auto has = [](const std::string& s, const char* part) { return s.contains(part); };
         for (const auto& [path, tile] : tileByPng) {
             if (tile < 0)
                 continue;
             const size_t slash = path.rfind('/');
             const std::string name = path.substr(slash == std::string::npos ? 0 : slash + 1);
             uint8_t kind = 0;
-            if (has(name, "leaves") || name.rfind("vine", 0) == 0 || has(name, "cave_vines") || has(name, "weeping_vines") ||
+            if (has(name, "leaves") || name.starts_with("vine") || has(name, "cave_vines") || has(name, "weeping_vines") ||
                 has(name, "twisting_vines"))
                 kind = 1;
             else if (has(name, "double_plant") || has(name, "doubletall") || has(name, "pitcher_plant"))
                 kind = has(name, "bottom") ? 3 : 4;
-            else if (has(name, "tallgrass") || has(name, "short_grass") || has(name, "fern") || name.rfind("flower_", 0) == 0 ||
+            else if (has(name, "tallgrass") || has(name, "short_grass") || has(name, "fern") || name.starts_with("flower_") ||
                      has(name, "sapling") || has(name, "deadbush") || has(name, "_stage") || has(name, "sweet_berry_bush") ||
                      has(name, "seagrass") || has(name, "torchflower") || has(name, "wither_rose") || has(name, "nether_sprouts") ||
                      has(name, "crimson_roots") || has(name, "warped_roots") || has(name, "azalea_plant") || has(name, "pink_petals") ||
@@ -365,7 +360,7 @@ namespace perlin {
             fetchFails++;
             return 0;
         }
-        if (stem.find("water_") != std::string::npos && stem.find("lava") == std::string::npos) {
+        if (stem.contains("water_") && !stem.contains("lava")) {
             double luma = 0;
             size_t count = 0;
             for (size_t i = 0; i < tex.pixels.size(); i += 4) {
@@ -509,7 +504,7 @@ namespace perlin {
                 }
             }
         }
-        std::cout << "[blocks] no texture for " << label << " (" << pngRelPath << "), using a generated tile" << std::endl;
+        Log("blocks", "no texture for {} ({}), using a generated tile", label, pngRelPath);
         tile = SynthTile(label);
         if (tile > 0)
             tileByPng[pngRelPath] = tile;
@@ -578,19 +573,19 @@ namespace perlin {
         fetchFails = 0;
         PrefetchGuard prefetchGuard;
 
-        std::string vanillaBlocks = ReadFile(vanillaRpRoot + "/blocks.json");
-        std::string terrainTex = ReadFile(vanillaRpRoot + "/textures/terrain_texture.json");
+        std::string vanillaBlocks = file::Read(vanillaRpRoot + "/blocks.json");
+        std::string terrainTex = file::Read(vanillaRpRoot + "/textures/terrain_texture.json");
         if (HardwareThreads() >= 4)
             PrefetchTextures(vanillaRpRoot, terrainTex);
         if (vanillaBlocks.empty() || terrainTex.empty()) {
-            std::cout << "[blocks] cannot read blocks.json/terrain_texture.json under " << vanillaRpRoot << std::endl;
+            Log("blocks", "cannot read blocks.json/terrain_texture.json under {}", vanillaRpRoot);
             return false;
         }
 
         const auto blocksDocument = json::Document::Parse(vanillaBlocks, true);
         const auto terrainDocument = json::Document::Parse(terrainTex, true);
         if (!blocksDocument || !terrainDocument) {
-            std::cout << "[blocks] cannot parse vanilla blocks.json/terrain_texture.json" << std::endl;
+            Log("blocks", "cannot parse vanilla blocks.json/terrain_texture.json");
             return false;
         }
         const json::View vBlocks = blocksDocument->root();
@@ -600,7 +595,7 @@ namespace perlin {
         if (!BlockPalette::Instance().NamesLoaded()) {
             std::string defs = vanillaRpRoot + "/../metadata/vanilladata_modules/mojang-blocks.json";
             if (!BlockPalette::Instance().LoadVanillaDefinitions(defs)) {
-                std::cout << "[blocks] cannot load " << defs << std::endl;
+                Log("blocks", "cannot load {}", defs);
                 return false;
             }
         }
@@ -609,19 +604,19 @@ namespace perlin {
             if (resources::Read("block_states.json", table))
                 BlockPalette::Instance().LoadServerStatesText(table, "block_states.json");
             else
-                std::cout << "[blocks] block_states.json is not bundled: sequential-id servers will read as air" << std::endl;
+                Log("blocks", "block_states.json is not bundled: sequential-id servers will read as air");
         }
         const std::vector<std::string> allNames = BlockPalette::Instance().AllNames();
         int noTexture = 0;
 
         std::string blocksPath = perlinPackDir + "/blocks.json";
-        if (ReadFile(blocksPath).empty())
+        if (file::Read(blocksPath).empty())
             SeedFromExeDir("blocks.json", blocksPath);
         std::optional<json::Document> blocksDocumentLocal;
-        if (const std::string txt = ReadFile(blocksPath); !txt.empty()) {
+        if (const std::string txt = file::Read(blocksPath); !txt.empty()) {
             blocksDocumentLocal = json::Document::Parse(txt, true);
             if (!blocksDocumentLocal)
-                std::cout << "[blocks] ignoring unreadable " << blocksPath << std::endl;
+                Log("blocks", "ignoring unreadable {}", blocksPath);
         }
         const json::View blocksJ = blocksDocumentLocal ? blocksDocumentLocal->root() : json::View();
 
@@ -637,15 +632,15 @@ namespace perlin {
         std::vector<std::string> flatContains;
         {
             std::string shapesPath = perlinPackDir + "/shapes.json";
-            if (ReadFile(shapesPath).empty())
+            if (file::Read(shapesPath).empty())
                 SeedFromExeDir("shapes.json", shapesPath);
-            if (const std::string txt = ReadFile(shapesPath); !txt.empty()) {
+            if (const std::string txt = file::Read(shapesPath); !txt.empty()) {
                 if (const auto shapes = json::Document::Parse(txt, true)) {
                     for (const json::View e : shapes->root()["flat_contains"].items())
                         if (e.isString())
                             flatContains.push_back(e.str());
                 } else {
-                    std::cout << "[blocks] ignoring unreadable " << shapesPath << std::endl;
+                    Log("blocks", "ignoring unreadable {}", shapesPath);
                 }
             }
         }
@@ -658,7 +653,7 @@ namespace perlin {
         }
 
         auto resolveTexture = [&](const std::string& texName, std::vector<int>* all = nullptr) -> int {
-            if (texName.rfind("path:", 0) == 0) {
+            if (texName.starts_with("path:")) {
                 int t = FetchTile(texName.substr(5), vanillaRpRoot);
                 if (all && t)
                     all->push_back(t);
@@ -666,7 +661,7 @@ namespace perlin {
             }
             if (!texData.contains(texName)) {
                 int t = FetchTile(texName, vanillaRpRoot);
-                if (t == 0 && texName.find('/') == std::string::npos)
+                if (t == 0 && !texName.contains('/'))
                     t = FetchTile(std::string("textures/blocks/") + texName, vanillaRpRoot);
                 if (all && t)
                     all->push_back(t);
@@ -740,7 +735,7 @@ namespace perlin {
                 continue;
             try {
                 std::string bare = name;
-                if (bare.rfind("minecraft:", 0) == 0)
+                if (bare.starts_with("minecraft:"))
                     bare = bare.substr(10);
                 auto al = aliases.find(bare);
                 std::string vkey = (al == aliases.end()) ? bare : al->second;
@@ -931,7 +926,7 @@ namespace perlin {
                         for (auto& sub : flatContains) {
                             if (sub.empty())
                                 continue;
-                            if (bare.find(sub) != std::string::npos) {
+                            if (bare.contains(sub)) {
                                 flat = true;
                                 break;
                             }
@@ -1042,7 +1037,7 @@ namespace perlin {
             std::string bundled;
             if (!models.Load(perlinPackDir + "/block_models.bin") &&
                 !(resources::Read("block_models.bin", bundled) && models.LoadFromMemory(bundled)))
-                std::cout << "[models] block_models.bin not found; using hand-built block shapes" << std::endl;
+                Log("models", "block_models.bin not found; using hand-built block shapes");
         }
         if (models.Loaded()) {
             const auto& names = models.Textures();
@@ -1069,7 +1064,7 @@ namespace perlin {
         }
 
         if (fetchFails > 0) {
-            std::cout << "[blocks] " << fetchFails << " textures missing; continuing without them" << std::endl;
+            Log("blocks", "{} textures missing; continuing without them", fetchFails);
         }
         lastFileMisses = 0;
         stallStreak = 0;
@@ -1107,10 +1102,10 @@ namespace perlin {
             const std::array<float, 3> wc = ResolveDefaultWater(vanillaRpRoot);
             for (auto& [name, app] : appearances) {
                 auto isWaterNamed = [](const std::string& t) {
-                    return t.find("still_water") != std::string::npos ||
-                           t.find("water_flow") != std::string::npos ||
-                           t.find("flowing_water") != std::string::npos ||
-                           t.find("water_still") != std::string::npos;
+                    return t.contains("still_water") ||
+                           t.contains("water_flow") ||
+                           t.contains("flowing_water") ||
+                           t.contains("water_still");
                 };
                 if (isWaterNamed(app.texTop) || isWaterNamed(app.texSide)) {
                     auto tintTowards = [&](float& r, float& g, float& b) {
@@ -1125,8 +1120,7 @@ namespace perlin {
                 }
             }
         }
-        std::cout << "[blocks] appearances: " << allNames.size() << " names, " << noTexture
-                  << " without vanilla textures, " << nextTile << " atlas tiles" << std::endl;
+        Log("blocks", "appearances: {} names, {} without vanilla textures, {} atlas tiles", allNames.size(), noTexture, nextTile);
         {
             FILE* f = fopen((paths::DataDir() + "/blocks.log").c_str(), "w");
             if (f) {
@@ -1237,7 +1231,7 @@ namespace perlin {
                 if (!tex)
                     continue;
                 std::string key = blockName;
-                if (key.find(':') == std::string::npos)
+                if (!key.contains(':'))
                     key = "minecraft:" + key;
                 std::map<std::string, std::string> faces;
                 if (tex->IsString()) {
@@ -1417,12 +1411,12 @@ namespace perlin {
             return fallback;
         {
             std::string shortName = name;
-            if (shortName.rfind("minecraft:", 0) == 0)
+            if (shortName.starts_with("minecraft:"))
                 shortName.erase(0, 10);
             int bit = 0;
             if (shortName == "barrier")
                 bit = kBarrier;
-            else if (shortName.rfind("light_block", 0) == 0)
+            else if (shortName.starts_with("light_block"))
                 bit = kLightBlock;
             else if (shortName == "structure_void")
                 bit = kStructureVoid;

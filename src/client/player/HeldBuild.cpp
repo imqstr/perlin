@@ -8,7 +8,7 @@ namespace perlin::heldbuild {
     namespace {
         const glm::ivec3 kFaceNormal[6] = {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}};
 
-        bool Contains(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
+        bool Contains(const std::string& s, const char* part) { return s.contains(part); }
     }
 
     int FacingFromVec(glm::vec3 v) {

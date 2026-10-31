@@ -12,6 +12,7 @@
 #include <cstring>
 #include <iostream>
 #include <cstdio>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -134,7 +135,7 @@ namespace perlin {
         TexRec tex;
         if (!MakeTexture(tex, static_cast<uint32_t>(tilePx), static_cast<uint32_t>(tilePx), static_cast<uint32_t>(layers),
                          static_cast<uint32_t>(MipCount(tilePx)), rhi::Format::RGBA8Unorm, gpu::SamplerKind::PointMipClamp, "block atlas")) {
-            std::cout << "[render] atlas upload failed (" << layers << " layers of " << tilePx << "px)" << std::endl;
+            Log("render", "atlas upload failed ({} layers of {}px)", layers, tilePx);
             return;
         }
         const size_t stride = static_cast<size_t>(tilePx) * 4;

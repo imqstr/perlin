@@ -8,7 +8,7 @@ namespace perlin::blockuse {
     namespace {
         std::string_view Bare(const std::string& name) {
             std::string_view v = name;
-            if (v.rfind("minecraft:", 0) == 0)
+            if (v.starts_with("minecraft:"))
                 v.remove_prefix(10);
             return v;
         }

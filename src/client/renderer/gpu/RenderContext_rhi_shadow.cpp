@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -88,7 +89,7 @@ namespace perlin {
             ok = static_cast<bool>(m.color);
         }
         if (!ok) {
-            std::cout << "[shadows] could not create the shadow maps; shadows off" << std::endl;
+            Log("shadows", "could not create the shadow maps; shadows off");
             DestroyShadows();
             shadowConfigDirty = false;
             return;
@@ -108,8 +109,7 @@ namespace perlin {
             shadow.tintEnabled = tintOk;
         }
         shadow.enabled = true;
-        std::cout << "[shadows] " << size << "x" << size << " map, " << shadow.distance << " blocks"
-                  << (shadow.tintEnabled ? ", coloured light through glass" : "") << std::endl;
+        Log("shadows", "{}x{} map, {} blocks{}", size, size, shadow.distance, (shadow.tintEnabled ? ", coloured light through glass" : ""));
     }
 
     bool RenderContext_rhi::EnsureEntityShadowMap() {
@@ -127,7 +127,7 @@ namespace perlin {
                     *t = {};
                 }
             shadow.entityFailed = true;
-            std::cout << "[shadows] could not create the mob shadow map; mobs and players cast no shadows" << std::endl;
+            Log("shadows", "could not create the mob shadow map; mobs and players cast no shadows");
             return false;
         }
         return true;

@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include "client/Perlin.hpp"
 
 #include "client/i18n/Lang.hpp"
@@ -20,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace fs = std::filesystem;
@@ -103,8 +105,10 @@ namespace perlin {
                 r.name = cm.meta.name.empty() ? e.path().stem().string() : cm.meta.name;
                 r.created = cm.meta.createdUnix;
                 r.durationMs = cm.meta.durationMs;
-                r.line1 = Duration(cm.meta.durationMs) + "  -  " + DateText(cm.meta.createdUnix) + "  -  " + SizeText(size);
-                r.line2 = (cm.meta.server.empty() ? std::string("unknown server") : cm.meta.server) + "  -  " + cm.meta.playerName +
+                r.line1 = Duration(cm.meta.durationMs) + "  -  " + DateText(cm.meta.createdUnix) + "  -  " +
+                          SizeText(size);
+                r.line2 = (cm.meta.server.empty() ? std::string("unknown server") : cm.meta.server) +
+                          "  -  " + cm.meta.playerName +
                           (cm.meta.gameVersion.empty() ? std::string() : "  -  " + cm.meta.gameVersion);
             } else {
                 r.name = e.path().stem().string();
@@ -119,11 +123,16 @@ namespace perlin {
         const auto key = [&](const ui::ReplayEntry& a, const ui::ReplayEntry& b) {
             const auto cmp = [](auto x, auto y) { return x < y ? -1 : (y < x ? 1 : 0); };
             switch (sort) {
-                case 1: return cmp(a.name, b.name);
-                case 2: return cmp(a.line2, b.line2);
-                case 3: return cmp(a.durationMs, b.durationMs);
-                case 4: return cmp(a.sizeBytes, b.sizeBytes);
-                default: return cmp(a.created, b.created);
+            case 1:
+                return cmp(a.name, b.name);
+            case 2:
+                return cmp(a.line2, b.line2);
+            case 3:
+                return cmp(a.durationMs, b.durationMs);
+            case 4:
+                return cmp(a.sizeBytes, b.sizeBytes);
+            default:
+                return cmp(a.created, b.created);
             }
         };
         std::stable_sort(list.begin(), list.end(), [&](const ui::ReplayEntry& a, const ui::ReplayEntry& b) {
@@ -138,7 +147,7 @@ namespace perlin {
         for (size_t i = 0; i < title.replays.size(); i++)
             if (title.replays[i].file == selected)
                 title.replaySelected = static_cast<int>(i);
-        titleSignature.clear();
+        titleScreen.signature.clear();
     }
 
     bool Perlin::TitleReplayTyped(const InputManager::Typed& t) {
@@ -182,7 +191,8 @@ namespace perlin {
             RefreshReplayList();
             return true;
         }
-        if (title.page != ui::TitlePage::Replays && title.page != ui::TitlePage::ReplayRename && title.page != ui::TitlePage::ReplayDelete)
+        if (title.page != ui::TitlePage::Replays && title.page != ui::TitlePage::ReplayRename &&
+            title.page != ui::TitlePage::ReplayDelete)
             return false;
         const std::string rowPrefix = ui::kReplayRowPrefix;
         if (hover.compare(0, rowPrefix.size(), rowPrefix) == 0) {
@@ -278,14 +288,20 @@ namespace perlin {
         std::string error;
         if (!replay::Reader::ReadMetadata(source, meta, nullptr, error)) {
             title.replayMessage = "Not a valid replay: " + error;
-            chat.AddMessage("\xC2\xA7" "cNot a valid replay: " + error, hudAnim.ticks);
+            chat.AddMessage("\xC2\xA7"
+                            "cNot a valid replay: " +
+                                error,
+                            hudAnim.ticks);
             return false;
         }
         fs::create_directories(replay::ReplayDirectory(), ec);
-        fs::path dest = fs::path(replay::ReplayDirectory()) / replay::SafeFileName(fs::path(source).stem().string());
+        fs::path dest =
+            fs::path(replay::ReplayDirectory()) / replay::SafeFileName(fs::path(source).stem().string());
         dest += replay::kExtension;
         for (int n = 2; fs::exists(dest, ec); n++) {
-            dest = fs::path(replay::ReplayDirectory()) / (replay::SafeFileName(fs::path(source).stem().string()) + "_" + std::to_string(n) + replay::kExtension);
+            dest = fs::path(replay::ReplayDirectory()) /
+                   (replay::SafeFileName(fs::path(source).stem().string()) + "_" + std::to_string(n) +
+                    replay::kExtension);
         }
         fs::copy_file(source, dest, fs::copy_options::none, ec);
         if (ec) {
@@ -293,7 +309,10 @@ namespace perlin {
             return false;
         }
         title.replayMessage = "Imported " + dest.filename().string();
-        chat.AddMessage("\xC2\xA7" "aImported replay " + dest.filename().string(), hudAnim.ticks);
+        chat.AddMessage("\xC2\xA7"
+                        "aImported replay " +
+                            dest.filename().string(),
+                        hudAnim.ticks);
         if (title.page == ui::TitlePage::Replays)
             RefreshReplayList();
         return true;
@@ -308,14 +327,18 @@ namespace perlin {
     void Perlin::MakeReplaySession() {
         const replay::Metadata& meta = replayCtl.Meta();
         session = std::make_unique<BedrockSession>();
-        session->BeginReplayMode(meta.playerName.empty() ? options.playerName : meta.playerName, meta.localRuntimeId, meta.protocol);
+        session->BeginReplayMode(meta.playerName.empty() ? options.playerName : meta.playerName,
+                                 meta.localRuntimeId, meta.protocol);
         session->SetChunkRadius(options.renderDistance);
         session->SetMaxViewDistance(std::max(32, options.renderDistance));
-        session->SetNearRadius(options.enableLods && options.renderDistance > LodStore::kRealChunks ? LodStore::kRealChunks : 1 << 20);
+        session->SetNearRadius(options.enableLods && options.renderDistance > LodStore::kRealChunks
+                                   ? LodStore::kRealChunks
+                                   : 1 << 20);
         session->SetPackDirectory(paths::DataDir() + "/server_packs");
         sessionReady = true;
         if (connectsInFlight.load() == 0)
-            std::erase_if(retiredSessions, [](const std::unique_ptr<BedrockSession>& r) { return !r->Transferring(); });
+            std::erase_if(retiredSessions,
+                          [](const std::unique_ptr<BedrockSession>& r) { return !r->Transferring(); });
     }
 
     void Perlin::MountReplayPacks() {
@@ -344,7 +367,7 @@ namespace perlin {
             if (ServerPacks::Instance().Mount(out.string(), sp.uuid, sp.key))
                 mounted++;
         }
-        std::cout << "[replay] mounted " << mounted << " of " << stored.size() << " stored resource packs" << std::endl;
+        Log("replay", "mounted {} of {} stored resource packs", mounted, stored.size());
         if (levelRenderer)
             levelRenderer->ReloadResources();
         entityRenderer.ClearCaches();
@@ -359,12 +382,11 @@ namespace perlin {
         std::string error;
         if (!replayCtl.Open(path, error)) {
             title.replayMessage = "Could not open the replay: " + error;
-            titleSignature.clear();
+            titleScreen.signature.clear();
             return;
         }
         FinishReplayRecording("a replay was opened");
-        std::cout << "[replay] opening " << path << " (" << replayCtl.Meta().chunks.size() << " chunks, "
-                  << replayCtl.DurationMs() / 1000 << "s)" << std::endl;
+        Log("replay", "opening {} ({} chunks, {}s)", path, replayCtl.Meta().chunks.size(), replayCtl.DurationMs() / 1000);
         connectGeneration++;
         particleLevel = nullptr;
         sessionReady = false;
@@ -379,10 +401,10 @@ namespace perlin {
         replayPrevMs = 0;
         replayWorldFromMs = 0;
         MakeReplaySession();
-        titleActive = false;
-        loadingDone = false;
-        loadingStartAt = {};
-        loadingReadyArmed = false;
+        titleScreen.active = false;
+        loading.done = false;
+        loading.startAt = {};
+        loading.readyArmed = false;
         replayCtl.cameraMode = replay::CameraMode::Free;
         exportUi.open = false;
         kfUi = KeyframeUi{};
@@ -402,33 +424,35 @@ namespace perlin {
         if (replayUi.dirty) {
             std::string error;
             if (!replayCtl.SaveMarkers(error))
-                std::cout << "[replay] could not save changes: " << error << std::endl;
+                Log("replay", "could not save changes: {}", error);
             replayUi.dirty = false;
         }
         replayCtl.Close();
         SimClock::ExitVirtual();
         replayUi = ReplayUi{};
         editorUi = EditorUi{};
-        pauseShown = false;
-        titleReturnToServers = false;
-        titleReturnToReplays = true;
+        pause.shown = false;
+        titleScreen.returnToServers = false;
+        titleScreen.returnToReplays = true;
         LeaveToServerList(hud);
-        titleReturnToServers = false;
-        titleReturnToReplays = true;
+        titleScreen.returnToServers = false;
+        titleScreen.returnToReplays = true;
     }
 
     void Perlin::UpdateReplayCursor() {
         const bool panel = exportUi.open || kfUi.open;
-        if (!pauseShown)
+        if (!pause.shown)
             input.SetTextMode(panel);
         input.SetFreeCursor(true);
         const float mxPx = input.MouseX(), myPx = input.MouseY();
         const bool inView = !editorUi.open || input.Captured() ||
-                            (mxPx >= replayUi.editorViewX0 && mxPx < replayUi.editorViewX1 && myPx >= replayUi.editorViewY0 && myPx < replayUi.editorViewY1);
-        const bool wantGrab = !panel && !pauseShown && !exportJob.active && (replayUi.grab || (input.IsMouseDown(Mouse::Right) && inView));
+                            (mxPx >= replayUi.editorViewX0 && mxPx < replayUi.editorViewX1 &&
+                             myPx >= replayUi.editorViewY0 && myPx < replayUi.editorViewY1);
+        const bool wantGrab = !panel && !pause.shown && !exportJob.active &&
+                              (replayUi.grab || (input.IsMouseDown(Mouse::Right) && inView));
         if (wantGrab != input.Captured())
             platform->SetCursorCaptured(wantGrab);
-        if (panel || pauseShown || exportJob.active)
+        if (panel || pause.shown || exportJob.active)
             replayUi.grab = false;
     }
 
@@ -438,7 +462,8 @@ namespace perlin {
         if (replayCtl.NeedsRestart()) {
             replayCtl.ClearRestart();
             const int64_t epoch = static_cast<int64_t>(replayCtl.SeekTargetMs()) / 1000;
-            bool keepWorld = loadingDone && session->ReplayCanRewind(epoch) && session->ReplayRewindWorld(epoch);
+            bool keepWorld =
+                loading.done && session->ReplayCanRewind(epoch) && session->ReplayRewindWorld(epoch);
             std::unique_ptr<BedrockSession> old = std::move(session);
             particleLevel = nullptr;
             MakeReplaySession();
@@ -449,9 +474,9 @@ namespace perlin {
                 replayWorldFromMs = static_cast<double>(epoch) * 1000.0;
             } else {
                 replayWorldFromMs = 0;
-                loadingDone = false;
-                loadingStartAt = {};
-                loadingReadyArmed = false;
+                loading.done = false;
+                loading.startAt = {};
+                loading.readyArmed = false;
             }
             if (!old->Transferring())
                 old->Disconnect();
@@ -459,9 +484,11 @@ namespace perlin {
             replayPrevMs = replayCtl.TimeMs();
         }
         BedrockSession* s = session.get();
-        double dtMs = loadingDone ? static_cast<double>(dt) * 1000.0 : 0.0;
+        double dtMs = loading.done ? static_cast<double>(dt) * 1000.0 : 0.0;
         if (exportJob.active)
-            dtMs = loadingDone && exportJob.advanceNow ? std::max(0.0, exportJob.targetMs - replayCtl.TimeMs()) : 0.0;
+            dtMs = loading.done && exportJob.advanceNow
+                       ? std::max(0.0, exportJob.targetMs - replayCtl.TimeMs())
+                       : 0.0;
         else if (!timeline.speed.empty())
             replayCtl.SetSpeed(kSpeeds[replayUi.speedIdx] * timeline.SpeedAt(replayCtl.TimeMs()));
         const double worldFrom = replayWorldFromMs;
@@ -469,15 +496,19 @@ namespace perlin {
             if (r.id == 144 || r.id == 36 || r.id == 44 || r.id == 31)
                 s->InjectClientPacket(r.id, r.body);
         });
-        replayCtl.Advance(dtMs, [s, worldFrom](const replay::Record& r) {
-            const bool world = r.id == 21 || r.id == 58 || r.id == 110 || r.id == 172 || r.id == 174;
-            if (world) {
-                if (static_cast<double>(r.timeMs) < worldFrom)
-                    return;
-                s->ReplayEpoch(std::max<int64_t>(r.timeMs / 1000, static_cast<int64_t>(worldFrom / 1000.0)));
-            }
-            s->InjectIncoming(r.id, r.body);
-        }, exportJob.active ? 0.0 : (replayCtl.CatchingUp() ? 20.0 : 6.0));
+        replayCtl.Advance(
+            dtMs,
+            [s, worldFrom](const replay::Record& r) {
+                const bool world = r.id == 21 || r.id == 58 || r.id == 110 || r.id == 172 || r.id == 174;
+                if (world) {
+                    if (static_cast<double>(r.timeMs) < worldFrom)
+                        return;
+                    s->ReplayEpoch(
+                        std::max<int64_t>(r.timeMs / 1000, static_cast<int64_t>(worldFrom / 1000.0)));
+                }
+                s->InjectIncoming(r.id, r.body);
+            },
+            exportJob.active ? 0.0 : (replayCtl.CatchingUp() ? 20.0 : 6.0));
         SimClock::Advance(replayCtl.TimeMs() - replayPrevMs);
         replayPrevMs = replayCtl.TimeMs();
 
@@ -515,11 +546,15 @@ namespace perlin {
                 replayUi.camInit = true;
             }
         }
-        const bool flyEnabled = replayCtl.cameraMode == replay::CameraMode::Free || (replayCtl.cameraMode == replay::CameraMode::Keyframes && timeline.camera.empty());
-        if (flyEnabled && replayUi.camInit && !pauseShown && !exportJob.active) {
+        const bool flyEnabled =
+            replayCtl.cameraMode == replay::CameraMode::Free ||
+            (replayCtl.cameraMode == replay::CameraMode::Keyframes && timeline.camera.empty());
+        if (flyEnabled && replayUi.camInit && !pause.shown && !exportJob.active) {
             const float wheel = inputManager.Scroll();
-            if (wheel != 0.0f && !inputManager.IsDown(Action::Zoom) && !(editorUi.open && replayUi.editorOverUi))
-                replayUi.flySpeed = std::clamp(replayUi.flySpeed * std::pow(1.15, static_cast<double>(wheel)), 1.0, 200.0);
+            if (wheel != 0.0f && !inputManager.IsDown(Action::Zoom) &&
+                !(editorUi.open && replayUi.editorOverUi))
+                replayUi.flySpeed =
+                    std::clamp(replayUi.flySpeed * std::pow(1.15, static_cast<double>(wheel)), 1.0, 200.0);
             const glm::vec3 dir = camera.Direction();
             const glm::vec3 right = glm::normalize(glm::cross(dir, glm::vec3(0, 1, 0)));
             glm::vec3 move(0.0f);
@@ -537,7 +572,9 @@ namespace perlin {
                 move.y -= 1.0f;
             glm::vec3 wanted(0.0f);
             if (glm::length(move) > 0.001f)
-                wanted = glm::normalize(move) * static_cast<float>(replayUi.flySpeed * (inputManager.IsDown(Action::Sprint) ? 3.0 : 1.0));
+                wanted =
+                    glm::normalize(move) *
+                    static_cast<float>(replayUi.flySpeed * (inputManager.IsDown(Action::Sprint) ? 3.0 : 1.0));
             const float k = 1.0f - std::exp(-12.0f * dt);
             replayUi.flyVel += (wanted - replayUi.flyVel) * k;
             camera.x += replayUi.flyVel.x * dt;
@@ -545,10 +582,14 @@ namespace perlin {
             camera.z += replayUi.flyVel.z * dt;
             if (!input.TextMode()) {
                 const float turn = 110.0f * dt;
-                if (input.IsKeyDown(Key::Left)) camera.yaw -= turn;
-                if (input.IsKeyDown(Key::Right)) camera.yaw += turn;
-                if (input.IsKeyDown(Key::Up)) camera.pitch = std::clamp(camera.pitch + turn, -89.0f, 89.0f);
-                if (input.IsKeyDown(Key::Down)) camera.pitch = std::clamp(camera.pitch - turn, -89.0f, 89.0f);
+                if (input.IsKeyDown(Key::Left))
+                    camera.yaw -= turn;
+                if (input.IsKeyDown(Key::Right))
+                    camera.yaw += turn;
+                if (input.IsKeyDown(Key::Up))
+                    camera.pitch = std::clamp(camera.pitch + turn, -89.0f, 89.0f);
+                if (input.IsKeyDown(Key::Down))
+                    camera.pitch = std::clamp(camera.pitch - turn, -89.0f, 89.0f);
             }
         } else {
             replayUi.flyVel = glm::vec3(0.0f);
@@ -559,9 +600,9 @@ namespace perlin {
     bool Perlin::UpdateReplayScreen(ui::Hud& hud, BedrockSession* live, int fbW, int fbH) {
         (void)live;
         const auto now = Clock::now();
-        if (pauseShown) {
+        if (pause.shown) {
             UpdatePauseScreen(hud, live, fbW, fbH);
-            if (pauseShown)
+            if (pause.shown)
                 return true;
             hud.Overlay().ClearOverlay();
             replayUi.signature.clear();
@@ -574,9 +615,7 @@ namespace perlin {
             return UpdateKeyframePanel(hud, fbW, fbH);
         if (editorUi.open)
             return UpdateEditor(hud, fbW, fbH);
-        const int scale = hud.OverlayScale();
-        const int guiW = static_cast<int>(std::ceil(static_cast<float>(fbW) / static_cast<float>(scale)));
-        const int guiH = static_cast<int>(std::ceil(static_cast<float>(fbH) / static_cast<float>(scale)));
+        const auto [scale, guiW, guiH] = detail::OverlayViewport(hud, fbW, fbH);
         const ui::ReplayBarLayout layout = ui::ComputeReplayBarLayout(guiW, guiH);
 
         bool escape = false;
@@ -592,8 +631,10 @@ namespace perlin {
             replayUi.keyPrev[code & 255] = down;
             return edge;
         };
-        const bool kSpace = keyEdge(Key::Space), kLeft = keyEdge('J'), kRight = keyEdge('L'), kF1 = false,
-                   kM = keyEdge('M'), kC = keyEdge('C'), kK = keyEdge('K'), kI = keyEdge('I'), kO = keyEdge('O'), kTab = keyEdge(Key::Tab), kComma = keyEdge(0xBC), kPeriod = keyEdge(0xBE);
+        const bool kSpace = keyEdge(Key::Space), kLeft = keyEdge('J'), kRight = keyEdge('L'),
+                   kM = keyEdge('M'), kC = keyEdge('C'), kK = keyEdge('K'), kI = keyEdge('I'),
+                   kO = keyEdge('O'), kTab = keyEdge(Key::Tab), kComma = keyEdge(0xBC),
+                   kPeriod = keyEdge(0xBE);
         const auto openMenu = [&](bool open) {
             replayUi.menuOpen = open;
             replayUi.openedAt = now;
@@ -635,9 +676,11 @@ namespace perlin {
         if (kPeriod)
             setSpeed(replayUi.speedIdx + 1);
         const auto cycleCamera = [&] {
-            replayCtl.cameraMode = static_cast<replay::CameraMode>((static_cast<int>(replayCtl.cameraMode) + 1) % 3);
+            replayCtl.cameraMode =
+                static_cast<replay::CameraMode>((static_cast<int>(replayCtl.cameraMode) + 1) % 3);
             replayUi.signature.clear();
-            static const char* const names[] = {"Camera: free", "Camera: recorded player", "Camera: keyframe path"};
+            static const char* const names[] = {"Camera: free", "Camera: recorded player",
+                                                "Camera: keyframe path"};
             ReplayStatus(names[static_cast<int>(replayCtl.cameraMode)]);
         };
         if (kC)
@@ -651,15 +694,20 @@ namespace perlin {
             } else {
                 replay::CamKey ck;
                 ck.tMs = replayCtl.TimeMs();
-                ck.x = camera.x; ck.y = camera.y; ck.z = camera.z;
-                ck.yaw = camera.yaw; ck.pitch = camera.pitch;
-                ck.roll = kfUi.roll; ck.fov = kfUi.fov;
+                ck.x = camera.x;
+                ck.y = camera.y;
+                ck.z = camera.z;
+                ck.yaw = camera.yaw;
+                ck.pitch = camera.pitch;
+                ck.roll = kfUi.roll;
+                ck.fov = kfUi.fov;
                 ck.interp = static_cast<replay::Interp>(kfUi.interp);
                 timeline.SetCamera(ck);
                 timelineDirty = true;
                 if (timeline.camera.size() >= 2 && replayCtl.cameraMode != replay::CameraMode::Keyframes)
                     replayCtl.cameraMode = replay::CameraMode::Keyframes;
-                ReplayStatus("Camera keyframe " + std::to_string(timeline.camera.size()) + " set at " + ui::FormatReplayTime(ck.tMs));
+                ReplayStatus("Camera keyframe " + std::to_string(timeline.camera.size()) + " set at " +
+                             ui::FormatReplayTime(ck.tMs));
             }
         }
         if (kI) {
@@ -671,7 +719,8 @@ namespace perlin {
             ReplayStatus("Out point set");
         }
         const auto addMarker = [&] {
-            replayCtl.AddPlaybackMarker("Marker " + std::to_string(replayCtl.Markers().size() + 1), static_cast<uint32_t>(replayCtl.TimeMs()));
+            replayCtl.AddPlaybackMarker("Marker " + std::to_string(replayCtl.Markers().size() + 1),
+                                        static_cast<uint32_t>(replayCtl.TimeMs()));
             replayUi.dirty = true;
             ReplayStatus("Marker added at " + ui::FormatReplayTime(replayCtl.TimeMs()));
         };
@@ -706,18 +755,22 @@ namespace perlin {
             model.keys.push_back({vk.tMs, 2});
         for (const replay::Marker& m : replayCtl.Markers())
             model.markers.push_back({static_cast<double>(m.timeMs), m.color, m.name});
-        std::string signature = std::to_string(guiW) + "x" + std::to_string(guiH) + (model.open ? "O" : "c") + (model.paused ? "P" : "p") +
-                                (model.ended ? "E" : "e") + (model.catching ? "S" : "s") + (model.hideHud ? "H" : "h") + (model.hudShown ? "U" : "u") +
-                                std::to_string(model.cameraMode) + "|" + std::to_string(static_cast<long long>(model.timeMs / (model.open ? 100.0 : 1000.0))) + "|" +
-                                std::to_string(static_cast<long long>(model.scrubMs)) + "|" + std::to_string(model.speed) + "|" + std::to_string(model.inMs) +
-                                "|" + std::to_string(model.outMs) + "|" + model.status + "|" + std::to_string(model.markers.size()) + "k" + std::to_string(model.keys.size());
+        std::string signature =
+            std::to_string(guiW) + "x" + std::to_string(guiH) + (model.open ? "O" : "c") +
+            (model.paused ? "P" : "p") + (model.ended ? "E" : "e") + (model.catching ? "S" : "s") +
+            (model.hideHud ? "H" : "h") + (model.hudShown ? "U" : "u") + std::to_string(model.cameraMode) +
+            "|" + std::to_string(static_cast<long long>(model.timeMs / (model.open ? 100.0 : 1000.0))) + "|" +
+            std::to_string(static_cast<long long>(model.scrubMs)) + "|" + std::to_string(model.speed) + "|" +
+            std::to_string(model.inMs) + "|" + std::to_string(model.outMs) + "|" + model.status + "|" +
+            std::to_string(model.markers.size()) + "k" + std::to_string(model.keys.size());
         if (signature != replayUi.signature || !hud.Overlay().HasOverlay()) {
             replayUi.signature = signature;
             std::string error;
             if (!hud.Overlay().SetOverlay(ui::BuildReplayBarRml(model, guiW, guiH), error))
-                std::cout << "[ui] replay bar: " << error << std::endl;
+                Log("ui", "replay bar: {}", error);
         }
-        const float mx = input.MouseX() / static_cast<float>(scale), my = input.MouseY() / static_cast<float>(scale);
+        const float mx = input.MouseX() / static_cast<float>(scale),
+                    my = input.MouseY() / static_cast<float>(scale);
         hud.Overlay().MouseMove(mx, my);
         hud.UpdateOverlay(fbW, fbH, options.guiScale);
         if (!replayUi.menuOpen) {
@@ -731,7 +784,8 @@ namespace perlin {
             replayUi.scrubbing = true;
         }
         if (replayUi.scrubbing) {
-            const double frac = std::clamp((static_cast<double>(mx) - layout.trackX) / std::max(1.0f, layout.trackW), 0.0, 1.0);
+            const double frac = std::clamp(
+                (static_cast<double>(mx) - layout.trackX) / std::max(1.0f, layout.trackW), 0.0, 1.0);
             replayUi.scrubMs = frac * replayCtl.DurationMs();
             if (!down) {
                 replayUi.scrubbing = false;
@@ -739,12 +793,14 @@ namespace perlin {
                 replayUi.lastScrubSeekMs = -1e9;
                 replayUi.signature.clear();
             } else {
-                if (std::fabs(replayUi.scrubMs - replayUi.lastScrubSeekMs) > 40.0 && now - replayUi.lastScrubAt > std::chrono::milliseconds(70)) {
+                if (std::fabs(replayUi.scrubMs - replayUi.lastScrubSeekMs) > 40.0 &&
+                    now - replayUi.lastScrubAt > std::chrono::milliseconds(70)) {
                     replayCtl.Seek(replayUi.scrubMs);
                     replayUi.lastScrubSeekMs = replayUi.scrubMs;
                     replayUi.lastScrubAt = now;
                 }
-                if (static_cast<long long>(replayUi.scrubMs) / 100 != static_cast<long long>(model.scrubMs) / 100)
+                if (static_cast<long long>(replayUi.scrubMs) / 100 !=
+                    static_cast<long long>(model.scrubMs) / 100)
                     replayUi.signature.clear();
             }
         } else if (!down && replayUi.leftDown && now - replayUi.openedAt > std::chrono::milliseconds(150)) {
@@ -768,14 +824,14 @@ namespace perlin {
                 replayUi.hideHud = !replayUi.hideHud;
                 replayUi.signature.clear();
             } else if (hover == ui::kRbOptions) {
-                pauseShown = true;
-                pauseView = 1;
-                optionsPage = 0;
-                optionsSub = 0;
-                pauseOpenedAt = now;
-                pauseSignature.clear();
-                optionsSignature.clear();
-                pauseLeftDown = true;
+                pause.shown = true;
+                pause.view = 1;
+                optionsUi.page = 0;
+                optionsUi.sub = 0;
+                pause.openedAt = now;
+                pause.signature.clear();
+                optionsUi.signature.clear();
+                pause.leftDown = true;
                 hud.Overlay().ClearOverlay();
             } else if (hover == ui::kRbExit) {
                 ExitReplayPlayback(hud);
@@ -794,5 +850,60 @@ namespace perlin {
         }
         replayUi.leftDown = down;
         return true;
+    }
+}
+
+namespace perlin {
+    void Perlin::ToggleReplayRecording(bool start) {
+        if (start) {
+            if (!session || replayCtl.Recording())
+                return;
+            replay::ReplayController::LiveInfo info;
+            info.server = session->ServerAddress();
+            info.gameVersion = session->GameVersion();
+            info.playerName = session->PlayerName();
+            info.protocol = session->ServerProtocol();
+            info.runtimeId = session->GetRuntimeId();
+            const auto pose = session->GetPose();
+            info.pose = {pose.x, pose.y, pose.z, pose.yaw, pose.pitch, pose.known};
+            for (const auto& pf : session->ServerPackFiles())
+                info.packs.push_back({pf.path, pf.fileName, pf.uuid, pf.key});
+            std::string error;
+            if (replayCtl.StartRecording(info, PERLIN_VERSION, error)) {
+                chat.AddMessage("\xC2\xA7"
+                                "aReplay recording started",
+                                hudAnim.ticks);
+                Log("replay", "recording started");
+            } else {
+                chat.AddMessage("\xC2\xA7"
+                                "cCould not start the replay: " +
+                                    error,
+                                hudAnim.ticks);
+                Log("replay", "start failed: {}", error);
+            }
+        } else {
+            FinishReplayRecording("you stopped it");
+        }
+    }
+
+    void Perlin::FinishReplayRecording(const char* why) {
+        if (!replayCtl.Recording())
+            return;
+        const uint32_t ms = replayCtl.RecordingMs();
+        std::string path, error;
+        if (replayCtl.StopRecording(path, error)) {
+            Log("replay", "saved {} ({}s) because {}", path, ms / 1000, why);
+            chat.AddMessage("\xC2\xA7"
+                            "aReplay saved: " +
+                                std::filesystem::path(path).filename().string() + " (" +
+                                std::to_string(ms / 1000) + "s)",
+                            hudAnim.ticks);
+        } else {
+            Log("replay", "save failed: {}", error);
+            chat.AddMessage("\xC2\xA7"
+                            "cReplay could not be saved: " +
+                                error,
+                            hudAnim.ticks);
+        }
     }
 }

@@ -1,4 +1,5 @@
 #include "client/javashaders/Cond.hpp"
+#include "util/Strings.hpp"
 
 #include <cctype>
 #include <cstdlib>
@@ -214,12 +215,6 @@ namespace perlin::jshader {
             return out;
         }
 
-        std::string Trim(const std::string& s) {
-            size_t a = 0, b = s.size();
-            while (a < b && std::isspace(static_cast<unsigned char>(s[a]))) a++;
-            while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) b--;
-            return s.substr(a, b - a);
-        }
     }
 
     long long EvalCondition(const std::string& expression, const MacroMap& macros) {
@@ -250,15 +245,15 @@ namespace perlin::jshader {
                 continuing = false;
                 pending.clear();
             }
-            const std::string trimmed = Trim(line);
+            const std::string trimmed = str::Trim(line);
             if (!trimmed.empty() && trimmed[0] == '#') {
-                if (!trimmed.empty() && trimmed.back() == '\\' && trimmed.find("define") == std::string::npos) {
+                if (!trimmed.empty() && trimmed.back() == '\\' && !trimmed.contains("define")) {
                 }
-                std::string body = Trim(StripComments(trimmed.substr(1)));
+                std::string body = str::Trim(StripComments(trimmed.substr(1)));
                 size_t k = 0;
                 while (k < body.size() && std::isalpha(static_cast<unsigned char>(body[k]))) k++;
                 const std::string dir = body.substr(0, k);
-                const std::string rest = Trim(body.substr(k));
+                const std::string rest = str::Trim(body.substr(k));
                 if (dir == "if" || dir == "ifdef" || dir == "ifndef") {
                     bool cond = false;
                     if (active) {
@@ -302,7 +297,7 @@ namespace perlin::jshader {
                     while (n < rest.size() && (std::isalnum(static_cast<unsigned char>(rest[n])) || rest[n] == '_')) n++;
                     const std::string name = rest.substr(0, n);
                     if (!name.empty() && !(n < rest.size() && rest[n] == '('))
-                        macros[name] = Trim(rest.substr(n));
+                        macros[name] = str::Trim(rest.substr(n));
                     out += '\n';
                     continue;
                 }

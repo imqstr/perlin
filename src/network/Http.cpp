@@ -8,6 +8,7 @@
 #include <iterator>
 #include <iostream>
 #include <mutex>
+#include "util/Log.hpp"
 #if !defined(_WIN32)
 #include <sys/stat.h>
 #endif
@@ -52,7 +53,7 @@ namespace perlin::http {
                 if (count > 0)
                     break;
             }
-            std::cout << "[tls] " << count << " system CA certificates loaded" << std::endl;
+            Log("tls", "{} system CA certificates loaded", count);
         });
         return bundle;
     }
@@ -94,10 +95,9 @@ namespace perlin::http {
                 if (caDir.empty() && IsDir(d))
                     caDir = d;
             if (caFile.empty() && caDir.empty())
-                std::cout << "[tls] no CA certificates found (set SSL_CERT_FILE); HTTPS downloads will fail" << std::endl;
+                Log("tls", "no CA certificates found (set SSL_CERT_FILE); HTTPS downloads will fail");
             else
-                std::cout << "[tls] CA certificates: " << (caFile.empty() ? "-" : caFile) << ", " << (caDir.empty() ? "-" : caDir)
-                          << std::endl;
+                Log("tls", "CA certificates: {}, {}", (caFile.empty() ? "-" : caFile), (caDir.empty() ? "-" : caDir));
         });
         file = caFile;
         dir = caDir;
@@ -130,7 +130,7 @@ namespace perlin::http {
                                   : method == "DELETE" ? cli.Delete(path, headers, body, contentType.c_str())
                                                        : cli.Post(path, headers, body, contentType.c_str());
             if (!res) {
-                std::cout << "[http] " << method << " " << host << path.substr(0, path.find('?')) << " failed: " << Describe(res) << std::endl;
+                Log("http", "{} {}{} failed: {}", method, host, path.substr(0, path.find('?')), Describe(res));
                 return {};
             }
             Response out{res->status, res->body, {}};

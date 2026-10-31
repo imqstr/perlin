@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <thread>
+#include "util/Log.hpp"
 
 namespace perlin::realms {
     namespace {
@@ -34,7 +35,7 @@ namespace perlin::realms {
         bool OptInToTimeline(int64_t id, const std::string& authorization) {
             const std::string path = "/worlds/" + std::to_string(id) + "/stories/settings";
             const http::Response g = Call("GET", path, {}, authorization);
-            std::cout << "[realms] stories settings GET answered " << g.status << ": " << g.body.substr(0, 300) << std::endl;
+            Log("realms", "stories settings GET answered {}: {}", g.status, g.body.substr(0, 300));
             auto doc = g.status == 200 ? json::Document::Parse(g.body) : std::nullopt;
             if (!doc)
                 return false;
@@ -45,7 +46,7 @@ namespace perlin::realms {
                                      ",\"notifications\":" + flag("notifications") + ",\"playerOptIn\":\"OPT_IN\",\"realmOptIn\":\"" + realmOptIn +
                                      "\",\"timeline\":" + flag("timeline") + "}";
             const http::Response p = Call("POST", path, body, authorization);
-            std::cout << "[realms] timeline opt-in answered " << p.status << ": " << p.body.substr(0, 300) << std::endl;
+            Log("realms", "timeline opt-in answered {}: {}", p.status, p.body.substr(0, 300));
             return p.status >= 200 && p.status < 300;
         }
 
@@ -136,20 +137,20 @@ namespace perlin::realms {
                 const auto it = r.headers.find("Retry-After");
                 if (it != r.headers.end())
                     wait = std::clamp(std::atoi(it->second.c_str()), 1, 15);
-                std::cout << "[realms] Realm " << id << " is starting, retrying in " << wait << "s" << std::endl;
+                Log("realms", "Realm {} is starting, retrying in {}s", id, wait);
                 std::this_thread::sleep_for(std::chrono::seconds(wait));
                 continue;
             }
-            if (r.status == 403 && !optedIn && (r.body.find("Opt-In") != std::string::npos || r.body.find("opt-in") != std::string::npos)) {
+            if (r.status == 403 && !optedIn && (r.body.contains("Opt-In") || r.body.contains("opt-in"))) {
                 optedIn = true;
                 if (OptInToTimeline(id, authorization))
                     continue;
             }
             if (r.status >= 400) {
-                std::cout << "[realms] join POST answered " << r.status << ": " << r.body.substr(0, 400) << std::endl;
+                Log("realms", "join POST answered {}: {}", r.status, r.body.substr(0, 400));
                 if (r.status == 403 || r.status == 404 || r.status == 405) {
                     const http::Response g = Call("GET", "/worlds/" + std::to_string(id) + "/join", {}, authorization);
-                    std::cout << "[realms] join GET answered " << g.status << ": " << g.body.substr(0, 400) << std::endl;
+                    Log("realms", "join GET answered {}: {}", g.status, g.body.substr(0, 400));
                     if (g.status == 200) {
                         r = g;
                     } else {
@@ -170,7 +171,7 @@ namespace perlin::realms {
             out.protocol = doc->root()["networkProtocol"].isString() ? doc->root()["networkProtocol"].str() : "DEFAULT";
             for (char& c : out.protocol)
                 c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-            std::cout << "[realms] Realm " << id << " is at " << out.host << ":" << out.port << " (" << out.protocol << ")" << std::endl;
+            Log("realms", "Realm {} is at {}:{} ({})", id, out.host, out.port, out.protocol);
             return !out.host.empty();
         }
     }

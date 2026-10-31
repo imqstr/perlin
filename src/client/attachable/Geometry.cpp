@@ -2,6 +2,7 @@
 #include "util/Env.hpp"
 #include <cstdlib>
 #include "client/attachable/Geometry.hpp"
+#include "util/Strings.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -23,11 +24,6 @@ namespace perlin::attachable {
             return {static_cast<float>(v->array[0].NumberOr(0)), static_cast<float>(v->array[1].NumberOr(0))};
         }
 
-        std::string Lower(std::string s) {
-            for (char& c : s)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            return s;
-        }
 
         // poly_mesh: indexed polygons ([position, normal, uv] per corner), or parallel arrays grouped by "tri_list" /
         // "quad_list". Bedrock counts mesh UVs from the bottom of the texture.
@@ -106,13 +102,13 @@ namespace perlin::attachable {
                 if (!b.IsObject())
                     continue;
                 Bone bone;
-                bone.name = Lower(b.Find("name") ? b.Find("name")->StringOr("") : "");
+                bone.name = str::Lower(b.Find("name") ? b.Find("name")->StringOr("") : "");
                 bone.pivot = Vec3(b.Find("pivot"));
                 bone.rotation = Vec3(b.Find("rotation"));
                 if (const Json* binding = b.Find("binding"))
                     bone.binding = binding->StringOr("");
                 if (const Json* parent = b.Find("parent"))
-                    bone.parentName = Lower(parent->StringOr(""));
+                    bone.parentName = str::Lower(parent->StringOr(""));
                 if (const Json* n = b.Find("neverRender")) {
                     bone.neverRender = n->BoolOr(false);
                     bone.hasNeverRender = true;
@@ -218,7 +214,7 @@ namespace perlin::attachable {
             }
         }
         for (const auto& [key, value] : doc.object) {
-            if (key.rfind("geometry.", 0) != 0 || !value.IsObject())
+            if (!key.starts_with("geometry.") || !value.IsObject())
                 continue;
             Geometry g;
             g.id = key.substr(0, key.find(':'));

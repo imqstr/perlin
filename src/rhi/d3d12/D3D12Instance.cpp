@@ -282,6 +282,7 @@ namespace rhi::d3d12 {
         f.textureCompressionBC = true;
         f.samplerAnisotropy = true;
         f.shaderInt64 = o1.Int64ShaderOps != FALSE;
+        f.shaderFloat64 = o.DoublePrecisionFloatShaderOps != FALSE;
         f.depthClipControl = true;
         f.bufferDeviceAddress = true;
         f.bindless = o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3;

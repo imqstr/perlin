@@ -1,4 +1,3 @@
-#include <cstdlib>
 #include "client/Options.hpp"
 #include "util/Paths.hpp"
 
@@ -331,9 +330,6 @@ namespace perlin {
     }
 
     void Options::Save() const {
-        // previews run side by side on the real data folder: they must never write it
-        if (std::getenv("PERLIN_PREVIEW"))
-            return;
         Stored stored{maxFps,
                       vsync,
                       eulaAccepted,

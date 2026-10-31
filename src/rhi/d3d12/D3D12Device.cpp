@@ -64,7 +64,6 @@ namespace rhi::d3d12 {
         }
     }
 
-    // ---- resources
 
     BufferHandle Device::CreateBuffer(const BufferDesc& desc) {
         if (desc.size == 0) {
@@ -859,7 +858,6 @@ namespace rhi::d3d12 {
         return raw;
     }
 
-    // ---- destruction
 
     void Device::Retire(std::function<void()> release) {
         QueueSerials snapshot;
@@ -962,7 +960,6 @@ namespace rhi::d3d12 {
         return r ? r->address : 0;
     }
 
-    // ---- fences, submission, frames
 
     FenceHandle Device::CreateFence(uint64_t initial) {
         FenceRec rec;

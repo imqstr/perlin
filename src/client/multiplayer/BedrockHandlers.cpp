@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include "util/Log.hpp"
 
 namespace perlin {
     using namespace proto;
@@ -84,7 +85,7 @@ namespace perlin {
                                 for (char& c : flat)
                                     if (c == '\n')
                                         c = '|';
-                                std::cout << "[nametag] set rid=" << rid << " text=" << flat << std::endl;
+                                Log("nametag", "set rid={} text={}", rid, flat);
                             }
                         }
                     continue;
@@ -169,7 +170,7 @@ namespace perlin {
                 out->capeRgba.clear();
             }
             out->slim = s.armSize == SkinArmSize::Slim;
-            if (!s.geometryData.empty() && s.geometryData.find("geometry") != std::string::npos) {
+            if (!s.geometryData.empty() && s.geometryData.contains("geometry")) {
                 out->geometryJson = s.geometryData;
                 const std::string& patch = s.skinResourcePack;
                 const size_t at = patch.find("\"default\"");
@@ -187,7 +188,7 @@ namespace perlin {
 
         template <class P> void Trace(BedrockSession& session) {
             session.OnPartial<P>([](const P& packet) {
-                std::cout << "[trace] " << P::kName << ' ' << net::Dump(packet) << std::endl;
+                Log("trace", "{} {}", P::kName, net::Dump(packet));
             });
         }
 
@@ -209,16 +210,14 @@ namespace perlin {
         RegisterProtocolExtras();
         RegisterIgnoredHandlers();
         dispatcher.OnFailure([](uint32_t id, const char* name, size_t size) {
-            std::cout << "[net] failed to decode " << name << " (id " << id << ", " << size << " bytes)"
-                      << std::endl;
+            Log("net", "failed to decode {} (id {}, {} bytes)", name, id, size);
         });
 
         On<NetworkSettingsPacket>([this](const NetworkSettingsPacket& p) {
             compressThreshold = p.compressionThreshold;
             compressAlgorithm = static_cast<uint16_t>(p.compressionAlgorithm);
             compressEnabled = true;
-            std::cout << "[bedrock] NetworkSettings threshold=" << p.compressionThreshold
-                      << " algorithm=" << compressAlgorithm << std::endl;
+            Log("bedrock", "NetworkSettings threshold={} algorithm={}", p.compressionThreshold, compressAlgorithm);
             if (!SendLogin()) {
                 lastError = "failed to send Login";
                 state = State::Failed;
@@ -228,7 +227,7 @@ namespace perlin {
         });
 
         On<PlayStatusPacket>([this](const PlayStatusPacket& p) {
-            std::cout << "[bedrock] PlayStatus " << static_cast<int>(p.status) << std::endl;
+            Log("bedrock", "PlayStatus {}", static_cast<int>(p.status));
             // status 1: our client outdated; 2 (FailedSpawn in protocol data, LoginFailedServer in bedrock): server outdated;
             // either can arrive before network settings, not only after Login
             if ((p.status == PlayStatusPacketStatus::FailedClient || p.status == PlayStatusPacketStatus::FailedSpawn) && state != State::InGame) {
@@ -256,7 +255,7 @@ namespace perlin {
                     spawnAt = std::chrono::steady_clock::now();
                 }
                 state = State::InGame;
-                std::cout << "[bedrock] PlayerSpawn -> waiting for local terrain before initialising" << std::endl;
+                Log("bedrock", "PlayerSpawn -> waiting for local terrain before initialising");
             }
         });
 
@@ -277,7 +276,7 @@ namespace perlin {
                     break;
                 default: break;
             }
-            std::cout << "[bedrock] " << lastError << std::endl;
+            Log("bedrock", "{}", lastError);
             SetDisconnectInfo(static_cast<int>(p.reason), p.message, false);
             if (p.reason == DisconnectFailReason::OutdatedClient || p.reason == DisconnectFailReason::OutdatedServer ||
                 p.reason == DisconnectFailReason::VersionMismatch)
@@ -287,8 +286,7 @@ namespace perlin {
 
         On<ServerToClientHandshakePacket>([this](const ServerToClientHandshakePacket& p) {
             if (!usedRak) {
-                std::cout << "[bedrock] ServerToClientHandshake over NetherNet -> replying without encryption"
-                          << std::endl;
+                Log("bedrock", "ServerToClientHandshake over NetherNet -> replying without encryption");
                 Send(ClientToServerHandshakePacket{});
                 return;
             }
@@ -299,7 +297,7 @@ namespace perlin {
                 state = State::Failed;
                 return;
             }
-            std::cout << "[bedrock] ServerToClientHandshake -> encryption on" << std::endl;
+            Log("bedrock", "ServerToClientHandshake -> encryption on");
             {
                 std::lock_guard<std::mutex> lock(txMutex);
                 cipher = std::move(fresh);
@@ -308,7 +306,7 @@ namespace perlin {
         });
 
         On<ResourcePacksInfoPacket>([this](const ResourcePacksInfoPacket& info) {
-            std::cout << "[bedrock] ResourcePacksInfo (" << info.texturePacks.size() << " packs)" << std::endl;
+            Log("bedrock", "ResourcePacksInfo ({} packs)", info.texturePacks.size());
             state = State::ResourcePacks;
             std::vector<std::string> wanted = packs.Plan(info.texturePacks);
             if (wanted.empty()) {
@@ -321,7 +319,7 @@ namespace perlin {
                 ask.responseStatus = PackStatus::SendPacks;
                 ask.responseStatusName = "downloading";
                 ask.resourcepackids = wanted;
-                std::cout << "[bedrock] asking the server for " << wanted.size() << " resource pack(s)" << std::endl;
+                Log("bedrock", "asking the server for {} resource pack(s)", wanted.size());
                 Send(ask);
             }
         });
@@ -333,7 +331,7 @@ namespace perlin {
             const std::string line = ui::FormatTextPacket(type, t.needsTranslation, t.sourceName, t.message, t.parameters);
             if (line.empty())
                 return;
-            std::cout << "[chat] " << line << std::endl;
+            Log("chat", "{}", line);
             PushChat(line);
         });
         OnPartial<CommandOutputPacket>([this](const CommandOutputPacket& c) {
@@ -361,7 +359,7 @@ namespace perlin {
                     SendResourcePackResponse(PackStatus::HaveAllPacks);
                 }
             } else if (step.step == PackDownloader::Step::Ignore && !step.message.empty()) {
-                std::cout << "[packs] " << step.message << std::endl;
+                Log("packs", "{}", step.message);
             }
         });
 
@@ -385,14 +383,14 @@ namespace perlin {
         });
 
         On<TransferPacket>([this](const TransferPacket& t) {
-            std::cout << "[bedrock] Transfer -> " << t.serverAddress << ":" << t.port << std::endl;
+            Log("bedrock", "Transfer -> {}:{}", t.serverAddress, t.port);
             transferHost = t.serverAddress;
             transferPort = t.port;
             transferRequested = true;
         });
 
         On<ResourcePackStackPacket>([this](const ResourcePackStackPacket&) {
-            std::cout << "[bedrock] ResourcePackStack" << std::endl;
+            Log("bedrock", "ResourcePackStack");
             if (!packsCompletedSent) {
                 SendResourcePackResponse(PackStatus::Completed);
                 packsCompletedSent = true;
@@ -404,7 +402,7 @@ namespace perlin {
         });
 
         On<ResourcePacksReadyForValidationPacket>([this](const ResourcePacksReadyForValidationPacket&) {
-            std::cout << "[bedrock] ResourcePacksReadyForValidation" << std::endl;
+            Log("bedrock", "ResourcePacksReadyForValidation");
             if (!packsCompletedSent) {
                 SendResourcePackResponse(PackStatus::Completed);
                 packsCompletedSent = true;
@@ -423,17 +421,14 @@ namespace perlin {
             if (static_cast<int>(p.severity) >= 2)
                 SetDisconnectInfo(-1, std::string("The server disconnected you: it rejected a packet from Perlin as invalid.\nPacket: ") +
                                           PacketName(static_cast<uint32_t>(p.packetId)) + "\n" + p.reason.substr(0, 200), true);
-            std::cout << "[bedrock] VIOLATION type=" << static_cast<int>(p.violationType)
-                      << " severity=" << static_cast<int>(p.severity) << " packet=" << p.packetId << " ("
-                      << PacketName(static_cast<uint32_t>(p.packetId)) << ") reason='"
-                      << p.reason.substr(0, 200) << "'" << std::endl;
+            Log("bedrock", "VIOLATION type={} severity={} packet={} ({}) reason='{}'", static_cast<int>(p.violationType), static_cast<int>(p.severity), p.packetId, PacketName(static_cast<uint32_t>(p.packetId)), p.reason.substr(0, 200));
         });
 
         OnPartial<StartGamePacket>([this](const StartGamePacket& p) {
             ParsePropertySchema(p.propertyData.bytes);
             if (!p.blockProperties.empty()) {
                 const size_t n = RegisterCustomBlocks(p.blockProperties);
-                std::cout << "[blocks] server defines " << p.blockProperties.size() << " custom blocks (" << n << " states)" << std::endl;
+                Log("blocks", "server defines {} custom blocks ({} states)", p.blockProperties.size(), n);
             } else {
                 BlockPalette::Instance().TruncateSequence();
             }
@@ -467,37 +462,32 @@ namespace perlin {
                 haveStartPos = true;
             }
             clientGen = p.clientSideGeneration;
+            // generator 2 is the flat type
+            flatWorld = p.generator == 2;
             serverAuthBreaking = p.serverAuthoritativeBlockBreaking;
-            std::cout << "[bedrock] serverAuthoritativeBlockBreaking=" << (p.serverAuthoritativeBlockBreaking ? "true" : "false") << std::endl;
-            std::cout << "[bedrock] serverAuthoritativeInventory=" << (p.serverAuthoritativeInventory ? "true" : "false") << std::endl;
+            Log("bedrock", "serverAuthoritativeBlockBreaking={}", (p.serverAuthoritativeBlockBreaking ? "true" : "false"));
+            Log("bedrock", "serverAuthoritativeInventory={}", (p.serverAuthoritativeInventory ? "true" : "false"));
             legacyInventory = !p.serverAuthoritativeInventory;
             BlockPalette::Instance().SetSequential(!p.blockNetworkIdsAreHashes);
-            std::cout << "[bedrock] blockNetworkIdsAreHashes=" << (p.blockNetworkIdsAreHashes ? "true" : "false")
-                      << std::endl;
-            std::cout << "[bedrock] StartGame gameVersion=" << p.gameVersion
-                      << " engine=" << p.engine << " paletteChecksum=" << p.blockPalletteChecksum
-                      << " blockProperties=" << p.blockProperties.size() << std::endl;
-            std::cout << "[bedrock] client_side_generation=" << (clientGen ? "true" : "false")
-                      << " (requested chunk radius " << chunkRadius << ", max view distance " << maxViewDistance
-                      << ")" << std::endl;
+            Log("bedrock", "blockNetworkIdsAreHashes={}", (p.blockNetworkIdsAreHashes ? "true" : "false"));
+            Log("bedrock", "StartGame gameVersion={} engine={} paletteChecksum={} blockProperties={}", p.gameVersion, p.engine, p.blockPalletteChecksum, p.blockProperties.size());
+            Log("bedrock", "client_side_generation={} (requested chunk radius {}, max view distance {})", (clientGen ? "true" : "false"), chunkRadius, maxViewDistance);
             gotSpawn = true;
             serverTick = static_cast<uint64_t>(std::max<int64_t>(p.currentTick, 0));
             authTick = serverTick;
             dimensionId = static_cast<int>(p.dimension);
             rainTarget = p.rainLevel > 0.0f ? 1.0f : 0.0f;
             thunderTarget = p.lightningLevel > 0.0f ? 1.0f : 0.0f;
-            std::cout << "[bedrock] StartGame spawn=(" << x << "," << y << "," << z
-                      << ") runtime=" << runtimeId << " gamerules=" << p.gamerules.size() << std::endl;
+            Log("bedrock", "StartGame spawn=({},{},{}) runtime={} gamerules={}", x, y, z, runtimeId, p.gamerules.size());
             for (const GameRuleI32& rule : p.gamerules) {
                 if (!EqualsIgnoreCase(rule.name, "dodaylightcycle"))
                     continue;
                 if (const bool* enabled = std::get_if<bool>(&rule.value)) {
                     SetDayCycle(*enabled);
-                    std::cout << "[bedrock] doDaylightCycle=" << *enabled << std::endl;
+                    Log("bedrock", "doDaylightCycle={}", *enabled);
                 }
             }
-            std::cout << "[bedrock] time: dayCycleStopTime=" << p.dayCycleStopTime
-                      << " currentTick=" << p.currentTick << std::endl;
+            Log("bedrock", "time: dayCycleStopTime={} currentTick={}", p.dayCycleStopTime, p.currentTick);
             double known = 0.0;
             if (!GetWorldTicks(known) && p.currentTick > 0)
                 NoteTime(p.currentTick);
@@ -506,7 +496,7 @@ namespace perlin {
             startGameSeen = true;
             startGameAt = std::chrono::steady_clock::now();
             state = State::InGame;
-            std::cout << "[bedrock] StartGame handled -> waiting for PlayerSpawn" << std::endl;
+            Log("bedrock", "StartGame handled -> waiting for PlayerSpawn");
         });
 
         On<NetworkChunkPublisherUpdatePacket>([this](const NetworkChunkPublisherUpdatePacket& p) {
@@ -518,28 +508,24 @@ namespace perlin {
             viewRadiusChunks = radius;
             static int logged = 0;
             if (logged++ < 6)
-                std::cout << "[chunk] publisher centre (" << p.coordinates.x << "," << p.coordinates.y << ","
-                          << p.coordinates.z << ") radius " << p.radius << " blocks, "
-                          << p.savedChunks.size() << " server-built chunks listed" << std::endl;
+                Log("chunk", "publisher centre ({},{},{}) radius {} blocks, {} server-built chunks listed", p.coordinates.x, p.coordinates.y, p.coordinates.z, p.radius, p.savedChunks.size());
             if (radius > 0)
                 PruneChunks(cx, cz, radius + 2);
         });
 
         On<DimensionDataPacket>([](const DimensionDataPacket& p) {
             for (const DimensionDataPacketDefinitionsEntry& d : p.definitions) {
-                const int id = d.id.find("nether") != std::string::npos ? 1 : d.id.find("end") != std::string::npos ? 2 : 0;
-                std::cout << "[chunk] dimension " << d.id << " minY=" << d.minY << " height=" << d.heightRange << std::endl;
+                const int id = d.id.contains("nether") ? 1 : d.id.contains("end") ? 2 : 0;
+                Log("chunk", "dimension {} minY={} height={}", d.id, d.minY, d.heightRange);
                 ChunkCodec::SetDimension(id, d.minY, d.heightRange);
             }
         });
 
         On<ChunkRadiusUpdatePacket>([this](const ChunkRadiusUpdatePacket& p) {
             grantedRadius = p.chunkRadius;
-            std::cout << "[chunk] server granted chunk radius " << p.chunkRadius << " (asked " << chunkRadius << ")"
-                      << std::endl;
+            Log("chunk", "server granted chunk radius {} (asked {})", p.chunkRadius, chunkRadius);
             if (p.chunkRadius < chunkRadius)
-                std::cout << "[chunk] the server limits the view distance to " << p.chunkRadius
-                          << " chunks; LODs can only show terrain the server sends" << std::endl;
+                Log("chunk", "the server limits the view distance to {} chunks; LODs can only show terrain the server sends", p.chunkRadius);
         });
 
         On<ItemRegistryPacket>([this](const ItemRegistryPacket& p) {
@@ -547,11 +533,11 @@ namespace perlin {
             if (p.itemstates.empty()) {
                 std::lock_guard lock(statusMutex);
                 if (!itemNames.empty()) {
-                    std::cout << "[items] ignoring an empty item registry" << std::endl;
+                    Log("items", "ignoring an empty item registry");
                     return;
                 }
             }
-            std::cout << "[items] server defines " << RegisterCustomItems(p.itemstates) << " custom items" << std::endl;
+            Log("items", "server defines {} custom items", RegisterCustomItems(p.itemstates));
             {
                 std::lock_guard lock(statusMutex);
                 itemNames.clear();
@@ -581,7 +567,7 @@ namespace perlin {
         });
 
         On<SetTimePacket>([this](const SetTimePacket& p) {
-            std::cout << "[bedrock] SetTime " << p.time << std::endl;
+            Log("bedrock", "SetTime {}", p.time);
             NoteTime(p.time);
         });
 
@@ -591,15 +577,13 @@ namespace perlin {
                 for (const WorldClockData& clock : p.clocks)
                     if (clock.id == kOverworldClockId || clock.name == "minecraft:overworld") {
                         overworldClockId = clock.id;
-                        std::cout << "[bedrock] clock init " << clock.name << " time=" << clock.time
-                                  << " paused=" << clock.paused << std::endl;
+                        Log("bedrock", "clock init {} time={} paused={}", clock.name, clock.time, clock.paused);
                         NoteClock(clock.time, clock.paused);
                     }
             } else if (p.payloadType == SyncWorldClocksPacketPayloadType::SyncState) {
                 for (const SyncWorldClockStateData& state : p.syncStates)
                     if (state.clockId == overworldClockId || state.clockId == kOverworldClockId) {
-                        std::cout << "[bedrock] clock sync time=" << state.time << " paused=" << state.paused
-                                  << std::endl;
+                        Log("bedrock", "clock sync time={} paused={}", state.time, state.paused);
                         NoteClock(state.time, state.paused);
                     }
             }
@@ -607,8 +591,7 @@ namespace perlin {
 
         On<ChangeDimensionPacket>([this](const ChangeDimensionPacket& p) {
             entities.Clear();
-            std::cout << "[bedrock] ChangeDimension " << dimensionId.load() << " -> " << p.dimension << " pos=("
-                      << p.position.x << "," << p.position.y << "," << p.position.z << ")" << std::endl;
+            Log("bedrock", "ChangeDimension {} -> {} pos=({},{},{})", dimensionId.load(), p.dimension, p.position.x, p.position.y, p.position.z);
             dimensionId = p.dimension;
             ResetWorldForDimension();
             if (SaneWorldPos(p.position.x, p.position.y, p.position.z)) {
@@ -846,10 +829,7 @@ namespace perlin {
         On<SetSpawnPositionPacket>([this](const SetSpawnPositionPacket& p) {
             const BlockCoordinates& world = p.worldPosition;
             const int32_t worldY = static_cast<int32_t>(world.y);
-            std::cout << "[bedrock] SetSpawnPosition type=" << static_cast<int>(p.spawnType) << " pos=("
-                      << p.playerPosition.x << "," << static_cast<int32_t>(p.playerPosition.y) << ","
-                      << p.playerPosition.z << ") dim=" << p.dimension << " spawn=(" << world.x << ","
-                      << worldY << "," << world.z << ")" << std::endl;
+            Log("bedrock", "SetSpawnPosition type={} pos=({},{},{}) dim={} spawn=({},{},{})", static_cast<int>(p.spawnType), p.playerPosition.x, static_cast<int32_t>(p.playerPosition.y), p.playerPosition.z, p.dimension, world.x, worldY, world.z);
             if (worldY < 1000) {
                 worldSpawn[0] = world.x;
                 worldSpawn[1] = worldY;
@@ -867,10 +847,7 @@ namespace perlin {
             if (blockLogs < 400 || PERLIN_ENV("PERLIN_BLOCK_DEBUG")) {
                 if (blockLogs < 400)
                     ++blockLogs;
-                std::cout << "[block] update_block (" << p.position.x << "," << p.position.y << "," << p.position.z << ") layer " << p.layer
-                          << " id " << static_cast<int32_t>(p.blockRuntimeId) << " "
-                          << BlockPalette::Instance().Name(BlockPalette::Instance().InternRuntime(static_cast<int32_t>(p.blockRuntimeId)))
-                          << " afterAuthTick=" << LastAuthTick() << std::endl;
+                Log("block", "update_block ({},{},{}) layer {} id {} {} afterAuthTick={}", p.position.x, p.position.y, p.position.z, p.layer, static_cast<int32_t>(p.blockRuntimeId), BlockPalette::Instance().Name(BlockPalette::Instance().InternRuntime(static_cast<int32_t>(p.blockRuntimeId))), LastAuthTick());
             }
             NoteUnknownBlock(static_cast<int32_t>(p.blockRuntimeId));
             if (p.layer == 0)
@@ -983,15 +960,14 @@ namespace perlin {
 
         On<DeathInfoPacket>([this](const DeathInfoPacket& p) {
             const std::string text = ui::FormatTextPacket(2, true, std::string(), p.cause, p.messages);
-            std::cout << "[bedrock] death_info " << p.cause << " -> " << text << std::endl;
+            Log("bedrock", "death_info {} -> {}", p.cause, text);
             std::lock_guard<std::mutex> lk(deathMutex);
             deathCause = text;
             deathPending = true;
         });
 
         On<RespawnPacket>([this](const RespawnPacket& p) {
-            std::cout << "[bedrock] Respawn pos=(" << p.position.x << "," << p.position.y << ","
-                      << p.position.z << ") state=" << static_cast<int>(p.state) << std::endl;
+            Log("bedrock", "Respawn pos=({},{},{}) state={}", p.position.x, p.position.y, p.position.z, static_cast<int>(p.state));
             if (p.state != 1)
                 return;
             {
@@ -1018,7 +994,7 @@ namespace perlin {
             done.position = {0, 0, 0};
             done.resultPosition = {0, 0, 0};
             done.face = -1;
-            std::cout << "[bedrock] respawn ready -> PlayerAction Respawn" << std::endl;
+            Log("bedrock", "respawn ready -> PlayerAction Respawn");
             Send(done);
         });
 
@@ -1034,12 +1010,9 @@ namespace perlin {
             haveLastAuthPos = false;
             ArmPredictionSync();
             if (correctionsReceived++ < 5 || correctionsReceived % 100 == 0)
-                std::cout << "[move] server correction #" << correctionsReceived << " tick=" << p.tick << " pos=("
-                          << p.position.x << "," << p.position.y << "," << p.position.z << ") delta=("
-                          << p.delta.x << "," << p.delta.y << "," << p.delta.z << ")" << std::endl;
+                Log("move", "server correction #{} tick={} pos=({},{},{}) delta=({},{},{})", correctionsReceived.load(), p.tick, p.position.x, p.position.y, p.position.z, p.delta.x, p.delta.y, p.delta.z);
             if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                std::cout << "[move] correction_received #" << correctionsReceived
-                          << " tick=" << p.tick << " afterAuthTick=" << LastAuthTick() << std::endl;
+                Log("move", "correction_received #{} tick={} afterAuthTick={}", correctionsReceived.load(), p.tick, LastAuthTick());
             ServerMotion motion;
             motion.poseChanged = true;
             motion.correction = true;
@@ -1064,8 +1037,7 @@ namespace perlin {
             motion.velocity[2] = p.velocity.z;
             QueueServerMotion(motion);
             if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                std::cout << "[move] motion_received tick=" << p.tick << " afterAuthTick=" << LastAuthTick()
-                          << " velocity=(" << p.velocity.x << ',' << p.velocity.y << ',' << p.velocity.z << ')' << std::endl;
+                Log("move", "motion_received tick={} afterAuthTick={} velocity=({},{},{})", p.tick, LastAuthTick(), p.velocity.x, p.velocity.y, p.velocity.z);
             NoteKnockback(p.velocity.x, p.velocity.z);
         });
 
@@ -1090,7 +1062,7 @@ namespace perlin {
                 for (char& c : flat)
                     if (c == '\n')
                         c = '|';
-                std::cout << "[npcname] addplayer rid=" << p.runtimeId << " user=" << flat << std::endl;
+                Log("npcname", "addplayer rid={} user={}", p.runtimeId, flat);
             }
             ApplyMetadata(entities, p.runtimeId, p.metadata);
             ApplyEntityProperties(p.runtimeId, "minecraft:player", p.properties);
@@ -1119,7 +1091,7 @@ namespace perlin {
 
         On<VoxelShapesPacket>([](const VoxelShapesPacket& p) {
             VoxelShapeRegistry::Instance().Set(p);
-            std::cout << "[bedrock] VoxelShapes: " << p.shapes.size() << " shapes, " << p.nameMap.size() << " named" << std::endl;
+            Log("bedrock", "VoxelShapes: {} shapes, {} named", p.shapes.size(), p.nameMap.size());
         });
 
         On<AddItemEntityPacket>([this](const AddItemEntityPacket& p) {
@@ -1357,7 +1329,7 @@ namespace perlin {
             if (runtimeId != 0 && p.runtimeEntityId == runtimeId && p.eventId == EntityEventPacketEventId::HurtAnimation)
                 NoteHurt();
             if (runtimeId != 0 && p.runtimeEntityId == runtimeId && p.eventId == EntityEventPacketEventId::DeathAnimation) {
-                std::cout << "[bedrock] own death animation" << std::endl;
+                Log("bedrock", "own death animation");
                 std::lock_guard<std::mutex> lk(deathMutex);
                 if (lastHealth <= 0.01f)
                     deathPending = true;
@@ -1461,7 +1433,7 @@ namespace perlin {
             entities.SetVehicle(rider, p.link.type == 0 ? 0 : p.link.riddenEntityId);
             if (rider == static_cast<int64_t>(uniqueId))
                 ridingUid = p.link.type == 0 ? 0 : p.link.riddenEntityId;
-            std::cout << "[bedrock] link rider=" << rider << " vehicle=" << p.link.riddenEntityId << " type=" << int(p.link.type) << std::endl;
+            Log("bedrock", "link rider={} vehicle={} type={}", rider, p.link.riddenEntityId, int(p.link.type));
         });
 
         On<UpdateAbilitiesPacket>([this](const UpdateAbilitiesPacket& p) {
@@ -1486,8 +1458,7 @@ namespace perlin {
             mayFly = fly;
             isFlying = flying;
             noClip = clip;
-            std::cout << "[bedrock] abilities mayFly=" << mayFly << " flying=" << isFlying
-                      << " noclip=" << noClip << " fly=" << flySpeed << std::endl;
+            Log("bedrock", "abilities mayFly={} flying={} noclip={} fly={}", mayFly, isFlying, noClip, flySpeed);
         });
 
         On<UpdatePlayerGameTypePacket>([this](const UpdatePlayerGameTypePacket& p) {

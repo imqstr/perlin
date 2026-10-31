@@ -5,6 +5,7 @@
 
 #include "util/Json.hpp"
 #include "world/level/block/BlockPalette.hpp"
+#include "util/FileIo.hpp"
 
 #include <algorithm>
 #include <array>
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include "util/Log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -21,12 +23,6 @@ namespace perlin {
     namespace {
         using Mat3 = std::array<std::array<float, 3>, 3>;
 
-        std::string ReadAll(const fs::path& p) {
-            std::ifstream f(p, std::ios::binary);
-            if (!f)
-                return {};
-            return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-        }
 
         Mat3 Identity() { return {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}; }
         Mat3 Mul(const Mat3& a, const Mat3& b) {
@@ -128,7 +124,7 @@ namespace perlin {
                 return sv->kind == BlockPalette::StateValue::String ? !sv->s.empty() : sv->i != 0;
             std::string op;
             for (const char* o : {"==", "!=", ">=", "<=", ">", "<"})
-                if (rest.rfind(o, 0) == 0) {
+                if (rest.starts_with(o)) {
                     op = o;
                     break;
                 }
@@ -242,7 +238,7 @@ namespace perlin {
             const bool isGeometry = name.size() >= 14 && name.compare(name.size() - 14, 14, ".geometry.json") == 0;
             if (!isGeo && !isGeometry)
                 continue;
-            const auto doc = json::Document::Parse(ReadAll(entry.path()), true);
+            const auto doc = json::Document::Parse(file::Read(entry.path()), true);
             if (!doc)
                 continue;
             const json::View root = doc->root();
@@ -302,7 +298,7 @@ namespace perlin {
                 }
             } else {
                 for (const auto m : root.members())
-                    if (m.key.rfind("geometry.", 0) == 0)
+                    if (m.key.starts_with("geometry."))
                         addGeometry(m.key, m.value, true);
             }
         }
@@ -433,7 +429,7 @@ namespace perlin {
             return;
 
         std::unordered_map<std::string, std::string> terrain;
-        if (const auto doc = json::Document::Parse(ReadAll(packRoot + "/textures/terrain_texture.json"), true)) {
+        if (const auto doc = json::Document::Parse(file::Read(packRoot + "/textures/terrain_texture.json"), true)) {
             const json::View root = doc->root();
             const json::View data = root.contains("texture_data") ? root["texture_data"] : root;
             for (const auto m : data.members()) {
@@ -455,7 +451,7 @@ namespace perlin {
         for (const auto& entry : fs::recursive_directory_iterator(blocksDir, ec)) {
             if (!entry.is_regular_file() || entry.path().extension() != ".json")
                 continue;
-            const auto doc = json::Document::Parse(ReadAll(entry.path()), true);
+            const auto doc = json::Document::Parse(file::Read(entry.path()), true);
             if (!doc)
                 continue;
             const json::View def = doc->root()["minecraft:block"];
@@ -684,7 +680,7 @@ namespace perlin {
             terrainKey = key;
             customTerrain.clear();
             for (const std::string& root : packRoots) {
-                const auto terrainDoc = json::Document::Parse(ReadAll(root + "/textures/terrain_texture.json"), true);
+                const auto terrainDoc = json::Document::Parse(file::Read(root + "/textures/terrain_texture.json"), true);
                 if (!terrainDoc)
                     continue;
                 const json::View troot = terrainDoc->root();
@@ -765,7 +761,7 @@ namespace perlin {
             }
             if (eff.hasGeometry) {
                 auto git = geometries.find(eff.geometry);
-                if (git == geometries.end() && eff.geometry.rfind("minecraft:", 0) == 0)
+                if (git == geometries.end() && eff.geometry.starts_with("minecraft:"))
                     git = geometries.find(eff.geometry.substr(10));
                 if (git == geometries.end())
                     git = geometries.find("minecraft:" + eff.geometry);
@@ -780,8 +776,7 @@ namespace perlin {
                         {
                             std::lock_guard<std::mutex> reportLock(reportMutex);
                             if (reported.insert(name).second)
-                                std::cout << "[perf] block " << name << " has " << entry.quads.size()
-                                          << " quads; keeping the " << kMaxQuadsPerBlock << " largest" << std::endl;
+                                Log("perf", "block {} has {} quads; keeping the {} largest", name, entry.quads.size(), kMaxQuadsPerBlock);
                         }
                         const auto area = [](const ModelQuad& q) {
                             const float ax = q.pos[1][0] - q.pos[0][0], ay = q.pos[1][1] - q.pos[0][1], az = q.pos[1][2] - q.pos[0][2];

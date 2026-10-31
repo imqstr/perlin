@@ -6,6 +6,7 @@
 #include "util/Env.hpp"
 #include "util/Paths.hpp"
 #include "client/entity/EntityQuery.hpp"
+#include "client/entity/JavaAnimation.hpp"
 #include "client/hand/HandRenderer.hpp"
 #include "client/ui/ItemData.hpp"
 
@@ -25,6 +26,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin::entity {
     namespace {
@@ -193,10 +195,7 @@ namespace perlin::entity {
         std::string tag;
         glm::mat4 armR{1.0f}, armL{1.0f};
         bool hasArmR = false, hasArmL = false;
-        bool bodyInit = false;
-        float body = 0, bodyPrev = 0;
-        double bodyTickAcc = 0;
-        glm::dvec3 bodyTickPos{0.0};
+        java::PlayerBodyClock body;
         CapeChain cape;
     };
 
@@ -231,7 +230,7 @@ namespace perlin::entity {
             sy = -0.2f;
         const double yawRad = glm::radians(static_cast<double>(v.yaw));
         const glm::dvec3 forward(-std::sin(yawRad), 0.0, std::cos(yawRad)), side(std::cos(yawRad), 0.0, std::sin(yawRad));
-        const bool rails = v.type.find("boat") != std::string::npos || v.type.find("minecart") != std::string::npos;
+        const bool rails = v.type.contains("boat") || v.type.contains("minecart");
         double lift = rails ? 0.1 : 0.0;
         if (playerRider && !rails)
             lift -= v.type == "minecraft:cushion" ? 0.35 : 0.6;
@@ -249,7 +248,7 @@ namespace perlin::entity {
             if (it == byUid.end())
                 continue;
             const Entity& v = entities[it->second];
-            const bool rails = v.type.find("boat") != std::string::npos || v.type.find("minecart") != std::string::npos;
+            const bool rails = v.type.contains("boat") || v.type.contains("minecart");
             e.pos = SeatPosition(v, e.isPlayer);
             e.flags |= flag::Riding;
             e.onGround = true;
@@ -408,27 +407,9 @@ namespace perlin::entity {
         return 0;
     }
 
-    void EntityRenderer::TickPlayerBody(View& v, float dt, float prevYaw) {
-        const float look = v.headYaw;
-        if (!v.bodyInit) {
-            v.bodyInit = true;
-            v.body = v.bodyPrev = look;
-            v.bodyTickPos = v.pos;
-        }
-        const double xd = v.pos.x - v.bodyTickPos.x, zd = v.pos.z - v.bodyTickPos.z;
-        v.bodyTickPos = v.pos;
-        const float speed = static_cast<float>(std::sqrt(xd * xd + zd * zd)) / std::max(dt, 0.001f);
-        v.bodyTickAcc += (speed - static_cast<float>(v.bodyTickAcc)) * std::min(1.0f, dt * 12.0f);
-        const bool moving = v.bodyTickAcc > 0.35 || v.attackTime > 0.0f;
-        const float tau = moving ? 0.045f : 0.09f;
-        const float cap = moving ? 30.0f : 40.0f;
-        float diff = WrapDegrees(look - v.body);
-        v.body += diff * (1.0f - std::exp(-dt / tau));
-        diff = WrapDegrees(look - v.body);
-        if (std::fabs(diff) > cap)
-            v.body += diff - (diff > 0.0f ? cap : -cap);
-        v.body = WrapDegrees(v.body);
-        v.yaw = v.body;
+    void EntityRenderer::TickPlayerBody(const Entity& e, View& v, float dt, float prevYaw) {
+        // v.yaw holds the server yaw here: what a ridden vehicle turns the body toward
+        v.yaw = v.body.Frame(v.pos.x, v.pos.z, v.headYaw, dt, v.attackTime > 0.0f, e.Has(flag::Riding), v.yaw);
         v.yawSpeed = WrapDegrees(v.yaw - prevYaw) / std::max(dt, 0.001f);
     }
 
@@ -530,8 +511,8 @@ namespace perlin::entity {
             v.yawSpeed = 0.0f;
         }
 
-        if (e.isPlayer && e.isSelf && !v.fp)
-            TickPlayerBody(v, dt, prevYaw);
+        if (e.isPlayer && !v.fp)
+            TickPlayerBody(e, v, dt, prevYaw);
 
         const glm::dvec3 step = v.pos - v.lastPos;
         const float horizontal = static_cast<float>(std::sqrt(step.x * step.x + step.z * step.z));
@@ -722,7 +703,7 @@ namespace perlin::entity {
                 if (st == controller->states.end())
                     return;
                 if (PERLIN_ENV("PERLIN_POSE_DEBUG"))
-                    std::cout << "[ctrl] " << id << " state " << cs.state << std::endl;
+                    Log("ctrl", "{} state {}", id, cs.state);
                 const std::string childPath = path + id + "/" + cs.state + "/";
                 for (const auto& [animShort, blend] : st->second.animations) {
                     const float w = blend ? static_cast<float>(blend->Number(scope)) : 1.0f;
@@ -746,12 +727,12 @@ namespace perlin::entity {
             }
             host->animTime = static_cast<float>(since);
             if (PERLIN_ENV("PERLIN_POSE_DEBUG"))
-                std::cout << "[anim] " << e.type << " " << id << " w=" << weight << std::endl;
+                Log("anim", "{} {} w={}", e.type, id, weight);
             attachable::Apply(*a, scope, static_cast<float>(since), weight, pose, restRotation, defaultTranslation);
         };
         for (const auto& entry : def.animate) {
             const float w = entry.weight ? static_cast<float>(entry.weight->Number(scope)) : 1.0f;
-            if (entry.name.rfind("ctrl:", 0) == 0) {
+            if (entry.name.starts_with("ctrl:")) {
                 if (const auto c = def.controllers.find(entry.name.substr(5)); c != def.controllers.end())
                     runId(c->second, w, 0, "");
             } else {
@@ -780,8 +761,6 @@ namespace perlin::entity {
         host.bodyYaw = v.yaw;
         host.headYaw = v.headYaw;
         host.pitch = v.pitch;
-        if (v.fp)
-            host.bodyYaw = host.headYaw = host.pitch = 0.0f;
         host.life = static_cast<float>(in.time - v.born);
         host.dx = static_cast<float>(v.pos.x - v.lastPos.x) * 20.0f;
         host.dy = static_cast<float>(v.pos.y - v.lastPos.y) * 20.0f;
@@ -892,15 +871,14 @@ namespace perlin::entity {
         RunAnimations(e, v, *def, pose, in, bindGeometry);
         if (PERLIN_ENV("PERLIN_POSE_DEBUG"))
             for (const auto& [bn, xf] : pose)
-                std::cout << "[pose] " << e.type << " " << bn << " rot " << xf.rotation.x << "," << xf.rotation.y << "," << xf.rotation.z
-                          << " pos " << xf.position.x << "," << xf.position.y << "," << xf.position.z << std::endl;
-        if (PERLIN_ENV("PERLIN_JAVA_ANIMATIONS") && e.isPlayer && e.Has(flag::Riding) && v.swimAmount < 0.01f && v.lieAmount < 0.01f) {
+                Log("pose", "{} {} rot {},{},{} pos {},{},{}", e.type, bn, xf.rotation.x, xf.rotation.y, xf.rotation.z, xf.position.x, xf.position.y, xf.position.z);
+        if (e.isPlayer && e.Has(flag::Riding) && v.swimAmount < 0.01f && v.lieAmount < 0.01f) {
             pose["rightleg"].rotation = {-81.0f, -18.0f, -4.5f};
             pose["leftleg"].rotation = {-81.0f, 18.0f, 4.5f};
             pose["rightarm"].rotation.x += -36.0f;
             pose["leftarm"].rotation.x += -36.0f;
         }
-        if (PERLIN_ENV("PERLIN_JAVA_ANIMATIONS") && e.isPlayer && !v.fp && e.Has(flag::Sneaking) && v.swimAmount < 0.01f && v.lieAmount < 0.01f && !e.Has(flag::Riding))
+        if (e.isPlayer && !v.fp && e.Has(flag::Sneaking) && v.swimAmount < 0.01f && v.lieAmount < 0.01f && !e.Has(flag::Riding))
             ApplyJavaCrouch(pose, bindGeometry);
         if (e.isPlayer && e.isSelf) {
             const SkinParts& parts = in.ownParts;
@@ -1008,7 +986,7 @@ namespace perlin::entity {
             if (!geometry) {
                 if (!warned[geometryId]) {
                     warned[geometryId] = true;
-                    std::cout << "[entity] geometry " << geometryId << " not found for " << e.type << std::endl;
+                    Log("entity", "geometry {} not found for {}", geometryId, e.type);
                 }
                 return;
             }
@@ -1120,9 +1098,7 @@ namespace perlin::entity {
                 static const bool debug = PERLIN_ENV("PERLIN_ENTITY_DEBUG") != nullptr;
                 if (debug && !warned["dbg:" + e.type + controllerId + group]) {
                     warned["dbg:" + e.type + controllerId + group] = true;
-                    std::cout << "[entity] " << e.type << " controller " << controllerId << " geometry " << geometryId << " texture "
-                              << layer.texture << " material " << group << " quads " << mesh.body.size() << " (bones "
-                              << geometry->bones.size() << ")" << std::endl;
+                    Log("entity", "{} controller {} geometry {} texture {} material {} quads {} (bones {})", e.type, controllerId, geometryId, layer.texture, group, mesh.body.size(), geometry->bones.size());
                 }
                 Layer copy = layer;
                 const auto named = def->materials.find(group);
@@ -1163,7 +1139,7 @@ namespace perlin::entity {
                         return f;
                     }();
                     const glm::mat4 fpFix = v.fp ? glm::scale(glm::mat4(1.0f), fpScale) : glm::mat4(1.0f);
-                    const glm::mat4 bone = (part.texture.rfind("textures/entity/", 0) == 0
+                    const glm::mat4 bone = (part.texture.starts_with("textures/entity/")
                                                ? boneWorld * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, kAttachDrop, 0.0f))
                                                : boneWorld) * fpFix;
                     layer.material = assets.materialLibrary.Find("entity_alphatest");
@@ -1197,7 +1173,7 @@ namespace perlin::entity {
                 if (!found)
                     found = itemRenderer->ArmorAttachable(item, geometryId, texture);
                 if (PERLIN_ENV("PERLIN_ARMOR_DEBUG"))
-                    std::cout << "[armor] " << item << " found=" << found << " geo=" << geometryId << " tex=" << texture << std::endl;
+                    Log("armor", "{} found={} geo={} tex={}", item, found, geometryId, texture);
                 if (!found)
                     continue;
                 const attachable::Geometry* geometry = assets.geometries.Find(geometryId);
@@ -1206,7 +1182,7 @@ namespace perlin::entity {
                 if (!geometry) {
                     if (!warned["armor:" + geometryId]) {
                         warned["armor:" + geometryId] = true;
-                        std::cout << "[entity] armour geometry " << geometryId << " not found" << std::endl;
+                        Log("entity", "armour geometry {} not found", geometryId);
                     }
                     continue;
                 }
@@ -1249,7 +1225,7 @@ namespace perlin::entity {
                     glm::vec3 lo(1e9f), hi(-1e9f);
                     for (const auto& q : mesh.body)
                         for (const auto& pt : q.p) { lo = glm::min(lo, pt); hi = glm::max(hi, pt); }
-                    std::cout << "[armor]   quads=" << mesh.body.size() << " bones=" << geometry->bones.size() << " lo=" << lo.x << "," << lo.y << "," << lo.z << " hi=" << hi.x << "," << hi.y << "," << hi.z << std::endl;
+                    Log("armor", "  quads={} bones={} lo={},{},{} hi={},{},{}", mesh.body.size(), geometry->bones.size(), lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
                 }
                 if (mesh.body.empty())
                     continue;
@@ -1366,7 +1342,7 @@ namespace perlin::entity {
                     }
                     else if (!warned[layer.texture]) {
                         warned[layer.texture] = true;
-                        std::cout << "[entity] texture " << layer.texture << " not found" << std::endl;
+                        Log("entity", "texture {} not found", layer.texture);
                     }
                     it = textures.emplace(key, id).first;
                 }
@@ -1374,8 +1350,7 @@ namespace perlin::entity {
             }
             if (PERLIN_ENV("PERLIN_ENTITY_DEBUG") && !warned["draw:" + e.type + layer.texture]) {
                 warned["draw:" + e.type + layer.texture] = true;
-                std::cout << "[entity]   draw " << e.type << " tex " << layer.texture << " id " << texture << " scale " << scale << " pos "
-                          << v.pos.x << "," << v.pos.y << "," << v.pos.z << " quads " << layer.quads.size() << std::endl;
+                Log("entity", "  draw {} tex {} id {} scale {} pos {},{},{} quads {}", e.type, layer.texture, texture, scale, v.pos.x, v.pos.y, v.pos.z, layer.quads.size());
             }
             if (!texture)
                 continue;
@@ -1486,7 +1461,7 @@ namespace perlin::entity {
         float scale = 1.0f;
         const bool built = Build(e, v, in, layers, scale);
         if (PERLIN_ENV("PERLIN_FP_DEBUG"))
-            std::cout << "[fp] built=" << built << " layers=" << layers.size() << " main='" << e.mainHand << "'" << std::endl;
+            Log("fp", "built={} layers={} main='{}'", built, layers.size(), e.mainHand);
         if (built) {
             const float eyeBlocks = e.Has(flag::Sneaking) ? 1.27f : 1.62f;
             static const float eyeOverride = PERLIN_ENV("PERLIN_FPEYE") ? static_cast<float>(std::atof(PERLIN_ENV("PERLIN_FPEYE"))) : 20.0f;
@@ -1505,8 +1480,7 @@ namespace perlin::entity {
                             const glm::vec3 w = glm::vec3(m * glm::vec4(pt, 1.0f));
                             mlo = glm::min(mlo, w); mhi = glm::max(mhi, w);
                         }
-                    std::cout << "[fp] layer " << l.texture << " quads=" << l.quads.size() << " model " << lo.x << "," << lo.y << "," << lo.z << " .. " << hi.x << "," << hi.y << "," << hi.z
-                              << " view " << mlo.x << "," << mlo.y << "," << mlo.z << " .. " << mhi.x << "," << mhi.y << "," << mhi.z << std::endl;
+                    Log("fp", "layer {} quads={} model {},{},{} .. {},{},{} view {},{},{} .. {},{},{}", l.texture, l.quads.size(), lo.x, lo.y, lo.z, hi.x, hi.y, hi.z, mlo.x, mlo.y, mlo.z, mhi.x, mhi.y, mhi.z);
                 }
             fpModel = &m;
             Draw(e, v, layers, scale, in);
@@ -1544,17 +1518,17 @@ namespace perlin::entity {
 
     void EntityRenderer::DrawShadow(const glm::dvec3& pos, float radius, float strength, const FrameIn& in) {
         if (PERLIN_ENV("PERLIN_SHADOW_DEBUG"))
-            std::cout << "[shadow-0] " << (in.groundY ? 1 : 0) << " r " << radius << std::endl;
+            Log("shadow-0", "{} r {}", (in.groundY ? 1 : 0), radius);
         if (!in.groundY || radius <= 0.0f)
             return;
         const double ground = in.groundY(pos.x, pos.y + 0.5, pos.z);
         if (PERLIN_ENV("PERLIN_SHADOW_DEBUG"))
-            std::cout << "[shadow-g] y " << pos.y << " ground " << ground << std::endl;
+            Log("shadow-g", "y {} ground {}", pos.y, ground);
         if (ground < -500.0)
             return;
         const float height = static_cast<float>(pos.y - ground);
         if (PERLIN_ENV("PERLIN_SHADOW_DEBUG"))
-            std::cout << "[shadow-in] y " << pos.y << " ground " << ground << " r " << radius << std::endl;
+            Log("shadow-in", "y {} ground {} r {}", pos.y, ground, radius);
         if (height < -0.5f || height > 2.0f * radius * 2.0f + 8.0f)
             return;
         const double camDist2 = glm::dot(pos - in.camera, pos - in.camera);
@@ -1568,7 +1542,7 @@ namespace perlin::entity {
         }
         alpha = std::clamp(alpha, 0.0f, 1.0f);
         if (PERLIN_ENV("PERLIN_SHADOW_DEBUG"))
-            std::cout << "[shadow] pos " << pos.y << " ground " << ground << " alpha " << alpha << " r " << radius << std::endl;
+            Log("shadow", "pos {} ground {} alpha {} r {}", pos.y, ground, alpha, radius);
         if (alpha <= 0.004f)
             return;
         if (!shadowTexture) {
@@ -2023,9 +1997,7 @@ namespace perlin::entity {
                             for (char& c : flat)
                                 if (c == '\n')
                                     c = '|';
-                            std::cout << "[nametag] draw rid=" << e.runtimeId << " type=" << e.type
-                                      << (e.isPlayer ? " player" : "") << " taglen=" << e.nameTag.size()
-                                      << " text=" << flat << std::endl;
+                            Log("nametag", "draw rid={} type={}{} taglen={} text={}", e.runtimeId, e.type, (e.isPlayer ? " player" : ""), e.nameTag.size(), flat);
                         }
                     }
                     const auto hb = HitBox(e);
@@ -2114,7 +2086,7 @@ namespace perlin::entity {
                 unrenderable++;
                 if (!warned["build:" + e.type]) {
                     warned["build:" + e.type] = true;
-                    std::cout << "[entity] cannot render " << e.type << (assets.Entity(e.type) ? " (no usable layer)" : " (no definition)") << std::endl;
+                    Log("entity", "cannot render {}{}", e.type, (assets.Entity(e.type) ? " (no usable layer)" : " (no definition)"));
                 }
                 continue;
             }
@@ -2128,7 +2100,7 @@ namespace perlin::entity {
         }
         shadowOnlyPass = false;
         if (PERLIN_ENV("PERLIN_PROFILE") && ++gEntityProfFrames >= 120) {
-            std::cout << "[profile] entity build=" << gEntityProf[0] / gEntityProfFrames << " draw=" << gEntityProf[1] / gEntityProfFrames << " shadow+rest=" << gEntityProf[2] / gEntityProfFrames << std::endl;
+            Log("profile", "entity build={} draw={} shadow+rest={}", gEntityProf[0] / gEntityProfFrames, gEntityProf[1] / gEntityProfFrames, gEntityProf[2] / gEntityProfFrames);
             gEntityProf[0] = gEntityProf[1] = gEntityProf[2] = 0;
             gEntityProfFrames = 0;
         }
@@ -2431,13 +2403,13 @@ namespace perlin::entity {
             Texture t;
             uint32_t id = 0;
             bool loaded = ui::UiAssets::Instance().Image(path, t);
-            if (!loaded && path.starts_with("bed_") && path.find('/') == std::string::npos)
+            if (!loaded && path.starts_with("bed_") && !path.contains('/'))
                 loaded = LoadTexture(paths::DataDir() + "/assets/" + path, t);
             if (loaded && t.width > 0)
                 id = renderer->UiCreateTexture(t.width, t.height, t.pixels.data(), false);
             else if (!warned[path]) {
                 warned[path] = true;
-                std::cout << "[entity] texture " << path << " not found" << std::endl;
+                Log("entity", "texture {} not found", path);
             }
             it = textures.emplace(path, id).first;
         }

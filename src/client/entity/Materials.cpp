@@ -1,8 +1,8 @@
 #include "client/entity/Materials.hpp"
+#include "util/Strings.hpp"
 
 namespace perlin::entity {
     namespace {
-        std::string Lower(std::string s) { return material::Lower(std::move(s)); }
     }
 
     MaterialInfo MaterialLibrary::Builtin(const std::string& rawName) {
@@ -29,7 +29,7 @@ namespace perlin::entity {
         else if (def.Define("ALPHA_TEST"))
             m.blend = MaterialInfo::Blend::AlphaTest;
         else
-            m.blend = !def.sourcePass.empty() || Lower(def.name).rfind("opaque", 0) == 0
+            m.blend = !def.sourcePass.empty() || str::Lower(def.name).starts_with("opaque")
                 ? MaterialInfo::Blend::Opaque : MaterialInfo::Blend::AlphaTest;
         m.customBlend = blending && def.blendSet;
         m.blendSrc = def.blendSrc;
@@ -47,7 +47,7 @@ namespace perlin::entity {
         m.glint = def.Define("GLINT");
         m.hurtTint = def.Define("USE_OVERLAY") && !additive;
         m.emissive = def.Define("USE_ONLY_EMISSIVE") || additive ? 2 : def.Define("USE_EMISSIVE") ? 1 : 0;
-        if (def.Define("USE_COLOR_MASK") || Lower(def.name) == "sheep") {
+        if (def.Define("USE_COLOR_MASK") || str::Lower(def.name) == "sheep") {
             m.colorMask = true;
             if (!blending)
                 m.blend = MaterialInfo::Blend::AlphaTest;
@@ -71,6 +71,6 @@ namespace perlin::entity {
     MaterialInfo MaterialLibrary::Find(const std::string& name) const {
         if (const material::Def* d = db.Find(name))
             return InfoFromDef(*d);
-        return Builtin(Lower(name));
+        return Builtin(str::Lower(name));
     }
 }

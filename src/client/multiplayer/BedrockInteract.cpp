@@ -9,6 +9,7 @@
 #include <vector>
 #include "world/level/block/BlockPalette.hpp"
 #include "client/player/BlockUse.hpp"
+#include "util/Log.hpp"
 
 namespace perlin {
     using namespace proto;
@@ -54,10 +55,7 @@ namespace perlin {
             u.blockRuntimeId = loaded ? static_cast<uint32_t>(BlockPalette::Instance().RuntimeId(clicked)) : 0;
         }
         haveLoggedInteraction = true;
-        std::cout << "[place] use item on (" << bx << "," << by << "," << bz << ") face " << face << " clicked id " << u.blockRuntimeId
-                  << " held " << u.heldItem.networkId << " x" << static_cast<int>(u.heldItem.count) << " block " << u.heldItem.blockRuntimeId
-                  << " use " << (use == 2 ? "place" : use == 1 ? "interact" : "nothing") << " dest (" << dest[0] << "," << dest[1] << "," << dest[2]
-                  << ")" << std::endl;
+        Log("place", "use item on ({},{},{}) face {} clicked id {} held {} x{} block {} use {} dest ({},{},{})", bx, by, bz, face, u.blockRuntimeId, u.heldItem.networkId, static_cast<int>(u.heldItem.count), u.heldItem.blockRuntimeId, (use == 2 ? "place" : use == 1 ? "interact" : "nothing"), dest[0], dest[1], dest[2]);
         if (use != 0 && !itemUseOnActive.exchange(true)) {
             PlayerActionPacket start;
             start.runtimeEntityId = runtimeId;
@@ -174,7 +172,7 @@ namespace perlin {
         a.playerPos = V(eye);
         a.clickPos = V(click);
         p.transaction.transactionData = a;
-        std::cout << "[interact] entity " << targetRuntimeId << std::endl;
+        Log("interact", "entity {}", targetRuntimeId);
         return Send(p);
     }
 
@@ -189,7 +187,7 @@ namespace perlin {
         p.actionId = InteractPacketActionId::LeaveVehicle;
         p.targetEntityId = vehicle.runtimeId;
         p.hasPosition = false;
-        std::cout << "[interact] leave vehicle " << vehicle.runtimeId << std::endl;
+        Log("interact", "leave vehicle {}", vehicle.runtimeId);
         return Send(p);
     }
 
@@ -275,8 +273,7 @@ namespace perlin {
         a.randomly = false;
         r.actions.push_back(a);
         r.cause = static_cast<ItemStackRequestCause>(-1);
-        std::cout << "[inventory] drop request " << r.requestId << " slot " << slot << " stack " << a.source.stackId << " count "
-                  << static_cast<int>(a.count) << " form " << attempt << std::endl;
+        Log("inventory", "drop request {} slot {} stack {} count {} form {}", r.requestId, slot, a.source.stackId, static_cast<int>(a.count), attempt);
         p.requests.push_back(std::move(r));
         return Send(p);
     }
@@ -300,7 +297,7 @@ namespace perlin {
         auto& palette = BlockPalette::Instance();
         const uint16_t held = palette.InternRuntime(heldRuntimeId);
         const std::string name = palette.Name(held);
-        if (!name.starts_with("minecraft:") || !name.ends_with("_slab") || name.find("double") != std::string::npos)
+        if (!name.starts_with("minecraft:") || !name.ends_with("_slab") || name.contains("double"))
             return PredictPlace(x, y, z, heldRuntimeId);
         if (face < 0 || face > 5 || !std::isfinite(click[1])) return false;
         const bool upper = blockuse::IsUpperSlabPlacement(face, click[1]);
@@ -342,15 +339,15 @@ namespace perlin {
                                                  "turtle_egg", "snow_layer", "pointed_dripstone", "amethyst_cluster", "bud", "coral", "kelp", "seagrass"};
         if (!resolvedSlab)
             for (const char* skip : kSkipNames)
-                if (name.find(skip) != std::string::npos)
+                if (name.contains(skip))
                     return false;
         static const char* const kSkipStates[] = {"facing_direction", "direction", "cardinal_direction", "vertical_half", "upside_down_bit",
                                                   "top_slot_bit", "pillar_axis", "attached_bit", "hanging", "open_bit", "powered_bit"};
         for (const auto& [key, value] : pal.States(local)) {
             (void)value;
-            if (resolvedSlab && (key.find("top_slot_bit") != std::string::npos || key.find("vertical_half") != std::string::npos)) continue;
+            if (resolvedSlab && (key.contains("top_slot_bit") || key.contains("vertical_half"))) continue;
             for (const char* skip : kSkipStates)
-                if (key.find(skip) != std::string::npos)
+                if (key.contains(skip))
                     return false;
         }
         bool loaded = false;
@@ -386,7 +383,7 @@ namespace perlin {
             bool loaded = false;
             if (netLevel.GetBlock(p.x, p.y, p.z, loaded) == p.id && loaded) {
                 netLevel.SetBlock(p.x, p.y, p.z, p.previous);
-                std::cout << "[place] the server never confirmed the block at (" << p.x << "," << p.y << "," << p.z << "); reverted" << std::endl;
+                Log("place", "the server never confirmed the block at ({},{},{}); reverted", p.x, p.y, p.z);
             }
         }
     }
@@ -416,9 +413,7 @@ namespace perlin {
         }
         {
             auto& pal = BlockPalette::Instance();
-            std::cout << "[place] server put block " << runtimeId << " (" << pal.Name(pal.InternRuntime(runtimeId)) << ") at (" << x << "," << y << ","
-                      << z << "), we placed with block id " << held << " (" << pal.Name(pal.InternRuntime(held)) << ")"
-                      << (runtimeId != held ? "  <-- different" : "") << std::endl;
+            Log("place", "server put block {} ({}) at ({},{},{}), we placed with block id {} ({}){}", runtimeId, pal.Name(pal.InternRuntime(runtimeId)), x, y, z, held, pal.Name(pal.InternRuntime(held)), (runtimeId != held ? "  <-- different" : ""));
         }
     }
 }
@@ -434,7 +429,7 @@ namespace perlin {
         if (std::find(seen.begin(), seen.end(), networkId) != seen.end() || seen.size() > 200)
             return;
         seen.push_back(networkId);
-        std::cout << "[block] server sent block id " << networkId << " that matches no known block state" << std::endl;
+        Log("block", "server sent block id {} that matches no known block state", networkId);
     }
 }
 
@@ -457,7 +452,7 @@ namespace perlin {
         p.actionId = InteractPacketActionId::OpenInventory;
         p.targetEntityId = runtimeId;
         p.hasPosition = false;
-        std::cout << "[inventory] open (Interact OpenInventory, runtime id " << runtimeId << ")" << std::endl;
+        Log("inventory", "open (Interact OpenInventory, runtime id {})", runtimeId);
         return Send(p);
     }
 
@@ -470,7 +465,7 @@ namespace perlin {
         p.actionId = InteractPacketActionId::OpenInventory;
         p.targetEntityId = mount.runtimeId;
         p.hasPosition = false;
-        std::cout << "[inventory] open mount inventory (target " << mount.runtimeId << ")" << std::endl;
+        Log("inventory", "open mount inventory (target {})", mount.runtimeId);
         return Send(p);
     }
 
@@ -496,7 +491,7 @@ namespace perlin {
         p.windowId = static_cast<WindowID>(window);
         p.windowType = WindowType::Inventory;
         p.server = false;
-        std::cout << "[inventory] close window " << window << std::endl;
+        Log("inventory", "close window {}", window);
         return Send(p);
     }
 
@@ -535,7 +530,7 @@ namespace perlin {
         nextStackRequestId -= 2;
         r.actions.push_back(act);
         r.cause = static_cast<ItemStackRequestCause>(-1);
-        std::cout << "[inventory] swap request " << r.requestId << " " << a << " <-> " << b << std::endl;
+        Log("inventory", "swap request {} {} <-> {}", r.requestId, a, b);
         p.requests.push_back(std::move(r));
         return Send(p);
     }

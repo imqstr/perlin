@@ -2,12 +2,14 @@
 #include "util/Env.hpp"
 
 #include "client/ui/Json.hpp"
+#include "util/FileIo.hpp"
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin::audio {
     namespace fs = std::filesystem;
@@ -26,15 +28,6 @@ namespace perlin::audio {
     }
 
     namespace {
-        bool ReadFile(const fs::path& p, std::string& out) {
-            std::ifstream f(p, std::ios::binary);
-            if (!f)
-                return false;
-            std::stringstream ss;
-            ss << f.rdbuf();
-            out = ss.str();
-            return true;
-        }
 
         void Range(const Json* j, float& lo, float& hi, float fallback) {
             lo = hi = fallback;
@@ -66,7 +59,7 @@ namespace perlin::audio {
                 return;
             for (const auto& [key, value] : events.object) {
                 EventSound e = ParseEvent(value);
-                if (!e.Valid() || e.sound.rfind("missing.", 0) == 0)
+                if (!e.Valid() || e.sound.starts_with("missing."))
                     continue;
                 e.volumeLo *= volumeScale;
                 e.volumeHi *= volumeScale;
@@ -214,19 +207,18 @@ namespace perlin::audio {
             return;
         const auto loadRoot = [&](const std::string& directory) {
             std::string text;
-            if (ReadFile(fs::path(directory) / "sounds" / "sound_definitions.json", text))
+            if (file::Read(fs::path(directory) / "sounds" / "sound_definitions.json", text))
                 LoadDefinitionsText(text);
-            if (ReadFile(fs::path(directory) / "sounds.json", text))
+            if (file::Read(fs::path(directory) / "sounds.json", text))
                 LoadSoundsText(text);
-            if (ReadFile(fs::path(directory) / "blocks.json", text))
+            if (file::Read(fs::path(directory) / "blocks.json", text))
                 LoadBlocksText(text);
         };
         loadRoot(root);
         // Directories are highest priority first, as for textures and JSON UI.
         for (auto it = packRoots.rbegin(); it != packRoots.rend(); ++it)
             loadRoot(*it);
-        std::cout << "[audio] " << definitions.size() << " sound definitions, " << blockEvents.size() << " block sound types, "
-                  << entityEvents.size() << " entities with sounds" << std::endl;
+        Log("audio", "{} sound definitions, {} block sound types, {} entities with sounds", definitions.size(), blockEvents.size(), entityEvents.size());
     }
 
     std::string SoundSystem::BlockSoundType(const std::string& blockName) const {
@@ -296,7 +288,7 @@ namespace perlin::audio {
                     cacheBytes += pcm->samples.size() * sizeof(int16_t);
                 } else if (!warned[file]) {
                     warned[file] = true;
-                    std::cout << "[audio] cannot decode " << file << ext << ": " << error << std::endl;
+                    Log("audio", "cannot decode {}{}: {}", file, ext, error);
                 }
                 break;
             }
@@ -305,7 +297,7 @@ namespace perlin::audio {
         }
         if (!result && !warned[file]) {
             warned[file] = true;
-            std::cout << "[audio] sound file " << file << " not found" << std::endl;
+            Log("audio", "sound file {} not found", file);
         }
         if (cacheBytes > 192u * 1024u * 1024u) {
             cache.clear();
@@ -322,7 +314,7 @@ namespace perlin::audio {
             if (!warned["def:" + definition]) {
                 warned["def:" + definition] = true;
                 if (PERLIN_ENV("PERLIN_AUDIO_DEBUG"))
-                    std::cout << "[audio] no sound definition " << definition << std::endl;
+                    Log("audio", "no sound definition {}", definition);
             }
             return false;
         }

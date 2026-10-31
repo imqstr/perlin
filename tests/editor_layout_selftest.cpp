@@ -25,7 +25,7 @@ int main() {
         }
         const EditorBuilt b = BuildEditorRml(m, gw, gh);
         const EditorLayout l = ComputeEditorLayout(gw, gh);
-        assert(!b.rml.empty() && b.rml.find("</rml>") != std::string::npos);
+        assert(!b.rml.empty() && b.rml.contains("</rml>"));
         bool play = false, key = false, ruler = false;
         for (const EditorHit& h : b.hits) {
             play = play || h.id == "t_play";

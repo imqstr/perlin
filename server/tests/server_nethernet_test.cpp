@@ -107,7 +107,7 @@ namespace {
         }
 
         auto answer = http.Post("/v1/join/12345", offer, "application/sdp");
-        CHECK(answer && answer->status == 200 && answer->body.rfind("v=", 0) == 0);
+        CHECK(answer && answer->status == 200 && answer->body.starts_with("v="));
         if (!answer || answer->status != 200) {
             if (answer)
                 std::fprintf(stderr, "answer status %d: %s\n", answer->status, answer->body.c_str());
@@ -211,6 +211,7 @@ int main() {
     ServerConfig config;
     config.port = kPort;
     config.bindAddress = "127.0.0.1";
+    config.generator = "flat";
     config.terrainBackend = "cpu";
     config.iceServers = {"none"};
     config.iceBindAddress = "127.0.0.1";

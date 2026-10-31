@@ -80,7 +80,7 @@ namespace perlin::jshader {
                 RhiSampler r;
                 r.name = s.name;
                 r.slot = s.binding;
-                r.shadow = s.type.find("Shadow") != std::string::npos;
+                r.shadow = s.type.contains("Shadow");
                 samplers[s.name] = r;
             }
         for (const auto& kv : samplers)
@@ -159,7 +159,7 @@ namespace perlin::jshader {
             if (colon == std::string::npos) continue;
             std::string sem = line.substr(colon + 3);
             while (!sem.empty() && (sem.back() == ';' || sem.back() == '\r' || sem.back() == ' ')) sem.pop_back();
-            if (vsBody.find(" : " + sem + ";") != std::string::npos) continue;
+            if (vsBody.contains(" : " + sem + ";")) continue;
             size_t t0 = line.find_first_not_of(" \t");
             std::string decl = line.substr(t0, colon - t0);
             size_t sp = decl.rfind(' ');
@@ -233,7 +233,7 @@ namespace perlin::jshader {
                         if (end == std::string::npos)
                             end = err.size();
                         const std::string line = err.substr(at, end - at);
-                        if (line.find("error") != std::string::npos && errors.size() < 1200)
+                        if (line.contains("error") && errors.size() < 1200)
                             errors += line + "\n";
                         at = end + 1;
                     }

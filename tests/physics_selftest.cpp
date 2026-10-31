@@ -1237,13 +1237,22 @@ int main() {
         entry.lookY = 0;
         for (int tick = 1; tick <= 14; ++tick) {
             Step(enteringSwim, entry, attr, water);
-            if (tick == 2 || tick == 8) {
+            // the jump lift keeps carrying a body that is leaving the surface: it climbs every tick instead of stalling
+            if (tick == 1) {
                 CHECK(Near(enteringSwim.y, 193.035, 0.0001));
-                CHECK(enteringSwim.vy == 0);
+                CHECK(Near(enteringSwim.vy, 0.028, 0.0000001));
+            }
+            if (tick == 2) {
+                CHECK(Near(enteringSwim.y, 193.103, 0.0001));
+                CHECK(Near(enteringSwim.vy, 0.0544, 0.0000001));
+            }
+            if (tick == 8) {
+                CHECK(Near(enteringSwim.y, 193.9134, 0.0001));
+                CHECK(Near(enteringSwim.vy, 0.1323176, 0.0000001));
             }
         }
-        CHECK(Near(enteringSwim.y, 193.363, 0.001));
-        CHECK(Near(enteringSwim.vy, 0.094464, 0.0000001));
+        CHECK(Near(enteringSwim.y, 195.0113, 0.001));
+        CHECK(Near(enteringSwim.vy, 0.15274325, 0.0000001));
 
         TestWorld surface;
         surface.fn = [](int, int y, int) {
@@ -1260,8 +1269,9 @@ int main() {
         Input surfaceJump = entry;
         surfaceJump.headInWater = false;
         Step(headAboveWater, surfaceJump, attr, surface);
-        CHECK(headAboveWater.inWater && headAboveWater.vy == 0);
-        CHECK(Near(headAboveWater.y, 0.65, 0.000001));
+        // jumping at the surface still lifts: the body rises instead of holding still
+        CHECK(headAboveWater.inWater && Near(headAboveWater.vy, 0.136, 0.0000001));
+        CHECK(Near(headAboveWater.y, 0.82, 0.00001));
 
         TestWorld tunnel;
         tunnel.fn = [](int, int y, int z) {

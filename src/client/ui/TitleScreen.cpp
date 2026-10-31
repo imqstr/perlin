@@ -560,7 +560,7 @@ mcimg { display: block; position: absolute; }
             }
             if (list.empty() && m.tab != ServerTab::Saved) {
                 std::string msg = m.tabMessage;
-                const bool busy = msg.rfind("Scanning", 0) == 0 || msg.rfind("Loading", 0) == 0;
+                const bool busy = msg.starts_with("Scanning") || msg.starts_with("Loading");
                 if (busy) {
                     while (!msg.empty() && msg.back() == '.')
                         msg.pop_back();
@@ -722,7 +722,7 @@ mcimg { display: block; position: absolute; }
 
     std::string BuildTitleRml(const TitleModel& m, int guiW, int guiH) {
         std::string out = ScreenTemplate("title_screen.rml", kStyle);
-        if (m.oreUi && out.find("</style>") != std::string::npos)
+        if (m.oreUi && out.contains("</style>"))
             out.insert(out.find("</style>"), ore::Styles());
         ReplaceAll(out, "w", std::to_string(guiW));
         ReplaceAll(out, "h", std::to_string(guiH));

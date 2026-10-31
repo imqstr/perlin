@@ -1,4 +1,5 @@
 #include "client/resources/SampleDownload.hpp"
+#include "util/Log.hpp"
 
 #ifndef __EMSCRIPTEN__
 #include <SDL3/SDL_iostream.h>
@@ -84,7 +85,7 @@ namespace {
         if (res.status == 404)
             return true;
         if (res.status != 200) {
-            std::cout << "[samples] listing " << dir << " failed (" << res.status << ")" << std::endl;
+            perlin::Log("samples", "listing {} failed ({})", dir, res.status);
             return false;
         }
         perlin::ui::Json json;
@@ -174,7 +175,7 @@ namespace {
                 const size_t n = ++done;
                 job.filesDone = n;
                 if (n % 500 == 0)
-                    std::cout << "[samples] " << label << " " << n << "/" << total << std::endl;
+                    perlin::Log("samples", "{} {}/{}", label, n, total);
             }
         };
         std::vector<std::thread> threads;
@@ -182,14 +183,14 @@ namespace {
             threads.emplace_back(worker);
         for (std::thread& t : threads)
             t.join();
-        std::cout << "[samples] " << label << " done, " << failed.load() << " failed of " << total << std::endl;
+        perlin::Log("samples", "{} done, {} failed of {}", label, failed.load(), total);
         return failed.load() == 0;
     }
 
     bool Wanted(const std::string& rel) {
         if (rel.empty() || rel.back() == '/')
             return false;
-        if (rel.rfind("resource_pack/", 0) == 0 && rel.find('/', 14) == std::string::npos)
+        if (rel.starts_with("resource_pack/") && rel.find('/', 14) == std::string::npos)
             return true;
         for (const std::string& dir : Directories())
             if (rel.size() > dir.size() && rel.compare(0, dir.size(), dir) == 0 && rel[dir.size()] == '/')
@@ -201,7 +202,7 @@ namespace {
         perlin::assets::Job& job = perlin::assets::Samples();
         mz_zip_archive zip{};
         if (!mz_zip_reader_init_file(&zip, zipPath.string().c_str(), 0)) {
-            std::cout << "[samples] the downloaded archive is not a valid zip" << std::endl;
+            perlin::Log("samples", "the downloaded archive is not a valid zip");
             return false;
         }
         const mz_uint count = mz_zip_reader_get_num_files(&zip);
@@ -222,7 +223,7 @@ namespace {
         }
         mz_zip_reader_end(&zip);
         if (!found) {
-            std::cout << "[samples] the archive has no resource_pack/blocks.json" << std::endl;
+            perlin::Log("samples", "the archive has no resource_pack/blocks.json");
             return false;
         }
         for (mz_uint i = 0; i < count; i++) {
@@ -252,7 +253,7 @@ namespace {
                 const fs::path target = repo / entries[k].second;
                 fs::create_directories(target.parent_path(), ec);
                 if (!mz_zip_reader_extract_to_file(&z, entries[k].first, target.string().c_str(), 0)) {
-                    std::cout << "[samples] could not extract " << entries[k].second << std::endl;
+                    perlin::Log("samples", "could not extract {}", entries[k].second);
                     failed = true;
                     break;
                 }
@@ -266,7 +267,7 @@ namespace {
             pool.emplace_back(work);
         for (std::thread& t : pool)
             t.join();
-        std::cout << "[samples] extracted " << job.filesDone.load() << " of " << entries.size() << " files" << std::endl;
+        perlin::Log("samples", "extracted {} of {} files", job.filesDone.load(), entries.size());
         return !failed;
     }
 
@@ -277,21 +278,21 @@ namespace {
         const size_t tagAt = latest.rfind("/tag/");
         const std::string tag = tagAt != std::string::npos ? latest.substr(tagAt + 5) : std::string("v1.26.30.5");
         if (tagAt == std::string::npos)
-            std::cout << "[samples] could not read the latest release; using " << tag << std::endl;
+            perlin::Log("samples", "could not read the latest release; using {}", tag);
         const std::string url = std::string("https://github.com/") + kRepository + "/releases/download/" + tag + "/bedrock-samples-" + tag + "-full.zip";
         const fs::path zipPath = fs::path(targetDir) / ("bedrock-samples-" + tag + ".zip");
-        std::cout << "[samples] downloading " << tag << " (one archive, parallel chunks)" << std::endl;
+        perlin::Log("samples", "downloading {} (one archive, parallel chunks)", tag);
         job.stage = perlin::assets::Stage::Downloading;
         const auto started = std::chrono::steady_clock::now();
         perlin::download::Options options;
         options.connections = 12;
         options.chunkBytes = 4ull << 20;
         if (!perlin::download::Fetch(url, zipPath, &job.bytes, options)) {
-            std::cout << "[samples] archive download failed" << std::endl;
+            perlin::Log("samples", "archive download failed");
             return false;
         }
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-        std::cout << "[samples] " << job.bytes.total.load() / (1024 * 1024) << " MB in " << secs << " s" << std::endl;
+        perlin::Log("samples", "{} MB in {} s", job.bytes.total.load() / (1024 * 1024), secs);
         const fs::path repo = fs::path(targetDir) / "repo";
         std::error_code ec;
         fs::create_directories(repo, ec);
@@ -309,7 +310,7 @@ namespace {
         const std::string text(static_cast<const char*>(data), size);
         SDL_free(data);
         if (glz::read<glz::opts{.error_on_unknown_keys = false}>(manifest, text)) {
-            std::cout << "[samples] assets-manifest.json is malformed" << std::endl;
+            perlin::Log("samples", "assets-manifest.json is malformed");
             return false;
         }
         const std::string prefix = manifest.baseUrl.empty() ? "/" + manifest.repository + "/" + manifest.ref + "/" : manifest.baseUrl;
@@ -335,7 +336,7 @@ namespace perlin {
                     return false;
             if (extra.empty())
                 return true;
-            std::cout << "[samples] fetching " << extra.size() << " files missing from the release archive" << std::endl;
+            perlin::Log("samples", "fetching {} files missing from the release archive", extra.size());
             perlin::assets::Samples().stage = perlin::assets::Stage::Downloading;
             perlin::assets::Samples().bytes.total = 0;
             return FetchAll(std::string("/") + kRepository + "/" + kBranch + "/", extra, fs::path(targetDir) / "repo", "extra");
@@ -344,7 +345,7 @@ namespace perlin {
         if (DownloadFromManifest(targetDir))
             return true;
 #endif
-        std::cout << "[samples] falling back to downloading files one by one" << std::endl;
+        perlin::Log("samples", "falling back to downloading files one by one");
         perlin::assets::Samples().bytes.total = 0;
         perlin::assets::Samples().stage = perlin::assets::Stage::Downloading;
         const fs::path repo = fs::path(targetDir) / "repo";
@@ -362,7 +363,7 @@ namespace perlin {
         for (const std::string& dir : Directories())
             if (!CollectDirectory(dir, files))
                 return false;
-        std::cout << "[samples] downloading " << files.size() << " files" << std::endl;
+        perlin::Log("samples", "downloading {} files", files.size());
         const std::string prefix = std::string("/") + kRepository + "/" + kBranch + "/";
         return FetchAll(prefix, files, repo, "samples");
     }

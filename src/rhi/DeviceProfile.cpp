@@ -46,7 +46,7 @@ namespace rhi {
         bool Contains(const std::string& haystack, const char* needle) {
             std::string h = haystack;
             std::transform(h.begin(), h.end(), h.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            return h.find(needle) != std::string::npos;
+            return h.contains(needle);
         }
 
         // vulkan implemented on top of another api, or in software: works, but never beats the native path

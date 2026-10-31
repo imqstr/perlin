@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
                                                 "water_ledge_exit"};
             bool skip = false;
             for (const char* k : kSkip)
-                skip = skip || scenario.find(k) != std::string::npos;
+                skip = skip || scenario.contains(k);
             if (skip)
                 continue;
             bad("x", state.x, px, 1e-5);

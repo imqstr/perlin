@@ -49,7 +49,7 @@ namespace rhi::webgpu {
         }
     }
 
-    // ---- barriers: the queue orders everything, so these only keep the statistics honest
+    // barriers: the queue orders everything, so these only keep the statistics honest
 
     void WebGpuCommandList::Barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) {
         device.MutableStats().barriers += textures.size() + buffers.size();
@@ -57,7 +57,6 @@ namespace rhi::webgpu {
     void WebGpuCommandList::UavBarrier(BufferHandle) { device.MutableStats().barriers++; }
     void WebGpuCommandList::UavBarrier(TextureHandle) { device.MutableStats().barriers++; }
 
-    // ---- copies
 
     void WebGpuCommandList::CopyBuffer(BufferHandle dst, uint64_t dstOffset, BufferHandle src, uint64_t srcOffset, uint64_t size) {
         EndPass();
@@ -194,7 +193,6 @@ namespace rhi::webgpu {
         wgpuRenderPassEncoderRelease(pass);
     }
 
-    // ---- passes
 
     void WebGpuCommandList::BeginRendering(const RenderingDesc& desc) {
         EndPass();
@@ -266,7 +264,6 @@ namespace rhi::webgpu {
 
     void WebGpuCommandList::EndRendering() { EndPass(); }
 
-    // ---- state
 
     void WebGpuCommandList::SetPipeline(PipelineHandle p) {
         pipeline = p;
@@ -457,7 +454,6 @@ namespace rhi::webgpu {
         DrawIndexedIndirect(args, offset, maxDraws, stride);
     }
 
-    // ---- compute
 
     void WebGpuCommandList::Dispatch(uint32_t x, uint32_t y, uint32_t z) {
         const Pipeline* p = device.pipelines.Get(pipeline);

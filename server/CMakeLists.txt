@@ -57,7 +57,17 @@ if(NOT TARGET miniz)
     FetchContent_MakeAvailable(miniz)
 endif()
 
+# the client builds these as plain static libraries; they go into a shared library here
+foreach(dep perlin_protocol miniz)
+    if(TARGET ${dep})
+        set_target_properties(${dep} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+endforeach()
+
 set(PS_SOURCES
+    src/core/Access.cpp
+    src/core/Commands.cpp
+    src/core/CommandsBuiltin.cpp
     src/core/Auth.cpp
     src/core/CApi.cpp
     src/core/Config.cpp
@@ -75,31 +85,37 @@ set(PS_SOURCES
     src/world/Blocks.cpp
     src/world/Chunk.cpp
     src/world/ChunkManager.cpp
-    src/world/Generator.cpp)
+    src/world/Generator.cpp
+    src/world/vanilla/DataPack.cpp
+    src/world/vanilla/DensityFunction.cpp
+    src/world/vanilla/Noise.cpp
+    src/world/vanilla/VanillaTerrain.cpp
+    src/world/vanilla/OverworldShapeData.cpp
+    src/world/vanilla/BiomeData.cpp
+    src/world/vanilla/VanillaSurface.cpp
+    src/world/vanilla/VanillaFeatures.cpp
+    src/world/vanilla/FeatureData.cpp
+    src/gpu/VanillaGpuProgram.cpp)
 
-# wasm runtime: the client's own wrapper, so plugins run on the same engine
+# wasm runtime: wasm3 through the client's own wrapper (WasmRuntimeWasm3.cpp), so plugins behave the same.
+# it is plain c with no dependencies, which keeps it safe to link into a shared library next to the client's WasmEdge
 if(NOT PERLIN_SERVER_EXTERNAL_WASM)
-    if(TARGET perlin_wasmedge)
-        list(APPEND PS_SOURCES "${PERLIN_ROOT}/src/client/mods/WasmRuntime.cpp")
-        set(PS_WASM_LIB perlin_wasmedge)
-    else()
-        if(NOT TARGET wasm3_core)
-            FetchContent_Declare(wasm3 GIT_REPOSITORY https://github.com/wasm3/wasm3.git GIT_TAG 28ecb9af6d2040e474a70f7cb7f43666740141fb)
-            FetchContent_GetProperties(wasm3)
-            if(NOT wasm3_POPULATED)
-                FetchContent_Populate(wasm3)
-            endif()
-            file(GLOB WASM3_CORE_SOURCES "${wasm3_SOURCE_DIR}/source/*.c")
-            list(FILTER WASM3_CORE_SOURCES EXCLUDE REGEX "m3_api_")
-            add_library(wasm3_core STATIC ${WASM3_CORE_SOURCES})
-            target_include_directories(wasm3_core PUBLIC "${wasm3_SOURCE_DIR}/source")
-            target_compile_definitions(wasm3_core PRIVATE d_m3HasTracer=0)
-            target_compile_options(wasm3_core PRIVATE -w)
-            set_target_properties(wasm3_core PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 11)
+    if(NOT TARGET wasm3_core)
+        FetchContent_Declare(wasm3 GIT_REPOSITORY https://github.com/wasm3/wasm3.git GIT_TAG 28ecb9af6d2040e474a70f7cb7f43666740141fb)
+        FetchContent_GetProperties(wasm3)
+        if(NOT wasm3_POPULATED)
+            FetchContent_Populate(wasm3)
         endif()
-        list(APPEND PS_SOURCES "${PERLIN_ROOT}/src/client/mods/WasmRuntimeWasm3.cpp")
-        set(PS_WASM_LIB wasm3_core)
+        file(GLOB WASM3_CORE_SOURCES "${wasm3_SOURCE_DIR}/source/*.c")
+        list(FILTER WASM3_CORE_SOURCES EXCLUDE REGEX "m3_api_")
+        add_library(wasm3_core STATIC ${WASM3_CORE_SOURCES})
+        target_include_directories(wasm3_core PUBLIC "${wasm3_SOURCE_DIR}/source")
+        target_compile_definitions(wasm3_core PRIVATE d_m3HasTracer=0)
+        target_compile_options(wasm3_core PRIVATE -w)
+        set_target_properties(wasm3_core PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 11)
     endif()
+    list(APPEND PS_SOURCES "${PERLIN_ROOT}/src/client/mods/WasmRuntimeWasm3.cpp")
+    set(PS_WASM_LIB wasm3_core)
 endif()
 
 if(PERLIN_SERVER_NETHERNET)
@@ -122,7 +138,7 @@ else()
 endif()
 
 if(PERLIN_SERVER_GPU)
-    list(APPEND PS_SOURCES src/gpu/GpuTerrainRhi.cpp "${CMAKE_CURRENT_BINARY_DIR}/gpu/terrain_pack.cpp")
+    list(APPEND PS_SOURCES src/gpu/GpuTerrainRhi.cpp src/gpu/GpuVanillaRhi.cpp "${CMAKE_CURRENT_BINARY_DIR}/gpu/terrain_pack.cpp")
     # the rhi (vulkan / d3d12 / metal behind one interface) is the client's own
     if(NOT TARGET perlin_rhi)
         set(PERLIN_RHI_D3D12 OFF CACHE BOOL "" FORCE)
@@ -159,9 +175,10 @@ if(PERLIN_SERVER_GPU)
         COMMAND "${Python3_EXECUTABLE}" -I "${PERLIN_ROOT}/tools/pack_shaders.py" --slangc "${PERLIN_SLANGC}"
                 --slots "${CMAKE_CURRENT_BINARY_DIR}/gpu/slots.json" --targets spirv
                 -o "${CMAKE_CURRENT_BINARY_DIR}/gpu/terrain.pack" "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/shaders/terrain_flat.slang"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/shaders/terrain_vanilla.slang"
         COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_bytes.py" "${CMAKE_CURRENT_BINARY_DIR}/gpu/terrain.pack"
                 "${CMAKE_CURRENT_BINARY_DIR}/gpu/terrain_pack.cpp" kTerrainShaderPack
-        DEPENDS src/gpu/shaders/terrain_flat.slang tools/embed_bytes.py "${PERLIN_ROOT}/tools/pack_shaders.py"
+        DEPENDS src/gpu/shaders/terrain_flat.slang src/gpu/shaders/terrain_vanilla.slang tools/embed_bytes.py "${PERLIN_ROOT}/tools/pack_shaders.py"
         COMMENT "Compiling the terrain compute shader" VERBATIM)
 else()
     list(APPEND PS_SOURCES src/gpu/GpuTerrainStub.cpp)
@@ -180,7 +197,12 @@ if(PS_WASM_LIB)
     target_link_libraries(perlin_server_core PRIVATE ${PS_WASM_LIB})
 endif()
 if(PERLIN_SERVER_NETHERNET)
-    target_link_libraries(perlin_server_core PRIVATE datachannel)
+    # the client builds libdatachannel static (position independent) and shared; the static one keeps the library self contained
+    if(TARGET datachannel-static)
+        target_link_libraries(perlin_server_core PRIVATE datachannel-static OpenSSL::SSL)
+    else()
+        target_link_libraries(perlin_server_core PRIVATE datachannel)
+    endif()
     target_include_directories(perlin_server_core PRIVATE "${httplib_SOURCE_DIR}")
     target_compile_definitions(perlin_server_core PRIVATE CPPHTTPLIB_THREAD_POOL_COUNT=16)
 endif()
@@ -189,10 +211,20 @@ if(PERLIN_SERVER_GPU)
     target_include_directories(perlin_server_core PRIVATE "${PERLIN_ROOT}/src")
     target_compile_definitions(perlin_server_core PRIVATE PERLIN_SERVER_GPU=1)
 endif()
+if(WIN32)
+    target_compile_definitions(perlin_server_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(perlin_server_core PRIVATE ws2_32 crypt32 bcrypt iphlpapi)
+endif()
 if(MSVC)
     target_compile_options(perlin_server_core PRIVATE /W4 /utf-8)
 else()
     target_compile_options(perlin_server_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+
+# float results must match java's strict ieee arithmetic bit for bit: no fused multiply-add
+if(NOT MSVC)
+    set_source_files_properties(src/world/vanilla/Noise.cpp src/world/vanilla/DensityFunction.cpp src/world/vanilla/VanillaTerrain.cpp src/world/vanilla/VanillaSurface.cpp
+    src/gpu/VanillaGpuProgram.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 
 if(PERLIN_SERVER_BUILD_SHARED)
@@ -200,12 +232,31 @@ if(PERLIN_SERVER_BUILD_SHARED)
     target_link_libraries(perlin_server PRIVATE perlin_server_core)
     target_compile_definitions(perlin_server PRIVATE PERLIN_SERVER_BUILD_SHARED)
     set_target_properties(perlin_server PROPERTIES CXX_VISIBILITY_PRESET hidden)
-    if(NOT MSVC)
-        target_link_options(perlin_server PRIVATE -Wl,--whole-archive "$<TARGET_FILE:perlin_server_core>" -Wl,--no-whole-archive)
-    else()
+    # the exported c api lives in the static core: keep every object of it in the library
+    if(MSVC)
         target_link_options(perlin_server PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:perlin_server_core>")
+    elseif(APPLE)
+        target_link_options(perlin_server PRIVATE "LINKER:-force_load,$<TARGET_FILE:perlin_server_core>")
+    else()
+        target_link_options(perlin_server PRIVATE -Wl,--whole-archive "$<TARGET_FILE:perlin_server_core>" -Wl,--no-whole-archive)
     endif()
     add_dependencies(perlin_server perlin_server_core)
+    # in the client's tree the library sits next to the executable, which is where singleplayer loads it from
+    # (a post-build step has to be declared in the directory that owns the target, so it is here and not in the root)
+    if(NOT PERLIN_SERVER_STANDALONE AND TARGET Perlin)
+        add_custom_command(TARGET perlin_server POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:perlin_server> $<TARGET_FILE_DIR:Perlin>
+            VERBATIM)
+    endif()
+endif()
+
+# release builds on Linux carry no symbol tables
+if(UNIX AND NOT APPLE)
+    foreach(t perlin_server perlin-server)
+        if(TARGET ${t})
+            target_link_options(${t} PRIVATE $<$<CONFIG:Release>:-s>)
+        endif()
+    endforeach()
 endif()
 
 if(PERLIN_SERVER_BUILD_EXE)
@@ -224,6 +275,33 @@ if(PERLIN_SERVER_BUILD_TESTS)
         DEPENDS examples/hello_server/hello_server.c sdk/perlin_server.h examples/hello_server/build.sh
         COMMENT "Building the example plugin" VERBATIM)
     add_custom_target(server_example_plugin DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/hello_server.wasm")
+
+    # the java terrain port: checked number for number against the real engine's output (tools/javaref)
+    add_executable(vanilla_noise_test tests/vanilla_noise_test.cpp)
+    target_include_directories(vanilla_noise_test PRIVATE src)
+    target_link_libraries(vanilla_noise_test PRIVATE perlin_server_core miniz OpenSSL::Crypto Threads::Threads)
+    add_test(NAME vanilla_noise_test COMMAND vanilla_noise_test)
+    add_executable(vanilla_terrain_test tests/vanilla_terrain_test.cpp)
+    target_include_directories(vanilla_terrain_test PRIVATE src)
+    target_link_libraries(vanilla_terrain_test PRIVATE perlin_server_core miniz OpenSSL::Crypto Threads::Threads)
+    add_test(NAME vanilla_terrain_test COMMAND vanilla_terrain_test)
+    add_executable(vanilla_density_test tests/vanilla_density_test.cpp)
+    target_include_directories(vanilla_density_test PRIVATE src)
+    target_link_libraries(vanilla_density_test PRIVATE perlin_server_core miniz OpenSSL::Crypto Threads::Threads)
+    add_test(NAME vanilla_density_test COMMAND vanilla_density_test "${PERLIN_ROOT}/tools/javaref/reference_seed12345.txt")
+    add_executable(vanilla_biome_test tests/vanilla_biome_test.cpp)
+    target_include_directories(vanilla_biome_test PRIVATE src)
+    target_link_libraries(vanilla_biome_test PRIVATE perlin_server_core miniz OpenSSL::Crypto Threads::Threads)
+    add_test(NAME vanilla_biome_test COMMAND vanilla_biome_test "${PERLIN_ROOT}/tools/javaref/biome_lookup_ref.txt")
+
+    add_executable(vanilla_features_test tests/vanilla_features_test.cpp)
+    target_include_directories(vanilla_features_test PRIVATE src)
+    target_link_libraries(vanilla_features_test PRIVATE perlin_server_core miniz OpenSSL::Crypto Threads::Threads)
+    add_test(NAME vanilla_features_test COMMAND vanilla_features_test)
+    add_executable(vanilla_gpu_test tests/vanilla_gpu_test.cpp)
+    target_include_directories(vanilla_gpu_test PRIVATE src "${PERLIN_ROOT}/src")
+    target_link_libraries(vanilla_gpu_test PRIVATE perlin_server_core miniz OpenSSL::Crypto Threads::Threads)
+    add_test(NAME vanilla_gpu_test COMMAND vanilla_gpu_test)
 
     add_executable(server_selftest tests/server_selftest.cpp ${PS_CLIENT_CHUNK_CODEC})
     target_include_directories(server_selftest PRIVATE src "${PERLIN_ROOT}/src")

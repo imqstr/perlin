@@ -2,6 +2,8 @@
 
 #include "client/ui/Json.hpp"
 #include "MaterialCatalog.hpp"
+#include "util/Strings.hpp"
+#include "util/FileIo.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -9,19 +11,15 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include "util/Log.hpp"
 
 namespace perlin::material {
     namespace fs = std::filesystem;
     using Json = ui::Json;
 
-    std::string Lower(std::string s) {
-        for (char& c : s)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return s;
-    }
 
     BlendFactor ParseBlendFactor(const std::string& raw, BlendFactor fallback) {
-        const std::string s = Lower(raw);
+        const std::string s = str::Lower(raw);
         if (s == "zero") return BlendFactor::Zero;
         if (s == "one") return BlendFactor::One;
         if (s == "sourcecolor" || s == "srccolor") return BlendFactor::SrcColor;
@@ -37,7 +35,7 @@ namespace perlin::material {
     }
 
     DepthFunc ParseDepthFunc(const std::string& raw) {
-        const std::string s = Lower(raw);
+        const std::string s = str::Lower(raw);
         if (s == "less") return DepthFunc::Less;
         if (s == "equal") return DepthFunc::Equal;
         if (s == "always") return DepthFunc::Always;
@@ -49,7 +47,7 @@ namespace perlin::material {
     }
 
     StencilFunc ParseStencilFunc(const std::string& raw) {
-        const std::string s = Lower(raw);
+        const std::string s = str::Lower(raw);
         if (s == "equal") return StencilFunc::Equal;
         if (s == "notequal") return StencilFunc::NotEqual;
         if (s == "less") return StencilFunc::Less;
@@ -61,7 +59,7 @@ namespace perlin::material {
     }
 
     StencilOp ParseStencilOp(const std::string& raw) {
-        const std::string s = Lower(raw);
+        const std::string s = str::Lower(raw);
         if (s == "replace") return StencilOp::Replace;
         if (s == "zero") return StencilOp::Zero;
         if (s == "incr" || s == "increment") return StencilOp::Increment;
@@ -92,12 +90,6 @@ namespace perlin::material {
                 st.passOp = ParseStencilOp(v->StringOr(""));
         }
 
-        std::string ReadFile(const fs::path& p) {
-            std::ifstream f(p, std::ios::binary);
-            std::stringstream ss;
-            ss << f.rdbuf();
-            return ss.str();
-        }
     }
 
     void Db::Apply(Def& def, const Json& json) {
@@ -201,7 +193,7 @@ namespace perlin::material {
         auto doc = std::make_unique<Json>();
         std::string error;
         if (!Json::Parse(text, *doc, error)) {
-            std::cout << "[material] parse failure: " << error << std::endl;
+            Log("material", "parse failure: {}", error);
             return;
         }
         const Json* table = doc->Find("materials");
@@ -248,7 +240,7 @@ namespace perlin::material {
             if (stem == "gameface" || stem == "hologram" || (stem == "fancy" && !fancy) || (stem == "sad" && fancy))
                 continue;
             const bool defineFancy = fancy && (stem == "fancy" || stem == "entity" || stem == "terrain" || stem == "portal");
-            AddText(ReadFile(p), defineFancy ? fancyDefine : std::set<std::string>());
+            AddText(file::Read(p), defineFancy ? fancyDefine : std::set<std::string>());
         }
     }
 
@@ -260,7 +252,7 @@ namespace perlin::material {
                 files.push_back(e.path());
         std::sort(files.begin(), files.end());
         for (const fs::path& p : files)
-            AddText(ReadFile(p), {});
+            AddText(file::Read(p), {});
     }
 
     const Def* Db::ResolveOne(const std::string& name) {
@@ -268,7 +260,7 @@ namespace perlin::material {
             return &it->second;
         const auto raw = rawIndex.find(name);
         if (raw == rawIndex.end()) {
-            if (const auto b = builtins.find(Lower(name)); b != builtins.end())
+            if (const auto b = builtins.find(str::Lower(name)); b != builtins.end())
                 return &b->second;
             return nullptr;
         }
@@ -279,12 +271,12 @@ namespace perlin::material {
         if (!r.parent.empty()) {
             const Def* parent = ResolveOne(r.parent);
             if (!parent)
-                parent = ResolveOne(Lower(r.parent));
+                parent = ResolveOne(str::Lower(r.parent));
             if (parent) {
                 def = *parent;
                 def.variants.clear();
             } else {
-                std::cout << "[material] " << r.name << " has unknown parent " << r.parent << std::endl;
+                Log("material", "{} has unknown parent {}", r.name, r.parent);
             }
         }
         def.name = r.name;
@@ -366,29 +358,29 @@ namespace perlin::material {
             d.vertexShader = source.vertex;
             d.fragmentShader = source.fragment;
             const std::string pass = source.pass;
-            if (pass.find("AlphaTest") != std::string::npos)
+            if (pass.contains("AlphaTest"))
                 d.defines.insert("ALPHA_TEST");
-            if (pass.find("Transparent") != std::string::npos) {
+            if (pass.contains("Transparent")) {
                 d.states.insert("Blending");
                 d.states.insert("DisableDepthWrite");
                 d.blendSet = true;
             }
-            if (pass.find("DepthOnly") != std::string::npos) {
+            if (pass.contains("DepthOnly")) {
                 d.states.insert("DisableColorWrite");
                 d.states.insert("DisableAlphaWrite");
             }
-            if (pass.find("Emissive") != std::string::npos)
+            if (pass.contains("Emissive"))
                 d.defines.insert("USE_EMISSIVE");
-            if (pass.find("EmissiveOnly") != std::string::npos)
+            if (pass.contains("EmissiveOnly"))
                 d.defines.insert("USE_ONLY_EMISSIVE");
-            if (pass.find("ColorMask") != std::string::npos)
+            if (pass.contains("ColorMask"))
                 d.defines.insert("USE_COLOR_MASK");
-            if (pass.find("Glint") != std::string::npos)
+            if (pass.contains("Glint"))
                 d.defines.insert("GLINT");
-            builtins.emplace(Lower(d.name), std::move(d));
+            builtins.emplace(str::Lower(d.name), std::move(d));
         }
         const auto alias = [&](const char* name, const char* family, const char* pass) -> Def& {
-            const std::string key = Lower(std::string(family) + "." + pass);
+            const std::string key = str::Lower(std::string(family) + "." + pass);
             const auto source = builtins.find(key);
             if (source == builtins.end())
                 throw std::runtime_error("Missing upstream material pass: " + key);
@@ -472,7 +464,7 @@ namespace perlin::material {
                 d.states.insert("DisableAlphaWrite");
                 if (fancy) d.defines.insert("FANCY");
                 if (d.Define("ALPHA_TEST")) d.states.insert("DisableCulling");
-                if (d.name.find("seasons") != std::string::npos) d.defines.insert("SEASONS");
+                if (d.name.contains("seasons")) d.defines.insert("SEASONS");
             }
             if (d.name == "terrain_blend_no_culling" || d.name == "arrow")
                 d.states.insert("DisableCulling");
@@ -716,7 +708,7 @@ namespace perlin::material {
     const Def* Db::Find(const std::string& name) const {
         if (const auto it = resolved.find(name); it != resolved.end())
             return &it->second;
-        if (const auto it = resolved.find(Lower(name)); it != resolved.end())
+        if (const auto it = resolved.find(str::Lower(name)); it != resolved.end())
             return &it->second;
         return nullptr;
     }

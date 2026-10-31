@@ -117,7 +117,7 @@ namespace perlin::server {
                 };
             if (name == "sched_yield" || name == "fd_close" || name == "fd_sync")
                 return status(0);
-            if (name.rfind("fd_", 0) == 0)
+            if (name.starts_with("fd_"))
                 return status(kWasiBadf);
             return status(kWasiNoSys);
         }

@@ -351,7 +351,7 @@ namespace perlin::ui {
                     continue;
                 w.Rect(0, top, width + 8, 9, 1, 0, 0, 0, 0.5f * l.alpha);
                 for (const HudState::ChatLine::Click& c : l.clicks) {
-                    const bool url = c.command.rfind("url:", 0) == 0;
+                    const bool url = c.command.starts_with("url:");
                     if (url)
                         w.Rect(4 + c.x, top + 9.0f, c.w, 1, 3, 0.33f, 0.55f, 1.0f, l.alpha);
                     if (url ? s.chatOpen : true)

@@ -26,7 +26,7 @@ namespace perlin::ui {
     }
 
     std::string WithJavaWidgets(const std::string& rml) {
-        if (rml.find("class=\"rim\"") == std::string::npos && rml.find("class=\"krim\"") == std::string::npos)
+        if (!rml.contains("class=\"rim\"") && !rml.contains("class=\"krim\""))
             return rml;
         static const std::regex button(R"(<div class="rim"[^>]*></div>\s*<div class="face"[^>]*></div>\s*(<div class="shade"[^>]*></div>)?\s*(<div class="edge"[^>]*></div>)?)");
         static const std::regex knob(R"(<div class="krim"[^>]*></div>\s*<div class="kface"[^>]*></div>\s*(<div class="kshade"[^>]*></div>)?)");

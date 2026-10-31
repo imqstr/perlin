@@ -53,6 +53,8 @@ namespace perlin::server {
         bool ok = false;
         // the containers and slots a response must report, as the client addressed them
         std::vector<std::pair<proto2225::ContainerSlotType, int>> touched;
+        // stacks the request threw out of the inventory; the caller puts them in the world
+        std::vector<ItemStack> dropped;
     };
 
     // runs every action of a request against `inv`; on failure `inv` is left as it was

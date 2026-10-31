@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include "client/Perlin.hpp"
 
 #include "client/mods/ModManager.hpp"
@@ -13,16 +14,20 @@ namespace perlin {
     namespace {
         using Clock = std::chrono::steady_clock;
 
-        Clock::time_point After(int32_t ticks) { return Clock::now() + std::chrono::milliseconds(std::clamp(ticks, 1, 200) * 50); }
+        Clock::time_point After(int32_t ticks) {
+            return Clock::now() + std::chrono::milliseconds(std::clamp(ticks, 1, 200) * 50);
+        }
 
         constexpr size_t kMaxLinesPerPlugin = 20000;
 
         void AddBoxLines(std::vector<entity::EntityRenderer::FrameIn::ModLine>& out, const abi::WorldBox& b) {
             const glm::dvec3 lo(std::min(b.x0, b.x1), std::min(b.y0, b.y1), std::min(b.z0, b.z1));
             const glm::dvec3 hi(std::max(b.x0, b.x1), std::max(b.y0, b.y1), std::max(b.z0, b.z1));
-            const glm::dvec3 c[8] = {{lo.x, lo.y, lo.z}, {hi.x, lo.y, lo.z}, {hi.x, lo.y, hi.z}, {lo.x, lo.y, hi.z},
-                                     {lo.x, hi.y, lo.z}, {hi.x, hi.y, lo.z}, {hi.x, hi.y, hi.z}, {lo.x, hi.y, hi.z}};
-            static const int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+            const glm::dvec3 c[8] = {{lo.x, lo.y, lo.z}, {hi.x, lo.y, lo.z}, {hi.x, lo.y, hi.z},
+                                     {lo.x, lo.y, hi.z}, {lo.x, hi.y, lo.z}, {hi.x, hi.y, lo.z},
+                                     {hi.x, hi.y, hi.z}, {lo.x, hi.y, hi.z}};
+            static const int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                             {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (const auto& e : edges)
                 out.push_back({c[e[0]], c[e[1]], b.color, b.width});
         }
@@ -30,20 +35,23 @@ namespace perlin {
 
     void Perlin::SetupModAdvanced() {
         auto& mm = mods::ModManager::Instance();
-        using mods::CallContext;
         using abi::Op;
         using abi::Status;
+        using mods::CallContext;
         const uint32_t control = static_cast<uint32_t>(abi::Permission::Control);
 
-        mm.Register(Op::CameraControl, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::CameraControlState s = r.read<abi::CameraControlState>();
-            if (!r.Ok())
-                return Status::BadArguments;
-            std::lock_guard lock(modAdv.mutex);
-            modAdv.camera = s;
-            modAdv.cameraUntil = After(s.ticks);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::CameraControl,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::CameraControlState s = r.read<abi::CameraControlState>();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                std::lock_guard lock(modAdv.mutex);
+                modAdv.camera = s;
+                modAdv.cameraUntil = After(s.ticks);
+                return Status::Ok;
+            },
+            control);
 
         mm.Register(Op::CameraState, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             abi::CameraInfo info;
@@ -76,7 +84,8 @@ namespace perlin {
                 m = modAdv.viewProjection;
             }
             const glm::mat4 vp = glm::make_mat4(m.data());
-            const glm::vec4 clip = vp * glm::vec4(static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z), 1.0f);
+            const glm::vec4 clip = vp * glm::vec4(static_cast<float>(p.x), static_cast<float>(p.y),
+                                                  static_cast<float>(p.z), 1.0f);
             abi::ScreenPoint out;
             if (clip.w > 0.0001f) {
                 const float nx = clip.x / clip.w, ny = clip.y / clip.w;
@@ -89,46 +98,58 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::PlayerMotion, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::MotionRequest m = r.read<abi::MotionRequest>();
-            if (!r.Ok() || !std::isfinite(m.x) || !std::isfinite(m.y) || !std::isfinite(m.z))
-                return Status::BadArguments;
-            if (std::abs(m.x) > 64.0 || std::abs(m.y) > 64.0 || std::abs(m.z) > 64.0)
-                return Status::BadArguments;
-            player.ModMotion(m.add, m.x, m.y, m.z, m.axisX, m.axisY, m.axisZ);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::PlayerMotion,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::MotionRequest m = r.read<abi::MotionRequest>();
+                if (!r.Ok() || !std::isfinite(m.x) || !std::isfinite(m.y) || !std::isfinite(m.z))
+                    return Status::BadArguments;
+                if (std::abs(m.x) > 64.0 || std::abs(m.y) > 64.0 || std::abs(m.z) > 64.0)
+                    return Status::BadArguments;
+                player.ModMotion(m.add, m.x, m.y, m.z, m.axisX, m.axisY, m.axisZ);
+                return Status::Ok;
+            },
+            control);
 
-        mm.Register(Op::PlayerTeleport, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::TeleportRequest t = r.read<abi::TeleportRequest>();
-            if (!r.Ok() || !std::isfinite(t.x) || !std::isfinite(t.y) || !std::isfinite(t.z))
-                return Status::BadArguments;
-            player.ModTeleport(t.x, t.y, t.z, t.keepVelocity);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::PlayerTeleport,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::TeleportRequest t = r.read<abi::TeleportRequest>();
+                if (!r.Ok() || !std::isfinite(t.x) || !std::isfinite(t.y) || !std::isfinite(t.z))
+                    return Status::BadArguments;
+                player.ModTeleport(t.x, t.y, t.z, t.keepVelocity);
+                return Status::Ok;
+            },
+            control);
 
-        mm.Register(Op::PlayerSetLook, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::LookSet l = r.read<abi::LookSet>();
-            if (!r.Ok() || !std::isfinite(l.x) || !std::isfinite(l.y) || !std::isfinite(l.z))
-                return Status::BadArguments;
-            const glm::dvec3 d(l.x, l.y, l.z);
-            if (glm::dot(d, d) < 1e-12)
-                return Status::BadArguments;
-            std::lock_guard lock(modAdv.mutex);
-            modAdv.lookDir = glm::normalize(d);
-            modAdv.lookTaken = true;
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::PlayerSetLook,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::LookSet l = r.read<abi::LookSet>();
+                if (!r.Ok() || !std::isfinite(l.x) || !std::isfinite(l.y) || !std::isfinite(l.z))
+                    return Status::BadArguments;
+                const glm::dvec3 d(l.x, l.y, l.z);
+                if (glm::dot(d, d) < 1e-12)
+                    return Status::BadArguments;
+                std::lock_guard lock(modAdv.mutex);
+                modAdv.lookDir = glm::normalize(d);
+                modAdv.lookTaken = true;
+                return Status::Ok;
+            },
+            control);
 
-        mm.Register(Op::PlayerModelPose, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::ModelPose p = r.read<abi::ModelPose>();
-            if (!r.Ok())
-                return Status::BadArguments;
-            std::lock_guard lock(modAdv.mutex);
-            modAdv.pose = p;
-            modAdv.poseUntil = After(p.ticks);
-            return Status::Ok;
-        }, control);
+        mm.Register(
+            Op::PlayerModelPose,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::ModelPose p = r.read<abi::ModelPose>();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                std::lock_guard lock(modAdv.mutex);
+                modAdv.pose = p;
+                modAdv.poseUntil = After(p.ticks);
+                return Status::Ok;
+            },
+            control);
 
         mm.Register(Op::WorldLines, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
             const abi::WorldLines in = r.read<abi::WorldLines>();
@@ -141,7 +162,8 @@ namespace perlin {
             for (const abi::WorldLine& l : in.lines) {
                 if (set.lines.size() >= kMaxLinesPerPlugin)
                     break;
-                set.lines.push_back({{l.x1, l.y1, l.z1}, {l.x2, l.y2, l.z2}, l.color, std::clamp(l.width, 0.1f, 16.0f)});
+                set.lines.push_back(
+                    {{l.x1, l.y1, l.z1}, {l.x2, l.y2, l.z2}, l.color, std::clamp(l.width, 0.1f, 16.0f)});
             }
             return Status::Ok;
         });
@@ -167,7 +189,7 @@ namespace perlin {
             const abi::BlockQuery q = r.read<abi::BlockQuery>();
             if (!r.Ok() || q.name.empty() || q.name.size() > 128 || q.states.size() > 32)
                 return Status::BadArguments;
-            const std::string name = q.name.find(':') == std::string::npos ? "minecraft:" + q.name : q.name;
+            const std::string name = !q.name.contains(':') ? "minecraft:" + q.name : q.name;
             BlockPalette& palette = BlockPalette::Instance();
             abi::BlockQueryResult out;
             const size_t count = palette.Count();
@@ -180,9 +202,11 @@ namespace perlin {
                     bool have = false;
                     for (const auto& s : palette.States(id))
                         if (s.first == key) {
-                            const std::string text = s.second.kind == BlockPalette::StateValue::String ? s.second.s
-                                                    : s.second.kind == BlockPalette::StateValue::Bool ? (s.second.i ? "true" : "false")
-                                                                                                      : std::to_string(s.second.i);
+                            const std::string text = s.second.kind == BlockPalette::StateValue::String
+                                                         ? s.second.s
+                                                     : s.second.kind == BlockPalette::StateValue::Bool
+                                                         ? (s.second.i ? "true" : "false")
+                                                         : std::to_string(s.second.i);
                             have = text == value;
                         }
                     if (!have) {
@@ -199,42 +223,52 @@ namespace perlin {
             return Status::Ok;
         });
 
-        mm.Register(Op::ClientBlockSet, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const abi::ClientBlockEdits in = r.read<abi::ClientBlockEdits>();
-            if (!r.Ok() || in.edits.size() > 100000)
-                return Status::BadArguments;
-            if (!modLevel)
-                return Status::Unavailable;
-            auto edits = std::make_shared<std::vector<abi::ClientBlockEdit>>(in.edits);
-            mods::ModManager::Instance().PostMain([this, edits] {
+        mm.Register(
+            Op::ClientBlockSet,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const abi::ClientBlockEdits in = r.read<abi::ClientBlockEdits>();
+                if (!r.Ok() || in.edits.size() > 100000)
+                    return Status::BadArguments;
                 if (!modLevel)
-                    return;
-                BlockPalette& palette = BlockPalette::Instance();
-                for (const abi::ClientBlockEdit& e : *edits)
-                    modLevel->SetBlock(e.x, e.y, e.z, palette.InternRuntime(static_cast<int32_t>(e.runtimeId)));
-            });
-            return Status::Ok;
-        }, control);
+                    return Status::Unavailable;
+                auto edits = std::make_shared<std::vector<abi::ClientBlockEdit>>(in.edits);
+                mods::ModManager::Instance().PostMain([this, edits] {
+                    if (!modLevel)
+                        return;
+                    BlockPalette& palette = BlockPalette::Instance();
+                    for (const abi::ClientBlockEdit& e : *edits)
+                        modLevel->SetBlock(e.x, e.y, e.z,
+                                           palette.InternRuntime(static_cast<int32_t>(e.runtimeId)));
+                });
+                return Status::Ok;
+            },
+            control);
 
-        mm.Register(Op::PacketDrop, [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
-            const abi::PacketDropRequest in = r.read<abi::PacketDropRequest>();
-            if (!r.Ok() || in.ids.size() > 4096)
-                return Status::BadArguments;
-            std::lock_guard lock(modAdv.mutex);
-            (in.outgoing ? modAdv.outDrops : modAdv.drops)[ctx.plugin] = {After(in.ticks), in.ids};
-            return Status::Ok;
-        }, static_cast<uint32_t>(abi::Permission::Packets) | control);
+        mm.Register(
+            Op::PacketDrop,
+            [this](CallContext& ctx, abi::Reader& r, abi::Writer&) {
+                const abi::PacketDropRequest in = r.read<abi::PacketDropRequest>();
+                if (!r.Ok() || in.ids.size() > 4096)
+                    return Status::BadArguments;
+                std::lock_guard lock(modAdv.mutex);
+                (in.outgoing ? modAdv.outDrops : modAdv.drops)[ctx.plugin] = {After(in.ticks), in.ids};
+                return Status::Ok;
+            },
+            static_cast<uint32_t>(abi::Permission::Packets) | control);
 
-        mm.Register(Op::PacketInject, [this](CallContext&, abi::Reader& r, abi::Writer&) {
-            const uint32_t id = r.get<uint32_t>();
-            std::vector<uint8_t> body = r.bytes();
-            if (!r.Ok())
-                return Status::BadArguments;
-            if (!modLive)
-                return Status::Unavailable;
-            modLive->InjectIncoming(id, body);
-            return Status::Ok;
-        }, static_cast<uint32_t>(abi::Permission::Packets) | control);
+        mm.Register(
+            Op::PacketInject,
+            [this](CallContext&, abi::Reader& r, abi::Writer&) {
+                const uint32_t id = r.get<uint32_t>();
+                std::vector<uint8_t> body = r.bytes();
+                if (!r.Ok())
+                    return Status::BadArguments;
+                if (!modLive)
+                    return Status::Unavailable;
+                modLive->InjectIncoming(id, body);
+                return Status::Ok;
+            },
+            static_cast<uint32_t>(abi::Permission::Packets) | control);
 
         mm.Register(Op::PacketCounters, [this](CallContext&, abi::Reader&, abi::Writer& w) {
             if (!modLive)
@@ -271,7 +305,8 @@ namespace perlin {
                 it = modAdv.lines.erase(it);
                 continue;
             }
-            modAdv.frameLines.insert(modAdv.frameLines.end(), it->second.lines.begin(), it->second.lines.end());
+            modAdv.frameLines.insert(modAdv.frameLines.end(), it->second.lines.begin(),
+                                     it->second.lines.end());
             ++it;
         }
         std::vector<uint32_t> drops;

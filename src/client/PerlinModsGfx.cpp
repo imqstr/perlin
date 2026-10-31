@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include "client/Perlin.hpp"
 
 #include "client/mods/ModManager.hpp"
@@ -16,7 +17,8 @@ namespace perlin {
         {
             std::unordered_set<std::string> seen;
             for (const mods::GfxTexture& t : mm.GfxTextures()) {
-                if (!t.rgba || t.rgba->size() != static_cast<size_t>(t.width) * static_cast<size_t>(t.height) * 4)
+                if (!t.rgba ||
+                    t.rgba->size() != static_cast<size_t>(t.width) * static_cast<size_t>(t.height) * 4)
                     continue;
                 const std::string key = t.plugin + "/" + std::to_string(t.id);
                 seen.insert(key);
@@ -83,14 +85,16 @@ namespace perlin {
                 vertices.resize(static_cast<size_t>(hi - lo) + 1);
                 for (uint32_t v = lo; v <= hi; v++) {
                     abi::GfxVertex in;
-                    std::memcpy(&in, vtx + (static_cast<size_t>(cmd.vertexOffset) + v) * sizeof(in), sizeof(in));
+                    std::memcpy(&in, vtx + (static_cast<size_t>(cmd.vertexOffset) + v) * sizeof(in),
+                                sizeof(in));
                     vertices[v - lo] = {in.x, in.y, 0.0f, in.color, in.u, in.v};
                 }
                 indices.resize(cmd.indexCount);
                 for (uint32_t i = 0; i < cmd.indexCount; i++)
                     indices[i] = indexAt(cmd.indexOffset + i) - lo;
-                const uint32_t mesh = renderer->UiCreateFrameMesh(vertices.data(), static_cast<uint32_t>(vertices.size()), indices.data(),
-                                                                  static_cast<uint32_t>(indices.size()));
+                const uint32_t mesh =
+                    renderer->UiCreateFrameMesh(vertices.data(), static_cast<uint32_t>(vertices.size()),
+                                                indices.data(), static_cast<uint32_t>(indices.size()));
                 if (!mesh)
                     continue;
                 UiDraw draw;

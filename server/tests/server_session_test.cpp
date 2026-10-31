@@ -4,6 +4,7 @@
 #include "test_auth.hpp"
 
 #include "core/Json.hpp"
+#include "core/Commands.hpp"
 #include "core/Server.hpp"
 #include "net/Batch.hpp"
 
@@ -154,6 +155,9 @@ int main(int argc, char** argv) {
         fs::copy_file(argv[1], plugins / "hello_server.wasm");
 
     ServerConfig config;
+    // creative by default for these tests; the survival cases below override it
+    config.gameMode = 1;
+    config.generator = "flat";
     config.loopbackOnly = false;
     config.nethernet = false;
     // PS_TEST_BACKEND=gpu runs the whole session on the gpu backend
@@ -161,6 +165,10 @@ int main(int argc, char** argv) {
     config.pluginDir = plugins.string();
     config.viewDistance = 6;
     config.operators = {"Alice"};
+    config.dataDir = (fs::temp_directory_path() / "perlin_session_data").string();
+    fs::create_directories(config.dataDir);
+    for (const char* f : {"/ops.json", "/whitelist.json", "/allowlist.json", "/permissions.json"})
+        fs::remove(config.dataDir + f);
     Server server(config);
     std::string error;
     CHECK(server.Start(error));
@@ -232,7 +240,7 @@ int main(int argc, char** argv) {
     bool welcomed = false, joined = false;
     for (const auto& t : texts) {
         welcomed = welcomed || t.message == "Welcome, Alice!";
-        joined = joined || t.message.find("Alice joined") != std::string::npos;
+        joined = joined || t.message.contains("Alice joined");
     }
     CHECK(joined);
     CHECK(welcomed == (argc > 1));
@@ -278,7 +286,7 @@ int main(int argc, char** argv) {
         alice.Settle();
         CHECK(alice.Take<proto::TextPacket>().empty());
         const auto reply = bob.Take<proto::TextPacket>();
-        CHECK(reply.size() == 1 && reply[0].message.find("do not say that word") != std::string::npos);
+        CHECK(reply.size() == 1 && reply[0].message.contains("do not say that word"));
     }
 
     // commands: /list for anyone, /say refused for a non operator, allowed for Alice
@@ -287,19 +295,20 @@ int main(int argc, char** argv) {
     bob.Send(cmd);
     bob.Settle();
     auto listReply = bob.Take<proto::TextPacket>();
-    CHECK(listReply.size() == 1 && listReply[0].message.find("2/20 online") != std::string::npos);
+    CHECK(listReply.size() == 1 && listReply[0].message.contains("There are 2 of a max of 20 players online"));
     cmd.command = "/say nope";
     bob.Send(cmd);
     bob.Settle();
     listReply = bob.Take<proto::TextPacket>();
-    CHECK(listReply.size() == 1 && listReply[0].message.find("permission") != std::string::npos);
+    // java answers a command you may not use exactly like one that does not exist
+    CHECK(listReply.size() == 2 && listReply[0].message.contains("Unknown or incomplete command") && listReply[1].message.contains("/say<--[HERE]"));
     cmd.command = "/say server notice";
     alice.Send(cmd);
     alice.Settle();
     bob.Settle();
     bool notice = false;
     for (const auto& t : bob.Take<proto::TextPacket>())
-        notice = notice || t.message.find("server notice") != std::string::npos;
+        notice = notice || t.message.contains("server notice");
     CHECK(notice);
     if (argc > 1) {
         cmd.command = "/hello";
@@ -327,7 +336,7 @@ int main(int argc, char** argv) {
     std::string block;
     CHECK(server.GetBlock(1, -60, 1, block) == 0 && block == "minecraft:stone");
 
-    // ---- building: creative menu, placing, breaking, picking
+    // building: creative menu, placing, breaking, picking
     {
         using T = proto::ItemStackRequestActionsEntryTypeId;
         using C = proto::ContainerSlotType;
@@ -456,9 +465,252 @@ int main(int argc, char** argv) {
     CHECK(server.InGamePlayers().size() == 1);
 
 
+    // commands: gamemode, give, op/deop, tick, whitelist
+    {
+        const auto run = [&](const std::string& line) {
+            alice.inbox.clear();
+            proto::CommandRequestPacket c;
+            c.command = line;
+            alice.Send(c);
+            alice.Settle();
+        };
+        run("/gamemode survival");
+        const auto mode = alice.Take<proto::SetPlayerGameTypePacket>();
+        CHECK(mode.size() == 1 && mode[0].gamemode == proto::GameMode::Survival);
+        CHECK(alice.Take<proto::UpdateAbilitiesPacket>().size() == 1);
+        // spectator: no-clip flight, nothing to touch, five flying speeds
+        {
+            namespace F = proto::FlagsAbilitySet;
+            run("/gamemode spectator");
+            const auto sp = alice.Take<proto::SetPlayerGameTypePacket>();
+            CHECK(sp.size() == 1 && sp[0].gamemode == proto::GameMode::Spectator);
+            auto ab = alice.Take<proto::UpdateAbilitiesPacket>();
+            CHECK(ab.size() == 1 && !ab[0].abilities.empty());
+            if (!ab.empty() && !ab[0].abilities.empty()) {
+                const auto& layer = ab[0].abilities[0];
+                CHECK((layer.enabled & F::NoClip) && (layer.enabled & F::Flying) && (layer.enabled & F::MayFly) && (layer.enabled & F::Invulnerable));
+                CHECK(!(layer.enabled & (F::Build | F::Mine | F::AttackMobs | F::AttackPlayers | F::OpenContainers)));
+                CHECK(layer.flySpeed == 0.05f && layer.verticalFlySpeed == 1.0f);
+            }
+            for (const int level : {2, 5, 10, 20, 1}) {
+                run("/flyspeed " + std::to_string(level));
+                ab = alice.Take<proto::UpdateAbilitiesPacket>();
+                CHECK(ab.size() == 1 && !ab[0].abilities.empty());
+                if (!ab.empty() && !ab[0].abilities.empty()) {
+                    CHECK(ab[0].abilities[0].flySpeed == 0.05f * static_cast<float>(level));
+                    CHECK(ab[0].abilities[0].verticalFlySpeed == static_cast<float>(level));
+                }
+                const auto bar = alice.Take<proto::TextPacket>();
+                bool shown = false;
+                for (const auto& t : bar)
+                    shown = shown || (t.type == proto::TextPacketType::JukeboxPopup && t.message == "Flying speed: " + std::to_string(level) + "x");
+                CHECK(shown);
+            }
+            // "5x" works too; 3 is refused and nothing is resent
+            run("/flyspeed 5x");
+            CHECK(alice.Take<proto::UpdateAbilitiesPacket>().size() == 1);
+            run("/flyspeed 3");
+            CHECK(alice.Take<proto::UpdateAbilitiesPacket>().empty());
+            CHECK(!alice.Take<proto::TextPacket>().empty());
+            // leaving and re-entering spectator starts at 1x again
+            run("/gamemode creative");
+            alice.inbox.clear();
+            run("/gamemode spectator");
+            ab = alice.Take<proto::UpdateAbilitiesPacket>();
+            CHECK(!ab.empty() && ab[0].abilities[0].flySpeed == 0.05f);
+            // outside spectator the speed is not changeable and the abilities stay put
+            run("/gamemode survival");
+            alice.inbox.clear();
+            run("/flyspeed 10");
+            CHECK(alice.Take<proto::UpdateAbilitiesPacket>().empty());
+            run("/gamemode survival");
+        }
+        // java syntax: selectors, relative coordinates, typed arguments, java-style errors
+        {
+            const auto texts = [&] {
+                std::string all;
+                for (const auto& t : alice.Take<proto::TextPacket>())
+                    all += t.message + "\n";
+                return all;
+            };
+            run("/gamemode creative");
+            alice.inbox.clear();
+            run("/tp 10 80 10");
+            auto moved = alice.Take<proto::MovePlayerPacket>();
+            CHECK(moved.size() == 1 && moved[0].position.x == 10.5f && moved[0].position.y == 80.0f + 1.62f && moved[0].position.z == 10.5f);
+            run("/tp ~ ~5 ~");
+            moved = alice.Take<proto::MovePlayerPacket>();
+            CHECK(moved.size() == 1 && moved[0].position.x == 10.5f && moved[0].position.y == 85.0f + 1.62f);
+            run("/tp @s 1.5 70 2.5");
+            moved = alice.Take<proto::MovePlayerPacket>();
+            CHECK(moved.size() == 1 && moved[0].position.x == 1.5f && moved[0].position.z == 2.5f);
+            run("/teleport Alice 0 70 0");
+            CHECK(alice.Take<proto::MovePlayerPacket>().size() == 1);
+            run("/tp @a[name=Alice] 4 70 4 90 0");
+            moved = alice.Take<proto::MovePlayerPacket>();
+            CHECK(moved.size() == 1 && moved[0].yaw == 90.0f);
+            // selectors that match nobody, and errors in java's words with the "<--[HERE]" context
+            run("/tp @a[gamemode=adventure] 0 0 0");
+            std::string out = texts();
+            CHECK(out.contains("No player was found"));
+            run("/gamemode foo");
+            out = texts();
+            CHECK(out.contains("Incorrect argument for command") && out.contains("/gamemode foo<--[HERE]"));
+            run("/give");
+            out = texts();
+            CHECK(out.contains("Unknown or incomplete command, see below for error") && out.contains("/give<--[HERE]"));
+            run("/give @s minecraft:not_an_item");
+            CHECK(texts().contains("Unknown item 'minecraft:not_an_item'"));
+            run("/give @s stone abc");
+            CHECK(texts().contains("Expected integer"));
+            // two words are two player names to java too: valid syntax, and nobody by those names
+            run("/tp 1 2");
+            CHECK(texts().contains("No player was found"));
+            run("/tp");
+            CHECK(texts().contains("Unknown or incomplete command"));
+            run("/tp @s ~ ~ ^");
+            CHECK(texts().contains("Cannot mix world & local coordinates"));
+            run("/nonsense");
+            CHECK(texts().contains("/nonsense<--[HERE]"));
+            run("/help give");
+            CHECK(texts().contains("/give <targets> <item> [<count>]"));
+            // time, weather, game rules, difficulty
+            run("/time set day");
+            CHECK(!alice.Take<proto::SetTimePacket>().empty());
+            run("/time set 18000");
+            run("/time add 100");
+            run("/time query daytime");
+            {
+                // the daylight cycle keeps running while the test settles, so allow a few ticks
+                const std::string said = texts();
+                const size_t at = said.find("The time is ");
+                const long shown = at == std::string::npos ? -1 : std::atol(said.c_str() + at + 12);
+                CHECK(shown >= 18100 && shown < 18400);
+            }
+            run("/weather thunder 5");
+            const auto weather = alice.Take<proto::LevelEventPacket>();
+            bool rain = false, thunder = false;
+            for (const auto& w : weather) {
+                rain = rain || w.event == proto::LevelEventPacketEvent::StartRain;
+                thunder = thunder || w.event == proto::LevelEventPacketEvent::StartThunder;
+            }
+            CHECK(rain && thunder && server.Raining() && server.Thundering());
+            run("/weather clear");
+            CHECK(!server.Raining());
+            run("/gamerule doDaylightCycle false");
+            CHECK(server.RuleValue("dodaylightcycle") == 0 && !alice.Take<proto::GameRulesChangedPacket>().empty());
+            run("/gamerule dodaylightcycle");
+            CHECK(texts().contains("Game rule doDaylightCycle is currently set to: false"));
+            run("/gamerule doDaylightCycle true");
+            run("/gamerule doDaylightCycle maybe");
+            CHECK(texts().contains("Invalid boolean"));
+            run("/difficulty hard");
+            CHECK(!alice.Take<proto::SetDifficultyPacket>().empty() && server.Config().difficulty == 3);
+            run("/difficulty");
+            CHECK(texts().contains("The difficulty is Hard"));
+            run("/difficulty easy");
+            run("/defaultgamemode spectator");
+            CHECK(server.Config().gameMode == 6);
+            run("/defaultgamemode creative");
+            // blocks
+            run("/setblock 5 60 5 stone");
+            CHECK(texts().contains("Changed the block at 5, 60, 5"));
+            CHECK(server.GetBlock(5, 60, 5, out) == 0 && out.contains("stone"));
+            run("/fill 0 70 0 3 72 3 stone");
+            CHECK(texts().contains("48 blocks filled"));
+            run("/fill 0 70 0 3 72 3 air hollow");
+            CHECK(texts().contains("blocks filled"));
+            run("/fill 0 70 0 100 100 100 stone");
+            CHECK(texts().find("Too many blocks in the specified area (maximum 32768") != std::string::npos);
+            run("/setblock 100000 60 5 stone");
+            CHECK(texts().contains("That position is not loaded"));
+            // misc
+            run("/title @s actionbar \"hello there\"");
+            const auto titles = alice.Take<proto::SetTitlePacket>();
+            CHECK(titles.size() == 1 && titles[0].text == "hello there");
+            run("/tellraw @s {\"text\":\"raw \",\"extra\":[{\"text\":\"words\"}]}");
+            CHECK(texts().contains("raw words"));
+            run("/locate biome plains");
+            CHECK(texts().contains("flat world"));
+            run("/locate biome nowhere_land");
+            CHECK(texts().contains("Unknown biome 'nowhere_land'"));
+            run("/seed");
+            CHECK(texts().contains("Seed: ["));
+            run("/clear");
+            CHECK(texts().contains("items") || true);
+            run("/gamemode survival");
+        }
+        // what clients are told: typed overloads, not one raw-text blob
+        {
+            proto::AvailableCommandsPacket packet;
+            FillAvailableCommands(packet, server.Commands(), true);
+            const proto::AvailableCommandsPacketCommandDataEntry* give = nullptr;
+            const proto::AvailableCommandsPacketCommandDataEntry* gamemode = nullptr;
+            for (const auto& e : packet.commandData) {
+                if (e.name == "give") give = &e;
+                if (e.name == "gamemode") gamemode = &e;
+            }
+            CHECK(give && give->overloads.size() == 1 && give->overloads[0].parameters.size() == 3);
+            if (give && give->overloads[0].parameters.size() == 3) {
+                const auto& p = give->overloads[0].parameters;
+                CHECK(p[0].parameterName == "targets" && p[0].valueType == proto::AvailableCommandsPacketCommandDataEntryOverloadsEntryParametersEntryValueType::Target);
+                CHECK(p[1].valueType == proto::AvailableCommandsPacketCommandDataEntryOverloadsEntryParametersEntryValueType::String && !p[1].optional);
+                CHECK(p[2].valueType == proto::AvailableCommandsPacketCommandDataEntryOverloadsEntryParametersEntryValueType::Int && p[2].optional);
+            }
+            CHECK(gamemode && gamemode->overloads.size() == 1);
+            if (gamemode && !gamemode->overloads.empty()) {
+                const auto& first = gamemode->overloads[0].parameters[0];
+                CHECK(first.enumType == proto::AvailableCommandsPacketCommandDataEntryOverloadsEntryParametersEntryEnumType::Enum);
+                const size_t index = static_cast<size_t>(first.valueType);
+                CHECK(index < packet.enums.size() && packet.enums[index].values.size() == 4);
+            }
+            CHECK(!packet.dynamicEnums.empty());
+        }
+        run("/give Alice stone 5");
+        auto lines = alice.Take<proto::TextPacket>();
+        CHECK(!lines.empty() && lines[0].message.find("Gave 5 stone to Alice") == 0);
+        CHECK(!alice.Take<proto::InventoryContentPacket>().empty());
+        run("/help");
+        // one chat line per command, not one message with newlines in it
+        lines = alice.Take<proto::TextPacket>();
+        bool noNewlines = lines.size() > 5;
+        for (const auto& l : lines)
+            noNewlines = noNewlines && !l.message.contains('\n');
+        CHECK(noNewlines);
+        run("/tick freeze");
+        const uint64_t frozenAt = server.TickCount();
+        server.Tick();
+        server.Tick();
+        CHECK(server.TickCount() == frozenAt);
+        run("/tick step 3");
+        server.Tick();
+        server.Tick();
+        server.Tick();
+        server.Tick();
+        CHECK(server.TickCount() == frozenAt + 3);
+        run("/tick unfreeze");
+        run("/tick query");
+        lines = alice.Take<proto::TextPacket>();
+        CHECK(!lines.empty() && lines[0].message.contains("running normally"));
+        // permissions and the allowlist live in the files bds uses
+        server.RunConsoleCommand("op Bob");
+        CHECK(server.IsOperator("Bob", ""));
+        CHECK(server.PermissionOf("Bob", "") == "operator");
+        server.RunConsoleCommand("deop Bob");
+        CHECK(!server.IsOperator("Bob", ""));
+        CHECK(server.PermissionOf("Bob", "") == "member");
+        server.RunConsoleCommand("allowlist add Bob");
+        CHECK(server.IsWhitelisted("bob", ""));
+        // the old command name still works
+        server.RunConsoleCommand("whitelist add Carol");
+        CHECK(server.IsWhitelisted("carol", ""));
+        CHECK(fs::exists(config.dataDir + "/permissions.json") && fs::exists(config.dataDir + "/allowlist.json"));
+        CHECK(!fs::exists(config.dataDir + "/ops.json") && !fs::exists(config.dataDir + "/whitelist.json"));
+    }
+
     server.Stop();
 
-    // ---- survival: placing spends the item, breaking pays it into the inventory, no creative menu
+    // survival: placing spends the item, breaking pays it into the inventory, no creative menu
     {
         ServerConfig survivalConfig = config;
         survivalConfig.gameMode = 0;

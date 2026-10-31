@@ -291,6 +291,11 @@ def main() -> int:
         Path(args.out).write_text(results["vertex"][0] + "\n" + results["fragment"][0])
     if args.emit:
         import json as _json
+        # gbuffers passes draw real geometry, so a fullscreen VsIn would drop their
+        # attributes and overwrite gl_Position with the raw vertex position
+        if args.fullscreen and args.program.startswith("gbuffers_"):
+            print(f"error: --fullscreen does not apply to {args.program}", file=sys.stderr)
+            return 2
         rep = emit_program(pack, args.program, args.world, Path(args.emit),
                            dict(d.split("=", 1) for d in (args.define or [])), fullscreen=args.fullscreen)
         print("--- emission report ---")

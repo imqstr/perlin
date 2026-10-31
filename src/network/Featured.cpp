@@ -3,35 +3,29 @@
 #include "network/Http.hpp"
 #include "network/Transport.hpp"
 #include "util/Json.hpp"
+#include "util/Strings.hpp"
 
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <set>
+#include "util/Log.hpp"
 
 namespace perlin::featured {
     namespace {
         constexpr const char* kDiscoveryHost = "client.discovery.minecraft-services.net";
         constexpr const char* kFallbackHost = "gatherings-secondary.franchise.minecraft-services.net";
 
-        std::string Trim(std::string s) {
-            while (!s.empty() && (s.back() == ' ' || s.back() == '\n' || s.back() == '\r' || s.back() == '\t'))
-                s.pop_back();
-            size_t i = 0;
-            while (i < s.size() && (s[i] == ' ' || s[i] == '\n' || s[i] == '\r' || s[i] == '\t'))
-                i++;
-            return s.substr(i);
-        }
 
         std::string Localized(const json::View dict) {
             for (const char* key : {"en-US", "en_US", "NEUTRAL", "neutral"})
                 if (dict[key].isString())
-                    if (std::string v = Trim(dict[key].str()); !v.empty())
+                    if (std::string v = str::Trim(dict[key].str()); !v.empty())
                         return v;
             return {};
         }
 
-        bool ValidUrl(const std::string& u) { return u.rfind("https://", 0) == 0 || u.rfind("http://", 0) == 0; }
+        bool ValidUrl(const std::string& u) { return u.starts_with("https://") || u.starts_with("http://"); }
 
         std::string Image(const json::View images, std::initializer_list<const char*> tags) {
             for (const char* tag : tags)
@@ -56,11 +50,11 @@ namespace perlin::featured {
                     const json::View uri = doc->root()["result"]["serviceEnvironments"]["gatherings"]["prod"]["serviceUri"];
                     const json::View alt = doc->root()["serviceEnvironments"]["gatherings"]["prod"]["serviceUri"];
                     std::string s = uri.isString() ? uri.str() : alt.isString() ? alt.str() : std::string();
-                    if (s.rfind("https://", 0) == 0) {
+                    if (s.starts_with("https://")) {
                         s.erase(0, 8);
                         while (!s.empty() && s.back() == '/')
                             s.pop_back();
-                        if (!s.empty() && s.find('/') == std::string::npos)
+                        if (!s.empty() && !s.contains('/'))
                             return s;
                     }
                 }
@@ -106,7 +100,7 @@ namespace perlin::featured {
             if (!props.isObject())
                 continue;
             Server s;
-            s.host = Trim(props["url"].isString() ? props["url"].str() : std::string());
+            s.host = str::Trim(props["url"].isString() ? props["url"].str() : std::string());
             const int port = props["port"].isNumber() ? static_cast<int>(props["port"].number()) : 0;
             if (s.host.empty() || port <= 0 || port > 65535)
                 continue;
@@ -135,7 +129,7 @@ namespace perlin::featured {
         });
         for (Ranked& r2 : found)
             out.push_back(std::move(r2.server));
-        std::cout << "[featured] " << out.size() << " featured servers" << std::endl;
+        Log("featured", "{} featured servers", out.size());
         return true;
     }
 

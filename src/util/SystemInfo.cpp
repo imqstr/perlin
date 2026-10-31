@@ -192,7 +192,7 @@ namespace perlin::sysinfo {
             std::string upper = id;
             for (char& c : upper)
                 c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-            if (upper.find(want) == std::string::npos)
+            if (!upper.contains(want))
                 continue;
             char desc[256] = {};
             size = sizeof(desc);

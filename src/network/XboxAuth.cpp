@@ -4,6 +4,7 @@
 #include "network/ClientIdentity.hpp"
 #include "network/Http.hpp"
 #include "util/Json.hpp"
+#include "util/Strings.hpp"
 
 #include <openssl/bio.h>
 #include <openssl/bn.h>
@@ -24,6 +25,7 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include "util/Log.hpp"
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -115,9 +117,9 @@ namespace perlin::xbox {
 
         bool ParseUrl(std::string s, Url& out) {
             out = {};
-            if (s.rfind("https://", 0) == 0) {
+            if (s.starts_with("https://")) {
                 s = s.substr(8);
-            } else if (s.rfind("http://", 0) == 0) {
+            } else if (s.starts_with("http://")) {
                 s = s.substr(7);
                 out.tls = false;
                 out.port = 80;
@@ -157,11 +159,6 @@ namespace perlin::xbox {
             return p == pattern.size();
         }
 
-        std::string Lower(std::string s) {
-            for (char& c : s)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            return s;
-        }
 
         void PutBe32(std::string& out, uint32_t v) {
             for (int i = 3; i >= 0; i--)
@@ -475,7 +472,7 @@ namespace perlin::xbox {
             const http::Response r = Get(u, {{"x-xbl-contract-version", "1"}});
             auto doc = r.status == 200 ? json::Document::Parse(r.body) : std::nullopt;
             if (!doc) {
-                std::cout << "[auth] could not load Xbox endpoint policies (" << r.status << "); using defaults" << std::endl;
+                Log("auth", "could not load Xbox endpoint policies ({}); using defaults", r.status);
                 nsalLoaded = true;
                 return;
             }
@@ -535,7 +532,7 @@ namespace perlin::xbox {
             headers["User-Agent"] = kUserAgent;
             auto find = [&](const std::string& name) -> std::string {
                 for (auto& [k, v] : headers)
-                    if (Lower(k) == Lower(name))
+                    if (str::Lower(k) == str::Lower(name))
                         return v;
                 return {};
             };
@@ -793,7 +790,7 @@ namespace perlin::xbox {
                 if (environments["signaling-afd"]["prod"]["serviceUri"].isString())
                     env.signalingAfdUri = environments["signaling-afd"]["prod"]["serviceUri"].str();
             } else {
-                std::cout << "[auth] service discovery failed (" << r.status << "), using built-in endpoints" << std::endl;
+                Log("auth", "service discovery failed ({}), using built-in endpoints", r.status);
             }
             while (!env.serviceUri.empty() && env.serviceUri.back() == '/')
                 env.serviceUri.pop_back();
@@ -802,7 +799,7 @@ namespace perlin::xbox {
 
         bool PlayFabTicket(const ServiceEnv& env, std::string& ticket, std::string& playFabId, std::string& error) {
             Url u;
-            ParseUrl("https://" + Lower(env.playFabTitle) + ".playfabapi.com/Client/LoginWithXbox", u);
+            ParseUrl("https://" + str::Lower(env.playFabTitle) + ".playfabapi.com/Client/LoginWithXbox", u);
             std::string rp = kPlayFabRelyingParty;
             if (const Endpoint* e = MatchEndpoint(u))
                 rp = e->relyingParty;
@@ -957,7 +954,7 @@ namespace perlin::xbox {
             std::string why;
             if (impl->Refresh(why))
                 return true;
-            std::cout << "[auth] saved login no longer works (" << why << "); signing in again" << std::endl;
+            Log("auth", "saved login no longer works ({}); signing in again", why);
         }
         return impl->DeviceCode(prompt, error);
     }
@@ -1007,7 +1004,7 @@ namespace perlin::xbox {
             return false;
         if (!s.ServiceAuthorization(env, ticket, gameVersion, out.authorization, error))
             return false;
-        const std::string jwt = out.authorization.rfind("MCToken ", 0) == 0 ? out.authorization.substr(8) : out.authorization;
+        const std::string jwt = out.authorization.starts_with("MCToken ") ? out.authorization.substr(8) : out.authorization;
         const size_t a = jwt.find('.');
         const size_t b = a == std::string::npos ? a : jwt.find('.', a + 1);
         if (b != std::string::npos)
@@ -1028,7 +1025,7 @@ namespace perlin::xbox {
                                  std::string& error) {
         out = {};
         Impl& s = *impl;
-        std::cout << "[auth] contacting Xbox Live..." << std::endl;
+        Log("auth", "contacting Xbox Live...");
         auto discovery = std::async(std::launch::async, [&s, &gameVersion] { return s.Discover(gameVersion); });
         std::string ensureError;
         const bool tokensReady = s.EnsureUserAndTitle(ensureError);
@@ -1047,7 +1044,7 @@ namespace perlin::xbox {
         std::string ticket;
         const bool playFabOk = s.PlayFabTicket(env, ticket, out.playFabId, error);
         if (playFabOk)
-            std::cout << "[auth] PlayFab login ok" << std::endl;
+            Log("auth", "PlayFab login ok");
         const bool tokenOk = playFabOk && s.MinecraftToken(env, ticket, gameVersion, publicKeyB64, out.multiplayerToken, error);
         Chain chain;
         if (chainTask.valid())
@@ -1057,16 +1054,16 @@ namespace perlin::xbox {
                 error = ensureError;
             return false;
         }
-        std::cout << "[auth] multiplayer token ok" << std::endl;
+        Log("auth", "multiplayer token ok");
         out.gamertag = chain.gamertag;
         out.xuid = chain.xuid;
         if (chain.ok) {
             out.chainJson = chain.json;
         } else {
-            std::cout << "[auth] legacy certificate chain unavailable: " << (tokensReady ? chain.error : ensureError) << std::endl;
+            Log("auth", "legacy certificate chain unavailable: {}", (tokensReady ? chain.error : ensureError));
             out.chainJson = "{\"chain\":[]}";
         }
-        std::cout << "[auth] signed in as " << out.gamertag << std::endl;
+        Log("auth", "signed in as {}", out.gamertag);
         return true;
     }
 }

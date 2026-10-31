@@ -8,6 +8,7 @@
 #include <map>
 #include "util/Json.hpp"
 #include <set>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -93,7 +94,7 @@ namespace perlin {
         const auto document = json::Document::Parse(text);
         if (!document || !document->root().contains("block_properties") ||
             !document->root().contains("data_items")) {
-            std::cout << "[blocks] " << path << " is not a mojang-blocks.json" << std::endl;
+            Log("blocks", "{} is not a mojang-blocks.json", path);
             return false;
         }
         const json::View j = document->root();
@@ -134,7 +135,7 @@ namespace perlin {
             if (name.empty())
                 continue;
             std::string sid = item["serialization_id"].str();
-            if (sid.rfind("tile.", 0) == 0)
+            if (sid.starts_with("tile."))
                 sid = sid.substr(5);
             if (!sid.empty())
                 rpKeys[name] = sid;
@@ -187,8 +188,7 @@ namespace perlin {
         rpKeyByName = std::move(rpKeys);
         propsByName = std::move(propNames);
         namesLoaded = true;
-        std::cout << "[blocks] derived " << nameByHash.size() << " block-state ids for " << rpKeyByName.size()
-                  << " blocks from " << path << " (" << collisions << " collisions)" << std::endl;
+        Log("blocks", "derived {} block-state ids for {} blocks from {} ({} collisions)", nameByHash.size(), rpKeyByName.size(), path, collisions);
         return true;
     }
 
@@ -259,8 +259,7 @@ namespace perlin {
             BuildLayoutLocked(false);
         }
         namesLoaded = namesLoaded || !nameByHash.empty();
-        std::cout << "[blocks] server registry: " << added << " ids added, " << replaced << " renamed from " << path
-                  << std::endl;
+        Log("blocks", "server registry: {} ids added, {} renamed from {}", added, replaced, path);
         return added + replaced > 0 || !nameByHash.empty();
     }
 
@@ -398,9 +397,7 @@ namespace perlin {
             BuildLayoutLocked(!original);
             if (airIs()) {
                 layoutVerified = true;
-                std::cout << "[blocks] server block ids do not sort custom blocks among the vanilla ones; "
-                          << (layoutAppended ? "appending" : "sorting") << " " << customRuns.size()
-                          << " custom blocks instead (air=" << serverAirId << ")" << std::endl;
+                Log("blocks", "server block ids do not sort custom blocks among the vanilla ones; {} {} custom blocks instead (air={})", (layoutAppended ? "appending" : "sorting"), customRuns.size(), serverAirId);
                 return true;
             }
             BuildLayoutLocked(original);

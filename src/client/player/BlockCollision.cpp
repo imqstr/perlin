@@ -29,7 +29,7 @@ namespace perlin {
         }
 
         bool Has(const std::string& s, const char* part) {
-            return s.find(part) != std::string::npos;
+            return s.contains(part);
         }
 
         void Add(BlockShape& s, double x0, double y0, double z0, double x1, double y1, double z1) {
@@ -132,7 +132,7 @@ namespace perlin {
             for (const char* e : exact)
                 if (n == e)
                     return true;
-            if (n.rfind("light_block", 0) == 0 || n == "piston_arm_collision" || n == "sticky_piston_arm_collision")
+            if (n.starts_with("light_block") || n == "piston_arm_collision" || n == "sticky_piston_arm_collision")
                 return true;
             return Ends(n, "_sapling") || Ends(n, "sapling") || Ends(n, "_pressure_plate") || Ends(n, "_button") ||
                    n == "stone_button" || Ends(n, "_sign") || Ends(n, "_banner") || n == "standing_banner" ||
@@ -348,7 +348,7 @@ namespace perlin {
             info.full = true;
             return info;
         }
-        if (n.rfind("minecraft:", 0) == 0)
+        if (n.starts_with("minecraft:"))
             n.erase(0, 10);
 
         if (n == "portal" || n == "end_portal" || n == "end_gateway") {

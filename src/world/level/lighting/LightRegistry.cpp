@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include "util/Json.hpp"
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -158,7 +159,7 @@ namespace perlin {
     void LightRegistry::LoadRules(const std::string& jsonText) {
         const auto document = json::Document::Parse(jsonText, true);
         if (!document || !document->root().isObject()) {
-            std::cout << "[light] light.json is not valid JSON" << std::endl;
+            Log("light", "light.json is not valid JSON");
             return;
         }
         const json::View root = document->root();
@@ -221,8 +222,7 @@ namespace perlin {
         for (auto& slot : memo)
             slot.store(kUnresolved, std::memory_order_relaxed);
         if (!packEmission.empty() || !packOpacity.empty())
-            std::cout << "[light] behavior pack: " << packEmission.size() << " emitters, "
-                      << packOpacity.size() << " opacity overrides" << std::endl;
+            Log("light", "behavior pack: {} emitters, {} opacity overrides", packEmission.size(), packOpacity.size());
     }
 
     bool LightRegistry::Matches(const Rule& rule, const std::string& name) {
@@ -235,7 +235,7 @@ namespace perlin {
             return name.size() >= rule.pattern.size() &&
                    name.compare(name.size() - rule.pattern.size(), rule.pattern.size(), rule.pattern) == 0;
         case Rule::Match::Contains:
-            return name.find(rule.pattern) != std::string::npos;
+            return name.contains(rule.pattern);
         }
         return false;
     }

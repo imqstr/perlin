@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -134,7 +135,7 @@ namespace perlin {
 
         std::vector<uint8_t> pack;
         if (!LoadPackBytes(pack)) {
-            std::cout << "[render] the shader pack is missing" << std::endl;
+            Log("render", "the shader pack is missing");
             return false;
         }
 
@@ -150,7 +151,7 @@ namespace perlin {
         adapterName = gpu.Caps().adapter.name;
         rendererName = rhi::ApiName(gpu.Api());
         caveCulling = !PERLIN_ENV("PERLIN_NO_CAVECULL");
-        std::cout << "[render] " << rendererName << " on " << adapterName << std::endl;
+        Log("render", "{} on {}", rendererName, adapterName);
         meshes.Init(gpu);
         if (!CreateStaticResources())
             return false;
@@ -176,7 +177,7 @@ namespace perlin {
         std::vector<rhi::KnownFailure> failures = ReadFailures();
         const rhi::RenderProfile profile = rhi::ChooseProfile(probe, user, failures, kWindows, kApple);
         for (const std::string& reason : profile.reasons)
-            std::cout << "[gpu] " << reason << std::endl;
+            Log("gpu", "{}", reason);
 
         std::vector<std::pair<rhi::Api, uint32_t>> order;
         if (profile.api != rhi::Api::None)
@@ -207,7 +208,7 @@ namespace perlin {
                 settings = gpu.Settings();
                 break;
             }
-            std::cout << "[render] " << rhi::ApiName(api) << " could not start: " << error << std::endl;
+            Log("render", "{} could not start: {}", rhi::ApiName(api), error);
             gpu.Shutdown();
             for (const rhi::Candidate& c : probe.candidates)
                 if (c.adapter.api == api && c.adapter.index == adapter)
@@ -294,7 +295,7 @@ namespace perlin {
         }
         for (Program required : {Program::TerrainSolid, Program::Ui, Program::Sky}) {
             if (programIds[static_cast<size_t>(required)] < 0) {
-                std::cout << "[render] the shader pack lacks a required program" << std::endl;
+                Log("render", "the shader pack lacks a required program");
                 return false;
             }
         }
@@ -734,13 +735,15 @@ namespace perlin {
             static uint32_t waitFrames = 0;
             const int left = jpack->WarmUp();
             if (left == 0 && !jpack->TerrainUsable()) {
-                jpackError = jpack->Error().empty() ? "the shader pack's terrain program failed to compile" : jpack->Error();
-                std::cout << "[javapack] " << jpackError << std::endl;
+                jpackError = jpack->Error().empty()
+                                 ? "the shader pack's terrain program failed to compile (see [jshader] lines above)"
+                                 : jpack->Error();
+                Log("javapack", "{}", jpackError);
             } else if (left == 0) {
                 jpackReady = true;
-                std::cout << "[javapack] shaders ready" << std::endl;
+                Log("javapack", "shaders ready");
             } else if (++waitFrames % 120 == 1) {
-                std::cout << "[javapack] compiling shaders, " << left << " left (using the normal renderer meanwhile)" << std::endl;
+                Log("javapack", "compiling shaders, {} left (using the normal renderer meanwhile)", left);
             }
         }
         // the pack does its own post processing, scaling and shadows
@@ -885,8 +888,7 @@ namespace perlin {
                 int fw = 0, fh = 0;
                 platform->GetFramebufferSize(fw, fh);
                 if (failures == 20 || failures == 600 || failures % 6000 == 0)
-                    std::cout << "[render] " << rendererName << " has had no image to draw to for " << failures << " frames (window " << fw << "x" << fh << ")"
-                              << std::endl;
+                    Log("render", "{} has had no image to draw to for {} frames (window {}x{})", rendererName, failures, fw, fh);
                 // a surface that stays dead is replaced: new window surface, new swapchain
                 if (fw > 0 && fh > 0 && (failures == 45 || failures == 360 || failures == 3000)) {
                     platform->RenewRenderSurface();
@@ -895,7 +897,7 @@ namespace perlin {
                     nativeWindow = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.window));
                     nativeDisplay = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native.display));
                     const bool healed = gpu.RecreateSurface(static_cast<uint32_t>(fw), static_cast<uint32_t>(fh));
-                    std::cout << "[render] rebuilding the window surface: " << (healed ? "ok" : "failed") << std::endl;
+                    Log("render", "rebuilding the window surface: {}", (healed ? "ok" : "failed"));
                 }
             }
             return;
@@ -1154,7 +1156,7 @@ namespace perlin {
     void RenderContext_rhi::ApplySwitchTo(const std::string& id) {
         const rhi::Api target = id == "auto" ? AutoApi() : rhi::ApiFromId(id);
         if (target == rhi::Api::None || target == gpu.Api()) {
-            std::cout << "[render] staying on " << rendererName << std::endl;
+            Log("render", "staying on {}", rendererName);
             return;
         }
         RebuildDevice(rhi::ApiId(target));
@@ -1169,10 +1171,10 @@ namespace perlin {
             return false;
         const std::vector<uint8_t>& pack = packData;
         if (pack.empty()) {
-            std::cout << "[render] cannot switch: the shader pack is missing" << std::endl;
+            Log("render", "cannot switch: the shader pack is missing");
             return false;
         }
-        std::cout << "[render] switching " << rendererName << " to " << rhi::ApiName(target) << std::endl;
+        Log("render", "switching {} to {}", rendererName, rhi::ApiName(target));
 
         if (cloudJobRunning) {
             cloudJob.wait();
@@ -1262,11 +1264,11 @@ namespace perlin {
         };
         bool ok = bringUp(id);
         if (!ok) {
-            std::cout << "[render] " << rhi::ApiName(target) << " failed; returning to " << rhi::ApiName(previous) << std::endl;
+            Log("render", "{} failed; returning to {}", rhi::ApiName(target), rhi::ApiName(previous));
             ok = bringUp(rhi::ApiId(previous));
         }
         if (!ok) {
-            std::cout << "[render] no renderer could be restored" << std::endl;
+            Log("render", "no renderer could be restored");
             return false;
         }
 
@@ -1322,10 +1324,10 @@ namespace perlin {
                 AttachJavaPack();
             } else {
                 jpackError = why;
-                std::cout << "[javapack] not available on " << rhi::ApiName(gpu.Api()) << ": " << why << std::endl;
+                Log("javapack", "not available on {}: {}", rhi::ApiName(gpu.Api()), why);
             }
         }
-        std::cout << "[render] now on " << rendererName << " (" << adapterName << ")" << std::endl;
+        Log("render", "now on {} ({})", rendererName, adapterName);
         return true;
     }
 }

@@ -3,6 +3,7 @@
 #include "test_auth.hpp"
 #include "core/Auth.hpp"
 
+#include "core/Access.hpp"
 #include "core/Config.hpp"
 #include "core/Json.hpp"
 #include "net/Batch.hpp"
@@ -20,6 +21,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 using namespace perlin::server;
 
@@ -56,6 +58,7 @@ static void TestBlockHash() {
 
 static ServerConfig FlatConfig() {
     ServerConfig c;
+    c.generator = "flat";
     c.terrainBackend = "cpu";
     return c;
 }
@@ -68,7 +71,7 @@ static void TestFlatGeneration() {
     gen.Generate(pos, cols);
     BlockRegistry& r = BlockRegistry::Instance();
     for (const ChunkColumn& col : cols) {
-        CHECK(col.Get(3, -64, 9) == r.Find("minecraft:bedrock"));
+        CHECK(col.Get(3, -64, 9) == BlockCatalog::Instance().DefaultBlock("minecraft:bedrock"));
         CHECK(col.Get(0, -63, 0) == r.Find("minecraft:dirt"));
         CHECK(col.Get(15, -62, 15) == r.Find("minecraft:dirt"));
         CHECK(col.Get(7, -61, 7) == r.Find("minecraft:grass_block"));
@@ -110,7 +113,7 @@ static void TestChunkEncodingDecodesWithClientCodec() {
         if (y == kMinY >> 4) {
             // section 0 holds y -64..-49
             CHECK(cells[perlin::server::CellIndex(2, 3, 3)] == r.Hash(r.Find("minecraft:stone")));
-            CHECK(cells[perlin::server::CellIndex(0, 0, 0)] == r.Hash(r.Find("minecraft:bedrock")));
+            CHECK(cells[perlin::server::CellIndex(0, 0, 0)] == r.Hash(BlockCatalog::Instance().DefaultBlock("minecraft:bedrock")));
             CHECK(cells[perlin::server::CellIndex(8, 15, 8)] == r.Hash(0));
         }
     }
@@ -179,6 +182,141 @@ static void TestConfig() {
     const ServerConfig e = ServerConfig::Load(path, &error);
     CHECK(!error.empty() && e.port == ServerConfig{}.port);
     std::filesystem::remove(path);
+}
+
+
+static void TestProperties() {
+    namespace fs = std::filesystem;
+    const std::string path = (fs::temp_directory_path() / "perlin_server.properties").string();
+    {
+        std::ofstream out(path);
+        out << "# comment\nserver-name=My Server\ngamemode=creative\ndifficulty=hard\nmax-players=7\nonline-mode=false\nallow-list=true\n"
+               "server-port=20000\nserver-udp-ports=21200-21300:19400-19500\nview-distance=16\nlevel-seed=Perlin\n"
+               "default-player-permission-level=visitor\ncompression-threshold=1\ncompression-algorithm=snappy\n"
+               "chat-restriction=disabled\nmax-players-bogus=1\nplayer-idle-timeout=5\ntick-distance=nope\nlevel-name=\n"
+               "persistent-ticking-area-max-count=11\n";
+    }
+    std::string error;
+    ServerConfig c = ServerConfig::Load(path, &error);
+    CHECK(error.empty());
+    CHECK(c.name == "My Server" && c.motd == "My Server" && c.gameMode == 1 && c.difficulty == 3 && c.maxPlayers == 7);
+    CHECK(!c.xboxAuth && c.whitelist && c.port == 20000 && c.viewDistance == 16);
+    CHECK(c.udpPortsSet && c.udpPortBegin == 19400 && c.udpPortEnd == 19500 && c.udpPublicBegin == 21200 && c.udpPublicEnd == 21300);
+    // java: "Perlin".hashCode() as an int
+    CHECK(!c.randomSeed && static_cast<int64_t>(c.seed) == -1907856268LL);
+    CHECK(c.defaultPermission == "visitor" && c.compressionThreshold == 1 && c.compressionAlgorithm == "snappy");
+    CHECK(c.chatRestriction == "Disabled" && c.idleTimeoutMinutes == 5);
+    // a bad value keeps the default; an empty level-name falls back
+    CHECK(c.tickDistance == 4 && c.levelName == "Bedrock level");
+    // unknown and not-acted-on keys survive a rewrite
+    CHECK(c.SaveProperties(path));
+    const ServerConfig d = ServerConfig::Load(path, &error);
+    CHECK(d.name == c.name && d.gameMode == 1 && d.udpPortBegin == 19400 && d.udpPublicBegin == 21200 && d.maxPlayers == 7);
+    CHECK(static_cast<int64_t>(d.seed) == -1907856268LL && d.levelSeedText == "Perlin");
+    bool keptBogus = false, keptTicking = false;
+    for (const auto& [k, v] : d.extraProperties) {
+        keptBogus = keptBogus || (k == "max-players-bogus" && v == "1");
+        keptTicking = keptTicking || (k == "persistent-ticking-area-max-count" && v == "11");
+    }
+    CHECK(keptBogus && keptTicking);
+    {
+        std::ifstream in(path);
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        // every bds key is written, in bds's spelling
+        for (const char* key : {"server-name=", "allow-list=", "server-udp-ports=21200-21300:19400-19500", "enable-lan-visibility=true", "transport=nethernet",
+                                "compression-threshold=1", "block-network-ids-are-hashes=true", "server-build-radius-ratio=Disabled"})
+            CHECK(text.contains(key));
+    }
+
+    // server-udp-ports in every form the how-to lists
+    const auto ports = [](const std::string& v) {
+        ServerConfig x;
+        x.SetProperty("server-udp-ports", v);
+        return x;
+    };
+    ServerConfig p = ports("19489");
+    CHECK(p.udpPortBegin == 19489 && p.udpPortEnd == 19489 && p.udpPublicBegin == 0);
+    p = ports("29489:19489");
+    CHECK(p.udpPortBegin == 19489 && p.udpPublicBegin == 29489 && p.udpPublicEnd == 29489);
+    p = ports("12.19.20.18:19489:19489");
+    CHECK(p.udpPublicAddress == "12.19.20.18" && p.udpPortBegin == 19489 && p.udpPublicBegin == 19489);
+    p = ports("[2001:db8::2021:26:03]:21200-21300:19400-19500");
+    CHECK(p.udpPublicAddress == "2001:db8::2021:26:03" && p.udpPortBegin == 19400 && p.udpPortEnd == 19500 && p.udpPublicBegin == 21200);
+    p = ports("");
+    CHECK(p.udpPortsSet && p.udpPortBegin == 0);
+    // a mapped range needs the same number of ports on both sides, and ports are 1-65535
+    p = ports("21200-21300:19400-19450");
+    CHECK(!p.udpPortsSet);
+    p = ports("70000");
+    CHECK(!p.udpPortsSet);
+
+    // numbers are used as written; empty means random
+    ServerConfig s;
+    s.SetProperty("level-seed", "12345");
+    CHECK(s.seed == 12345 && !s.randomSeed);
+    s.SetProperty("level-seed", "");
+    CHECK(s.randomSeed);
+    CHECK(ServerConfig::SeedFromText("-7") == static_cast<uint64_t>(-7LL));
+    fs::remove(path);
+
+    // a directory with only the old server.json still loads
+    const fs::path dir = fs::temp_directory_path() / "perlin_cfg_dir";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream(dir / "server.json") << "{\"name\": \"legacy\", \"port\": 24001}";
+    }
+    ServerConfig legacy = ServerConfig::LoadDirectory(dir.string(), &error);
+    CHECK(legacy.name == "legacy" && legacy.port == 24001);
+    // server.properties wins when both exist
+    {
+        std::ofstream(dir / "server.properties") << "server-name=props\n";
+    }
+    legacy = ServerConfig::LoadDirectory(dir.string(), &error);
+    CHECK(legacy.name == "props" && legacy.port == 19132);
+    fs::remove_all(dir);
+}
+
+static void TestAccessFiles() {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "perlin_access";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    // the examples from bds's how-to, byte for byte in structure
+    {
+        std::ofstream(dir / "allowlist.json") << "[\n {\n \"ignoresPlayerLimit\": false,\n \"name\": \"MyPlayer\"\n },\n {\n \"ignoresPlayerLimit\": true,\n \"name\": \"AnotherPlayer\",\n \"xuid\": \"274817248\"\n }\n]";
+        std::ofstream(dir / "permissions.json") << "[\n {\"permission\": \"operator\", \"xuid\": \"451298348\"},\n {\"permission\": \"member\", \"xuid\": \"52819329\"},\n {\"permission\": \"visitor\", \"xuid\": \"234114123\"}\n]";
+    }
+    AccessList allow(AccessList::Kind::Allowlist);
+    allow.Load((dir / "allowlist.json").string());
+    CHECK(allow.Entries().size() == 2);
+    CHECK(allow.Contains("myplayer", "") && allow.Contains("", "274817248"));
+    CHECK(allow.Find("AnotherPlayer", "")->ignoresPlayerLimit && !allow.Find("MyPlayer", "")->ignoresPlayerLimit);
+    // an entry with a name and no xuid gets it filled in on the first matching join
+    CHECK(allow.Add("MyPlayer", "999"));
+    CHECK(allow.Find("", "999") != nullptr);
+    AccessList perms(AccessList::Kind::Permissions);
+    perms.Load((dir / "permissions.json").string());
+    CHECK(perms.Entries().size() == 3);
+    CHECK(perms.Find("", "451298348")->permission == "operator");
+    CHECK(perms.Find("", "234114123")->permission == "visitor");
+    CHECK(perms.SetPermission("", "52819329", "operator"));
+    CHECK(!perms.SetPermission("", "52819329", "operator"));
+    // what is written reads back, in bds's shape
+    AccessList again(AccessList::Kind::Permissions);
+    again.Load((dir / "permissions.json").string());
+    CHECK(again.Find("", "52819329")->permission == "operator");
+    {
+        std::ifstream in(dir / "permissions.json");
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        CHECK(text.contains("\"permission\": \"operator\"") && !text.contains("ignoresPlayerLimit"));
+    }
+    {
+        std::ifstream in(dir / "allowlist.json");
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        CHECK(text.contains("\"ignoresPlayerLimit\": true") && !text.contains("\"permission\""));
+    }
+    fs::remove_all(dir);
 }
 
 struct MockApi final : PluginApi {
@@ -444,6 +582,8 @@ int main(int argc, char** argv) {
     TestBatchCodec();
     TestFragments();
     TestConfig();
+    TestProperties();
+    TestAccessFiles();
     TestPluginHost(argc > 1 ? argv[1] : nullptr);
     if (g_failed) {
         std::fprintf(stderr, "%d check(s) failed\n", g_failed);

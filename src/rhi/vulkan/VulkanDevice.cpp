@@ -189,6 +189,7 @@ namespace rhi::vk {
         ef.depthClamp = sf.depthClamp;
         ef.depthBiasClamp = sf.depthBiasClamp;
         ef.shaderInt64 = sf.shaderInt64;
+        ef.shaderFloat64 = sf.shaderFloat64;
         ef.imageCubeArray = sf.imageCubeArray;
         ef.sampleRateShading = sf.sampleRateShading;
         ef.fragmentStoresAndAtomics = sf.fragmentStoresAndAtomics;
@@ -357,6 +358,7 @@ namespace rhi::vk {
         caps.features.textureCompressionBC = ef.textureCompressionBC;
         caps.features.shaderFloat16 = en12.shaderFloat16;
         caps.features.shaderInt64 = ef.shaderInt64;
+        caps.features.shaderFloat64 = ef.shaderFloat64;
         caps.features.depthClipControl = depthClipEnable;
         caps.features.bindless = en12.runtimeDescriptorArray && en12.descriptorBindingPartiallyBound && en12.shaderSampledImageArrayNonUniformIndexing;
         caps.features.enhancedBarriers = true;
@@ -518,7 +520,6 @@ namespace rhi::vk {
         retire.Push(snapshot, std::move(release));
     }
 
-    // ---- resources
 
     BufferHandle Device::CreateBuffer(const BufferDesc& desc) {
         if (desc.size == 0) {
@@ -1260,7 +1261,6 @@ namespace rhi::vk {
         return queries.Alloc(std::move(rec));
     }
 
-    // ---- destruction
 
     void Device::Destroy(BufferHandle h) {
         BufferRec rec;
@@ -1380,7 +1380,6 @@ namespace rhi::vk {
         return r ? r->address : 0;
     }
 
-    // ---- fences
 
     FenceHandle Device::CreateFence(uint64_t initial) {
         VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
@@ -1422,7 +1421,6 @@ namespace rhi::vk {
         fn.vkSignalSemaphore(device, &si);
     }
 
-    // ---- command lists and submission
 
     ThreadPools& Device::PoolsForThisThread() {
         std::lock_guard lock(poolsMutex);
@@ -1543,7 +1541,6 @@ namespace rhi::vk {
 
     std::unique_ptr<rhi::Swapchain> Device::CreateSwapchain(const SwapchainDesc& desc) { return MakeSwapchain(*this, desc); }
 
-    // ---- frames
 
     void Device::ResetSlot(uint32_t s) {
         {

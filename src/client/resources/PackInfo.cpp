@@ -3,6 +3,7 @@
 #include "client/ui/Json.hpp"
 
 #include "util/ZipFile.hpp"
+#include "util/Strings.hpp"
 
 #include <miniz.h>
 
@@ -16,10 +17,6 @@ namespace perlin {
     namespace fs = std::filesystem;
 
     namespace {
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
 
         void StripBom(std::string& text) {
             if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF && static_cast<unsigned char>(text[1]) == 0xBB &&
@@ -128,7 +125,7 @@ namespace perlin {
                     continue;
                 std::string file = st.m_filename;
                 std::replace(file.begin(), file.end(), '\\', '/');
-                const std::string lower = Lower(file);
+                const std::string lower = str::Lower(file);
                 for (const char* marker : {"manifest.json", "pack.mcmeta", "pack.json"}) {
                     const std::string m = marker;
                     if (lower.size() < m.size() || lower.compare(lower.size() - m.size(), m.size(), m) != 0)
@@ -176,7 +173,7 @@ namespace perlin {
                     if (const ui::Json* d = pack->Find("description"))
                         Flatten(*d, meta.description, "");
         }
-        if (meta.name.empty() || meta.name.find("pack.name") != std::string::npos)
+        if (meta.name.empty() || meta.name.contains("pack.name"))
             meta.name = TrimExt(p.filename().string());
         for (const char* icon : {"pack_icon.png", "pack.png", "icon.png"}) {
             std::string bytes;

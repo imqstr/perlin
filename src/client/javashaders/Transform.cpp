@@ -362,7 +362,7 @@ namespace perlin::jshader {
                         globals.insert(t[k].text);
                 }
             }
-            const auto samplerType = [](const std::string& x) { return IsOpaqueType(x) && x.find("sampler") != std::string::npos; };
+            const auto samplerType = [](const std::string& x) { return IsOpaqueType(x) && x.contains("sampler"); };
             struct Fn {
                 std::vector<int> params; // indexes of the sampler parameters
             };
@@ -1194,7 +1194,7 @@ namespace perlin::jshader {
         bool HasFlag(const std::string& glsl, const std::string& flag) {
             const size_t end = glsl.find("*/");
             if (end == std::string::npos) return false;
-            return glsl.substr(0, end).find(flag) != std::string::npos;
+            return glsl.substr(0, end).contains(flag);
         }
 
         int FlagNumber(const std::string& glsl, const std::string& flag) {
@@ -1534,7 +1534,7 @@ namespace perlin::jshader {
             std::string footer = "\nvoid main() {\n" + mainPrefix + "    iris_user_main();\n}\n";
             const std::string structs = HoistStructs(body);
             r.glsl = head + structs + varyings + outs + samplerText + prelude + fragCoord + body + footer;
-            if (!mainPrefix.empty() && r.glsl.find("IrisGlobals") == std::string::npos) {
+            if (!mainPrefix.empty() && !r.glsl.contains("IrisGlobals")) {
                 r.ok = false;
                 r.error = "internal: iris_ViewHeight requested without uniform block";
             }

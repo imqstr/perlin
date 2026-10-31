@@ -190,8 +190,8 @@ namespace perlin::replay::ffmpeg {
         }
         std::string StripFfmpegFlagsPrefix(const std::string& s) { return s; }
 
-        bool StartsWith(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
-        bool Contains(const std::string& s, const char* p) { return s.find(p) != std::string::npos; }
+        bool StartsWith(const std::string& s, const char* p) { return s.starts_with(p); }
+        bool Contains(const std::string& s, const char* p) { return s.contains(p); }
 
         std::string PickEncoder(const Settings& s, const Codec& codec, const Catalog& cat) {
             if (!s.encoderOverride.empty())
@@ -504,7 +504,7 @@ namespace perlin::replay::ffmpeg {
         std::string vfs;
         for (size_t i = 0; i < vf.size(); i++) {
             if (i)
-                vfs += (vf[i].rfind("split", 0) == 0 ? "," : ",");
+                vfs += (vf[i].starts_with("split") ? "," : ",");
             vfs += vf[i];
         }
         argv.insert(argv.end(), {"-vf", vfs});

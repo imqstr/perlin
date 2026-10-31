@@ -1,4 +1,3 @@
-#include <functional>
 #include "client/ui/UiLayout.hpp"
 #include "client/ui/TenFont.hpp"
 #include "client/ui/UiExpr.hpp"
@@ -162,9 +161,9 @@ namespace perlin::ui {
             t = std::clamp(t, 0.0, 1.0);
             if (name.empty() || name == "linear")
                 return t;
-            const bool in = name.rfind("in_out_", 0) != 0 && name.rfind("in_", 0) == 0;
-            const bool out = name.rfind("out_", 0) == 0;
-            const bool inOut = name.rfind("in_out_", 0) == 0;
+            const bool in = !name.starts_with("in_out_") && name.starts_with("in_");
+            const bool out = name.starts_with("out_");
+            const bool inOut = name.starts_with("in_out_");
             std::string kind = name;
             if (inOut) kind = name.substr(7);
             else if (in) kind = name.substr(3);
@@ -213,7 +212,7 @@ namespace perlin::ui {
                 char* end = nullptr;
                 v = std::strtod(j.string.c_str(), &end);
                 if (end == j.string.c_str()) return false;
-                pct = j.string.find('%') != std::string::npos;
+                pct = j.string.contains('%');
                 return true;
             }
             return false;
@@ -270,29 +269,6 @@ namespace perlin::ui {
                     scoped = outerCollections;
                     scoped.push_back({cn->string, -1});
                 }
-                // a lone item slot outside any collection is item 0 of the collection its bindings name
-                const auto cellSized = [&]() {
-                    const Json* size = node.props.Find("size");
-                    return size && size->IsArray() && size->array.size() == 2 && size->array[0].IsNumber() && size->array[1].IsNumber() &&
-                           size->array[0].number <= 32 && size->array[1].number <= 32;
-                };
-                if (scoped.empty() && node.type == "input_panel" && (outerCollections.empty() || outerCollections.back().index < 0) && cellSized()) {
-                    const std::function<std::string(const Node&, int)> named = [&](const Node& at, int depth) -> std::string {
-                        for (const Json& b : at.bindings)
-                            if (const Json* c = b.IsObject() ? b.Find("binding_collection_name") : nullptr;
-                                c && c->IsString() && !c->string.empty() && c->string[0] != '#' && c->string[0] != '$')
-                                return c->string;
-                        if (depth < 6)
-                            for (const auto& kid : at.children)
-                                if (std::string found = named(*kid, depth + 1); !found.empty())
-                                    return found;
-                        return {};
-                    };
-                    if (std::string name = named(node, 0); !name.empty()) {
-                        scoped = outerCollections;
-                        scoped.push_back({name, 0});
-                    }
-                }
                 const std::vector<Collection>& collections = scoped.empty() ? outerCollections : scoped;
                 if (!collections.empty()) {
                     n->collection = collections.back().name;
@@ -330,11 +306,11 @@ namespace perlin::ui {
                     if (a->IsNumber())
                         alpha = static_cast<float>(a->number);
                     else if (a->IsString() && !a->string.empty() && a->string[0] == '@') {
-                        const bool known = a->string.find("background") != std::string::npos ||
-                                           a->string.find("item_name") != std::string::npos ||
-                                           a->string.find("actionbar") != std::string::npos ||
-                                           a->string.find("title") != std::string::npos ||
-                                           a->string.find("chat") != std::string::npos;
+                        const bool known = a->string.contains("background") ||
+                                           a->string.contains("item_name") ||
+                                           a->string.contains("actionbar") ||
+                                           a->string.contains("title") ||
+                                           a->string.contains("chat");
                         if (!known && services.anim && services.animDef) {
                             std::unordered_map<std::string, Json> out;
                             RunAnimation(a->string, n->src->ns, AnimKey(*n) + "|alpha" + a->string, n.get(), out);
@@ -836,8 +812,8 @@ namespace perlin::ui {
                     if (Lookup(n, "#text", vars, b))
                         text = b.IsString() ? b.string : (b.IsNull() ? std::string() : b.Dump());
                 }
-                if (n.Bool("localize", true) && services.localize && !text.empty() && text.find(' ') == std::string::npos &&
-                    text.find('.') != std::string::npos)
+                if (n.Bool("localize", true) && services.localize && !text.empty() && !text.contains(' ') &&
+                    text.contains('.'))
                     text = services.localize(text);
                 return text;
             }
@@ -1023,15 +999,15 @@ namespace perlin::ui {
             float AnimatedAlpha(const std::string& reference) const {
                 Json v;
                 float backdrop = 1.0f;
-                if (reference.find("background") != std::string::npos && data.Global("#hud_text_background_alpha", v) && v.IsNumber())
+                if (reference.contains("background") && data.Global("#hud_text_background_alpha", v) && v.IsNumber())
                     backdrop = static_cast<float>(v.number);
-                if (reference.find("item_name") != std::string::npos && data.Global("#item_name_alpha", v) && v.IsNumber())
+                if (reference.contains("item_name") && data.Global("#item_name_alpha", v) && v.IsNumber())
                     return static_cast<float>(v.number) * backdrop;
-                if (reference.find("actionbar") != std::string::npos && data.Global("#actionbar_alpha", v) && v.IsNumber())
+                if (reference.contains("actionbar") && data.Global("#actionbar_alpha", v) && v.IsNumber())
                     return static_cast<float>(v.number) * backdrop;
-                if (reference.find("title") != std::string::npos && data.Global("#title_alpha", v) && v.IsNumber())
+                if (reference.contains("title") && data.Global("#title_alpha", v) && v.IsNumber())
                     return static_cast<float>(v.number) * backdrop;
-                if (reference.find("chat") != std::string::npos && data.Global("#chat_alpha", v) && v.IsNumber())
+                if (reference.contains("chat") && data.Global("#chat_alpha", v) && v.IsNumber())
                     return static_cast<float>(v.number);
                 return 1.0f;
             }
@@ -1351,24 +1327,6 @@ namespace perlin::ui {
             void PlaceGrid(LNode& n, std::vector<LNode*>& live, float ax, float ay) {
                 int cols = 1, rows = 1;
                 GridShape(n, live, n.w, n.h, cols, rows);
-                // fixed children with grid_position: equal cells (grid size / dimensions), each child centred in its cell
-                if (std::any_of(live.begin(), live.end(), [](const LNode* k) { return k->Get("grid_position") != nullptr; })) {
-                    const float cellW = n.w / static_cast<float>(cols), cellH = n.h / static_cast<float>(rows);
-                    for (size_t i = 0; i < live.size(); i++) {
-                        LNode& k = *live[i];
-                        int gx = static_cast<int>(i % static_cast<size_t>(cols)), gy = static_cast<int>(i / static_cast<size_t>(cols));
-                        if (const Json* gp = k.Get("grid_position"); gp && gp->IsArray() && gp->array.size() >= 2) {
-                            gx = static_cast<int>(gp->array[0].NumberOr(gx));
-                            gy = static_cast<int>(gp->array[1].NumberOr(gy));
-                        }
-                        float ox = 0, oy = 0;
-                        Offset(k, cellW, cellH, ox, oy);
-                        k.x = static_cast<float>(gx) * cellW + (cellW - k.w) * 0.5f + ox;
-                        k.y = static_cast<float>(gy) * cellH + (cellH - k.h) * 0.5f + oy;
-                        Place(k, ax + k.x, ay + k.y);
-                    }
-                    return;
-                }
                 std::vector<float> colWidth(static_cast<size_t>(cols), 0.0f), rowHeight(static_cast<size_t>(rows), 0.0f);
                 for (size_t i = 0; i < live.size(); i++) {
                     const size_t c = i % static_cast<size_t>(cols), r = i / static_cast<size_t>(cols);

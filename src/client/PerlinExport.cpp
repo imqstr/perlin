@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include "client/Perlin.hpp"
 
 #include "client/input/Keys.hpp"
@@ -14,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin {
     static constexpr bool kExportProgressWindow = false;
@@ -23,9 +25,13 @@ namespace perlin {
     namespace {
         using Clock = std::chrono::steady_clock;
 
-        std::string ConfigPath() { return replay::ReplayDirectory() + "/export_settings.json"; }
+        std::string ConfigPath() {
+            return replay::ReplayDirectory() + "/export_settings.json";
+        }
 
-        int Even(int v) { return std::max(2, v & ~1); }
+        int Even(int v) {
+            return std::max(2, v & ~1);
+        }
 
         std::string Num(double v, int decimals = 0) {
             char buf[48];
@@ -39,7 +45,7 @@ namespace perlin {
         timelineDirty = false;
         const std::string text = replayCtl.ReadArchiveFile("editor.json");
         if (!text.empty() && !replay::Timeline::FromJson(text, timeline))
-            std::cout << "[replay] editor.json could not be read; starting with an empty timeline" << std::endl;
+            Log("replay", "editor.json could not be read; starting with an empty timeline");
     }
 
     void Perlin::SaveTimeline() {
@@ -48,7 +54,7 @@ namespace perlin {
         std::string error;
         const std::string json = timeline.Empty() ? std::string() : timeline.ToJson();
         if (!replayCtl.SaveArchiveFile("editor.json", json, error))
-            std::cout << "[replay] could not save the timeline: " << error << std::endl;
+            Log("replay", "could not save the timeline: {}", error);
         timelineDirty = false;
     }
 
@@ -90,10 +96,11 @@ namespace perlin {
             return false;
         }
         replay::ExportConfig cfg = req.cfg;
-        if (!req.screenshot && !exportUi.cat.available && cfg.container != "png" && cfg.container != "builtin" &&
-            replay::ffmpeg::FindContainer(cfg.container) && !replay::ffmpeg::FindContainer(cfg.container)->imageSequence) {
+        if (!req.screenshot && !exportUi.cat.available && cfg.container != "png" &&
+            cfg.container != "builtin" && replay::ffmpeg::FindContainer(cfg.container) &&
+            !replay::ffmpeg::FindContainer(cfg.container)->imageSequence) {
             cfg.container = "builtin";
-            std::cout << "[export] ffmpeg not found, using the built-in AVI encoder" << std::endl;
+            Log("export", "ffmpeg not found, using the built-in AVI encoder");
         }
         const replay::ffmpeg::Container* cont = replay::ffmpeg::FindContainer(cfg.container);
         if (!cont) {
@@ -115,7 +122,11 @@ namespace perlin {
         }
         int renderW = outW * ssaa, renderH = outH * ssaa;
         while ((renderW > 16384 || renderH > 16384) && ssaa > 1)
-            return ExportStart([&] { ExportRequest r = req; r.cfg.ssaa = ssaa - 1; return r; }());
+            return ExportStart([&] {
+                ExportRequest r = req;
+                r.cfg.ssaa = ssaa - 1;
+                return r;
+            }());
         if (renderW > 16384 || renderH > 16384) {
             exportUi.status = "Resolution too large (max 16384)";
             return false;
@@ -137,8 +148,10 @@ namespace perlin {
         j.startMs = 0;
         j.endMs = dur;
         if (cfg.range == replay::RangeMode::InOut) {
-            if (replayUi.inMs >= 0) j.startMs = replayUi.inMs;
-            if (replayUi.outMs >= 0) j.endMs = replayUi.outMs;
+            if (replayUi.inMs >= 0)
+                j.startMs = replayUi.inMs;
+            if (replayUi.outMs >= 0)
+                j.endMs = replayUi.outMs;
         } else if (cfg.range == replay::RangeMode::Custom) {
             j.startMs = cfg.customStartSec * 1000.0;
             j.endMs = cfg.customEndSec * 1000.0;
@@ -223,7 +236,7 @@ namespace perlin {
         replayUi.scrubbing = false;
         exportUi.open = false;
         kfUi.open = false;
-        pauseShown = false;
+        pause.shown = false;
         if (hud)
             hud->Overlay().ClearOverlay();
         input.SetTextMode(false);
@@ -252,7 +265,10 @@ namespace perlin {
         j.lastTitle = {};
         j.lastProgress = Clock::now();
         j.overlayRml.clear();
-        j.maxInFlight = std::clamp<long long>((static_cast<long long>(256) << 20) / std::max<long long>(1, static_cast<long long>(renderW) * renderH * 4), 2, 8);
+        j.maxInFlight =
+            std::clamp<long long>((static_cast<long long>(256) << 20) /
+                                      std::max<long long>(1, static_cast<long long>(renderW) * renderH * 4),
+                                  2, 8);
         j.advanceNow = false;
         j.finishing = false;
         j.phase = req.screenshot ? ExportJob::Phase::Settle : ExportJob::Phase::Seeking;
@@ -260,8 +276,7 @@ namespace perlin {
             replayCtl.Seek(j.startMs);
         j.active = true;
         j.writer = std::thread([this] { ExportWriterLoop(); });
-        std::cout << "[export] " << (req.screenshot ? "screenshot" : "video") << " " << outW << "x" << outH << " (render " << renderW << "x" << renderH << ") "
-                  << cfg.fps << " fps, " << j.total << " frames -> " << j.outPath << std::endl;
+        Log("export", "{} {}x{} (render {}x{}) {} fps, {} frames -> {}", (req.screenshot ? "screenshot" : "video"), outW, outH, renderW, renderH, cfg.fps, j.total, j.outPath);
         return true;
     }
 
@@ -318,9 +333,10 @@ namespace perlin {
         } else if (cancelled) {
             message = "Export cancelled (" + std::to_string(j.frame) + " frames kept)";
         } else {
-            message = (j.screenshot ? "Saved screenshot: " : "Export finished: ") + j.outPath + " (" + Num(secs, 1) + " s)";
+            message = (j.screenshot ? "Saved screenshot: " : "Export finished: ") + j.outPath + " (" +
+                      Num(secs, 1) + " s)";
         }
-        std::cout << "[export] " << message << std::endl;
+        Log("export", "{}", message);
         exportUi.status = message;
         ReplayStatus(message);
         replayUi.statusUntil = Clock::now() + std::chrono::seconds(12);
@@ -336,7 +352,7 @@ namespace perlin {
             exportUi.queue.erase(exportUi.queue.begin());
             if (ExportStart(r))
                 return;
-            std::cout << "[export] queued job skipped: " << exportUi.status << std::endl;
+            Log("export", "queued job skipped: {}", exportUi.status);
         }
     }
 
@@ -360,7 +376,9 @@ namespace perlin {
                 std::vector<uint8_t> scaled;
                 const uint8_t* data = frame.data.data();
                 if (j.renderW != j.outW) {
-                    scaled = replay::ffmpeg::DownscaleBgra(frame.data.data(), j.renderW, j.renderH, static_cast<size_t>(j.renderW) * 4, false, j.outW, j.outH);
+                    scaled = replay::ffmpeg::DownscaleBgra(frame.data.data(), j.renderW, j.renderH,
+                                                           static_cast<size_t>(j.renderW) * 4, false, j.outW,
+                                                           j.outH);
                     data = scaled.data();
                 }
                 std::string target = j.outPath;
@@ -369,7 +387,8 @@ namespace perlin {
                     std::snprintf(name, sizeof name, "_%05lld.png", index);
                     target = j.outPath + "/" + j.name + name;
                 }
-                ok = replay::ffmpeg::WritePngBgra(target, j.outW, j.outH, data, static_cast<size_t>(j.outW) * 4, false, false);
+                ok = replay::ffmpeg::WritePngBgra(target, j.outW, j.outH, data,
+                                                  static_cast<size_t>(j.outW) * 4, false, false);
                 if (!ok)
                     err = "could not write " + target;
             } else {
@@ -417,26 +436,38 @@ namespace perlin {
             j.lastTitle = realNow;
             const long long done = j.written.load();
             const double elapsed = std::chrono::duration<double>(realNow - j.realStart).count();
-            std::string t = "Exporting " + Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)), 1) + "% (" +
-                            std::to_string(done) + "/" + std::to_string(j.total) + ")";
+            std::string t =
+                "Exporting " +
+                Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)),
+                    1) +
+                "% (" + std::to_string(done) + "/" + std::to_string(j.total) + ")";
             if (done > 2 && elapsed > 0.5) {
                 t += ", " + Num(static_cast<double>(done) / elapsed, 1) + " fps, " +
-                     ui::FormatReplayTime(elapsed / static_cast<double>(done) * static_cast<double>(j.total - done) * 1000.0) + " left";
+                     ui::FormatReplayTime(elapsed / static_cast<double>(done) *
+                                          static_cast<double>(j.total - done) * 1000.0) +
+                     " left";
             }
             SetStatusHint(t);
             if (kExportProgressWindow && platform->HasProgressWindow()) {
-                std::string l2 = Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)), 1) + "%";
+                std::string l2 = Num(100.0 * static_cast<double>(done) /
+                                         static_cast<double>(std::max<long long>(1, j.total)),
+                                     1) +
+                                 "%";
                 if (done > 2 && elapsed > 0.5)
                     l2 += "   " + Num(static_cast<double>(done) / elapsed, 1) + " frames/s   " +
-                          ui::FormatReplayTime(elapsed / static_cast<double>(done) * static_cast<double>(j.total - done) * 1000.0) + " left";
-                platform->SetProgressWindow(true, "Exporting " + j.name, "Frame " + std::to_string(std::min(done + 1, j.total)) + "/" + std::to_string(j.total), l2,
-                                            static_cast<float>(done) / static_cast<float>(std::max<long long>(1, j.total)));
+                          ui::FormatReplayTime(elapsed / static_cast<double>(done) *
+                                               static_cast<double>(j.total - done) * 1000.0) +
+                          " left";
+                platform->SetProgressWindow(
+                    true, "Exporting " + j.name,
+                    "Frame " + std::to_string(std::min(done + 1, j.total)) + "/" + std::to_string(j.total),
+                    l2, static_cast<float>(done) / static_cast<float>(std::max<long long>(1, j.total)));
             }
         }
         j.advanceNow = false;
         switch (j.phase) {
         case ExportJob::Phase::Seeking:
-            if (!replayCtl.SeekPending() && loadingDone && sessionReady) {
+            if (!replayCtl.SeekPending() && loading.done && sessionReady) {
                 j.phase = ExportJob::Phase::Settle;
                 j.settleIters = j.quietIters = 0;
                 j.phaseStart = realNow;
@@ -447,10 +478,12 @@ namespace perlin {
             break;
         case ExportJob::Phase::Settle: {
             j.settleIters++;
-            const bool quiet = levelRenderer && levelRenderer->PendingMeshes() == 0 && levelRenderer->MeshesInFlight() == 0 && session->ChunkWorkIdle();
+            const bool quiet = levelRenderer && levelRenderer->PendingMeshes() == 0 &&
+                               levelRenderer->MeshesInFlight() == 0 && session->ChunkWorkIdle();
             j.quietIters = quiet ? j.quietIters + 1 : 0;
             const int need = j.frame == 0 ? 3 : 1;
-            if ((j.settleIters >= need && j.quietIters >= need) || realNow - j.phaseStart > std::chrono::seconds(30))
+            if ((j.settleIters >= need && j.quietIters >= need) ||
+                realNow - j.phaseStart > std::chrono::seconds(30))
                 j.phase = ExportJob::Phase::Capture;
             break;
         }
@@ -468,7 +501,8 @@ namespace perlin {
                 j.phase = ExportJob::Phase::Captured;
             } else if (mismatch) {
                 if (++j.waitIters > 120) {
-                    ExportFinish(false, "the renderer would not produce " + std::to_string(j.renderW) + "x" + std::to_string(j.renderH) + " frames");
+                    ExportFinish(false, "the renderer would not produce " + std::to_string(j.renderW) + "x" +
+                                            std::to_string(j.renderH) + " frames");
                     return;
                 }
                 j.frame = 0;
@@ -540,14 +574,16 @@ namespace perlin {
         if (!j.active || j.phase != ExportJob::Phase::Capture)
             return;
         ExportJob* job = &j;
-        renderer->RequestFrameCapture([job](uint32_t w, uint32_t h, uint32_t pitch, const uint8_t* bgra, bool flipY) {
+        renderer->RequestFrameCapture([job](uint32_t w, uint32_t h, uint32_t pitch, const uint8_t* bgra,
+                                            bool flipY) {
             ExportJob::CapturedFrame f;
             bool match = w == static_cast<uint32_t>(job->renderW) && h == static_cast<uint32_t>(job->renderH);
             if (match) {
                 f.data.resize(static_cast<size_t>(w) * h * 4);
                 for (uint32_t y = 0; y < h; y++) {
                     const uint8_t* src = bgra + static_cast<size_t>(flipY ? h - 1 - y : y) * pitch;
-                    std::copy(src, src + static_cast<size_t>(w) * 4, f.data.data() + static_cast<size_t>(y) * w * 4);
+                    std::copy(src, src + static_cast<size_t>(w) * 4,
+                              f.data.data() + static_cast<size_t>(y) * w * 4);
                 }
             }
             {
@@ -572,8 +608,10 @@ namespace perlin {
                 h.Overlay().ClearOverlay();
             return;
         }
-        const bool visible = j.offscreen || !j.screenshot && (j.phase == ExportJob::Phase::Seeking || j.phase == ExportJob::Phase::Draining ||
-                                                (j.phase == ExportJob::Phase::Settle && j.settleIters <= 1));
+        const bool visible =
+            j.offscreen ||
+            !j.screenshot && (j.phase == ExportJob::Phase::Seeking || j.phase == ExportJob::Phase::Draining ||
+                              (j.phase == ExportJob::Phase::Settle && j.settleIters <= 1));
         if (!visible) {
             if (h.Overlay().HasOverlay())
                 h.Overlay().ClearOverlay();
@@ -583,7 +621,7 @@ namespace perlin {
         if (!rebuild) {
             std::string error;
             if (!h.Overlay().HasOverlay() && !h.Overlay().SetOverlay(j.overlayRml, error))
-                std::cout << "[ui] export overlay: " << error << std::endl;
+                Log("ui", "export overlay: {}", error);
             h.UpdateOverlay(fbW, fbH, options.guiScale);
             return;
         }
@@ -594,7 +632,9 @@ namespace perlin {
         const double eta = perFrame * static_cast<double>(j.total - done);
         ui::PanelModel m;
         m.title = "Exporting " + j.name;
-        m.status = Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)), 1) + "%";
+        m.status =
+            Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)), 1) +
+            "%";
         m.progress = static_cast<float>(done) / static_cast<float>(std::max<long long>(1, j.total));
         const auto info = [&](const std::string& a, const std::string& b) {
             ui::PanelRow r;
@@ -605,21 +645,22 @@ namespace perlin {
         };
         m.exportLayer = j.offscreen;
         m.title = "Exporting";
-        m.status = "Frame " + std::to_string(std::min(done + 1, j.total)) + "/" + std::to_string(j.total) + "   " +
-                   Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)), 0) + "%";
-        info("Time left", done > 2 && elapsed > 0.5 ? ui::FormatReplayTime(eta * 1000.0) : std::string("estimating..."));
+        m.status =
+            "Frame " + std::to_string(std::min(done + 1, j.total)) + "/" + std::to_string(j.total) + "   " +
+            Num(100.0 * static_cast<double>(done) / static_cast<double>(std::max<long long>(1, j.total)), 0) +
+            "%";
+        info("Time left",
+             done > 2 && elapsed > 0.5 ? ui::FormatReplayTime(eta * 1000.0) : std::string("estimating..."));
         ui::PanelRow esc;
         esc.kind = ui::PanelRow::Kind::Info;
         esc.label = "Press Esc to cancel";
         m.rows.push_back(esc);
-        const int scale = h.OverlayScale();
-        const int guiW = static_cast<int>(std::ceil(static_cast<float>(fbW) / static_cast<float>(scale)));
-        const int guiH = static_cast<int>(std::ceil(static_cast<float>(fbH) / static_cast<float>(scale)));
+        const auto [scale, guiW, guiH] = detail::OverlayViewport(h, fbW, fbH);
         std::string error;
         m.scroll = 0;
         j.overlayRml = ui::BuildPanelRml(m, guiW, guiH);
         if (!h.Overlay().SetOverlay(j.overlayRml, error))
-            std::cout << "[ui] export overlay: " << error << std::endl;
+            Log("ui", "export overlay: {}", error);
         h.UpdateOverlay(fbW, fbH, options.guiScale);
     }
 }

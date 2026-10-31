@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -43,11 +44,11 @@ namespace perlin {
         for (int attempt = 0; attempt < 3; attempt++) {
             if (DownloadSamples(targetDir) && Complete(fs::path(targetDir) / "repo")) {
                 std::ofstream((fs::path(targetDir) / kMarker).string()).close();
-                std::cout << "[samples] ready at " << (fs::path(targetDir) / "repo").string() << std::endl;
+                Log("samples", "ready at {}", (fs::path(targetDir) / "repo").string());
                 job.stage = assets::Stage::Done;
                 return true;
             }
-            std::cout << "[samples] download incomplete (attempt " << attempt + 1 << ")" << std::endl;
+            Log("samples", "download incomplete (attempt {})", attempt + 1);
         }
         job.stage = assets::Stage::Failed;
         return false;

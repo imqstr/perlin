@@ -265,7 +265,6 @@ namespace rhi::vendor {
                 // the module stays loaded: proxies the process still holds point into it
             }
 
-            // ---- frame generation
             bool SetMultiplier(uint32_t multiplier, uint32_t backBuffers, uint32_t width, uint32_t height) override {
                 if (!caps.dlssFrameGeneration)
                     return false;
@@ -314,7 +313,6 @@ namespace rhi::vendor {
                 return s;
             }
 
-            // ---- latency
             bool SetMode(bool enabled, bool boost, uint32_t frameLimitUs) override {
                 if (!caps.reflex)
                     return false;

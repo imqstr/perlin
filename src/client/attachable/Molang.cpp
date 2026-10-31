@@ -123,7 +123,7 @@ namespace perlin::molang {
             };
             static const Alias kAliases[] = {{"q.", "query."}, {"v.", "variable."}, {"c.", "context."}, {"t.", "temp."}};
             for (const Alias& a : kAliases)
-                if (id.rfind(a.shortForm, 0) == 0)
+                if (id.starts_with(a.shortForm))
                     return std::string(a.longForm) + id.substr(std::strlen(a.shortForm));
             return id;
         }
@@ -368,7 +368,7 @@ namespace perlin::molang {
         Value Call(const Node& n, Scope& s, ReturnSignal& ret) {
             const std::string& name = n.text;
             if (n.isMath < 0) {
-                n.isMath = name.rfind("math.", 0) == 0 ? 1 : 0;
+                n.isMath = name.starts_with("math.") ? 1 : 0;
                 if (n.isMath)
                     n.key = name.substr(5);
             }
@@ -439,7 +439,7 @@ namespace perlin::molang {
                 if (f == "sinh") return Value::Num(std::sinh(a(0)));
                 if (f == "cosh") return Value::Num(std::cosh(a(0)));
                 if (f == "tanh") return Value::Num(std::tanh(a(0)));
-                if (f.rfind("ease_", 0) == 0) {
+                if (f.starts_with("ease_")) {
                     const double t = std::clamp(a(2), 0.0, 1.0);
                     const std::string k = f.substr(5);
                     auto in = [&](const std::string& n, double x) {
@@ -464,12 +464,12 @@ namespace perlin::molang {
                         return x;
                     };
                     double w = t;
-                    if (k.rfind("in_out_", 0) == 0) {
+                    if (k.starts_with("in_out_")) {
                         const std::string n = k.substr(7);
                         w = t < 0.5 ? in(n, t * 2) / 2 : 1 - in(n, (1 - t) * 2) / 2;
-                    } else if (k.rfind("in_", 0) == 0) {
+                    } else if (k.starts_with("in_")) {
                         w = in(k.substr(3), t);
-                    } else if (k.rfind("out_", 0) == 0) {
+                    } else if (k.starts_with("out_")) {
                         w = 1 - in(k.substr(4), 1 - t);
                     }
                     return Value::Num(a(0) + (a(1) - a(0)) * w);
@@ -481,7 +481,7 @@ namespace perlin::molang {
                 return Value::Num(0);
             }
             if (name == "query.key_frame_lerp_time") return Value::Num(s.keyFrameLerpTime);
-            if (s.host && name.rfind("query.", 0) == 0) {
+            if (s.host && name.starts_with("query.")) {
                 Value out;
                 if (s.host->Query(name.substr(6), args, out))
                     return out;
@@ -530,10 +530,10 @@ namespace perlin::molang {
             case Node::Var: {
                 if (n.varKind == Node::VUnset) {
                     const std::string& id = n.text;
-                    if (id.rfind("variable.", 0) == 0) { n.varKind = Node::VVariable; n.key = id.substr(9); }
-                    else if (id.rfind("temp.", 0) == 0) { n.varKind = Node::VTemp; n.key = id.substr(5); }
-                    else if (id.rfind("query.", 0) == 0) { n.varKind = Node::VQuery; n.key = id.substr(6); }
-                    else if (id.rfind("context.", 0) == 0) { n.varKind = Node::VContext; n.key = id.substr(8); }
+                    if (id.starts_with("variable.")) { n.varKind = Node::VVariable; n.key = id.substr(9); }
+                    else if (id.starts_with("temp.")) { n.varKind = Node::VTemp; n.key = id.substr(5); }
+                    else if (id.starts_with("query.")) { n.varKind = Node::VQuery; n.key = id.substr(6); }
+                    else if (id.starts_with("context.")) { n.varKind = Node::VContext; n.key = id.substr(8); }
                     else if (id == "this") n.varKind = Node::VThis;
                     else if (id == "math.pi") n.varKind = Node::VPi;
                     else if (id == "true") n.varKind = Node::VTrue;
@@ -644,13 +644,13 @@ namespace perlin::molang {
                 return Eval(*n.kids[0], s, ret).Truthy() ? Eval(*n.kids[1], s, ret) : Eval(*n.kids[2], s, ret);
             case Node::Coalesce: {
                 const Value l = Eval(*n.kids[0], s, ret);
-                return l.isString && l.s.find('.') != std::string::npos ? Eval(*n.kids[1], s, ret) : l;
+                return l.isString && l.s.contains('.') ? Eval(*n.kids[1], s, ret) : l;
             }
             case Node::Assign: {
                 const Value v = Eval(*n.kids[0], s, ret);
-                if (n.text.rfind("variable.", 0) == 0)
+                if (n.text.starts_with("variable."))
                     s.variables[n.text.substr(9)] = v;
-                else if (n.text.rfind("temp.", 0) == 0)
+                else if (n.text.starts_with("temp."))
                     s.temps[n.text.substr(5)] = v;
                 return Value::Num(0);
             }

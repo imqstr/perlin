@@ -186,6 +186,15 @@ jobs:
       - name: Package
         run: cmake --install build --config Release --prefix dist
 
+      - name: Slim the package
+        # the dependencies install their headers and libraries too; a player needs none of them, nor symbol files
+        shell: bash
+        run: |
+          rm -rf dist/include dist/lib dist/lib64 dist/cmake dist/share/pkgconfig
+          find dist \( -name '*.pdb' -o -name '*.map' -o -name '*.lib' -o -name '*.exp' -o -name '*.ilk' -o -name '*.a' \) -delete
+          find dist -type d -empty -delete
+          du -sh dist
+
       - name: Check macOS binary only needs system libraries
         if: runner.os == 'macOS'
         run: |
@@ -206,8 +215,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cp build/Perlin.pdb dist/ 2>/dev/null || true
-          cp build/Perlin.map dist/ 2>/dev/null || true
+          mkdir symbols
+          cp build/perlin.pdb symbols/ 2>/dev/null || cp build/*.pdb symbols/ 2>/dev/null || true
+
+      - name: Upload symbols (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Perlin-${{ matrix.name }}-symbols
+          path: symbols
+          if-no-files-found: ignore
 
       - name: Upload
         uses: actions/upload-artifact@v4

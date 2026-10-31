@@ -166,8 +166,7 @@ namespace perlin::ui {
         Image(ax, ay, w, h, z, "mc:white", st);
     }
 
-    void RmlWriter::Item(float ax, float ay, float w, float h, int z, const std::string& itemKey, float alpha, bool glint, int damage,
-                         int maxDamage) {
+    void RmlWriter::Item(float ax, float ay, float w, float h, int z, const std::string& itemKey, float alpha, bool glint) {
         ax -= ox;
         ay -= oy;
         count++;
@@ -177,7 +176,6 @@ namespace perlin::ui {
             body += " alpha=\"" + Num(alpha) + "\"";
         if (glint)
             body += " glint=\"1\"";
-        body += DurabilityAttrs(damage, maxDamage);
         body += "/>\n";
     }
 
@@ -357,7 +355,7 @@ namespace perlin::ui {
                     return "s:" + std::to_string(std::max(0, n.index)) + ":-";
                 if (id == "button.perlin_form_plus")
                     return "s:" + std::to_string(std::max(0, n.index)) + ":+";
-                if (id == "button.menu_exit" || id == "button.menu_cancel" || id == "button.exit_dialog" || id.find("close") != std::string::npos)
+                if (id == "button.menu_exit" || id == "button.menu_cancel" || id == "button.exit_dialog" || id.contains("close"))
                     return "close";
             }
             // slot ids for our inventory logic: s<n> player inventory (hotbar first), k<n> open container

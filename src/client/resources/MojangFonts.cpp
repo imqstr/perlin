@@ -13,6 +13,8 @@
 #include "client/ui/Json.hpp"
 #include "network/FastDownload.hpp"
 #include "network/Http.hpp"
+#include "util/FileIo.hpp"
+#include "util/Log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -44,19 +46,10 @@ namespace perlin {
             return false;
         }
 
-        bool ReadFile(const fs::path& path, std::string& out) {
-            std::ifstream in(path, std::ios::binary);
-            if (!in)
-                return false;
-            std::ostringstream ss;
-            ss << in.rdbuf();
-            out = ss.str();
-            return true;
-        }
 
         bool ReadJson(const std::string& url, const fs::path& scratch, ui::Json& out) {
             std::string text, error;
-            return Download(url, scratch) && ReadFile(scratch, text) && ui::Json::Parse(text, out, error);
+            return Download(url, scratch) && file::Read(scratch, text) && ui::Json::Parse(text, out, error);
         }
 #endif
 
@@ -111,7 +104,7 @@ namespace perlin {
                         out.write(static_cast<const char*>(bytes), static_cast<std::streamsize>(size));
                         mz_free(bytes);
                     }
-                } else if (!hexOk && n.find("font/unifont_all_no_pua") != std::string::npos && n.size() > 4 && n.compare(n.size() - 4, 4, ".zip") == 0) {
+                } else if (!hexOk && n.contains("font/unifont_all_no_pua") && n.size() > 4 && n.compare(n.size() - 4, 4, ".zip") == 0) {
                     size_t size = 0;
                     void* bytes = mz_zip_reader_extract_to_heap(&zip, i, &size, 0);
                     if (bytes) {
@@ -148,7 +141,7 @@ namespace perlin {
             const fs::path jar = fs::path(dataDir) / "fonts" / "client.jar";
             std::error_code ec;
             if (!fs::exists(jar, ec)) {
-                std::cout << "[fonts] the page did not provide Mojang's client jar" << std::endl;
+                Log("fonts", "the page did not provide Mojang's client jar");
                 job.stage = assets::Stage::Failed;
                 return false;
             }
@@ -173,7 +166,7 @@ namespace perlin {
         fs::create_directories(root, ec);
         ui::Json manifest;
         if (!ReadJson(kManifest, root / "manifest.tmp", manifest)) {
-            std::cout << "[fonts] could not reach the Mojang version manifest" << std::endl;
+            Log("fonts", "could not reach the Mojang version manifest");
             return false;
         }
         std::string release;
@@ -193,7 +186,7 @@ namespace perlin {
         fs::remove(root / "manifest.tmp", ec);
         ui::Json version;
         if (versionUrl.empty() || !ReadJson(versionUrl, root / "version.tmp", version)) {
-            std::cout << "[fonts] could not read the Mojang version metadata" << std::endl;
+            Log("fonts", "could not read the Mojang version metadata");
             return false;
         }
         fs::remove(root / "version.tmp", ec);
@@ -226,9 +219,9 @@ namespace perlin {
                 for (const auto& [key, value] : objects->object) {
                     const bool zipped = key.size() > 4 && key.compare(key.size() - 4, 4, ".zip") == 0;
                     const bool raw = key.size() > 4 && key.compare(key.size() - 4, 4, ".hex") == 0;
-                    if (key.find("unifont") == std::string::npos || key.find("_pua") != std::string::npos && key.find("no_pua") == std::string::npos || (!zipped && !raw))
+                    if (!key.contains("unifont") || key.contains("_pua") && !key.contains("no_pua") || (!zipped && !raw))
                         continue;
-                    if (key.find("unifont_jp") != std::string::npos)
+                    if (key.contains("unifont_jp"))
                         continue;
                     const ui::Json* hash = value.Find("hash");
                     if (!hash || hash->StringOr("").size() < 2)
@@ -236,7 +229,7 @@ namespace perlin {
                     const std::string h = hash->StringOr("");
                     const fs::path zip = root / "unifont.zip";
                     std::string bytes;
-                    if (Download(std::string(kResources) + h.substr(0, 2) + "/" + h, zip) && ReadFile(zip, bytes)) {
+                    if (Download(std::string(kResources) + h.substr(0, 2) + "/" + h, zip) && file::Read(zip, bytes)) {
                         if (raw) {
                             std::ofstream out(hexOut, std::ios::binary);
                             out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -245,7 +238,7 @@ namespace perlin {
                             ok = ExtractHexFromZipMemory(bytes.data(), bytes.size(), hexOut);
                         }
                     } else {
-                        std::cout << "[fonts] could not download " << key << std::endl;
+                        Log("fonts", "could not download {}", key);
                     }
                     fs::remove(zip, ec);
                     if (ok)

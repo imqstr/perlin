@@ -71,6 +71,8 @@ namespace rhi {
         bool samplerAnisotropy = false;
         bool shaderFloat16 = false;
         bool shaderInt64 = false;
+        // 64 bit floats in shaders: the server's gpu terrain evaluates Java's double-precision noise coordinates with them
+        bool shaderFloat64 = false;
         bool subgroupOps = false;
         bool meshShaders = false;
         bool rayTracing = false;

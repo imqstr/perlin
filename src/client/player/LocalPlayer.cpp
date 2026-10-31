@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -144,8 +145,7 @@ namespace perlin {
     void LocalPlayer::ApplyMotionUpdate(BedrockSession& session, const BedrockSession::MotionUpdate& update) {
         if (teleportMotionBoundary && update.tick <= *teleportMotionBoundary) {
             if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                std::cout << "[move] motion_before_teleport stamp=" << update.tick
-                          << " boundary=" << *teleportMotionBoundary << std::endl;
+                Log("move", "motion_before_teleport stamp={} boundary={}", update.tick, *teleportMotionBoundary);
             return;
         }
         size_t first = history.size();
@@ -159,8 +159,7 @@ namespace perlin {
                 first = i;
                 inserted = true;
                 if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                    std::cout << "[move] motion_replay stamp=" << update.tick << " target=" << history[i].tick
-                              << " records=" << history.size() - i << std::endl;
+                    Log("move", "motion_replay stamp={} target={} records={}", update.tick, history[i].tick, history.size() - i);
                 break;
             }
         }
@@ -222,8 +221,7 @@ namespace perlin {
                 else
                     ReplayFrom(session, first);
                 if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                    std::cout << "[move] teleport_replay stamp=" << motion.tick << " records="
-                              << history.size() - first << " queued=" << (first == history.size()) << std::endl;
+                    Log("move", "teleport_replay stamp={} records={} queued={}", motion.tick, history.size() - first, (first == history.size()));
                 handled = true;
                 motion.hasVelocity = false;
             }
@@ -302,9 +300,7 @@ namespace perlin {
                                     static_cast<float>(state.z), state.yaw, session.GetPose().pitch);
                     correctionReplays++;
                     if (correctionReplays <= 5 || correctionReplays % 100 == 0)
-                        std::cout << "[move] replayed correction tick=" << motion.tick << " posErr=" << std::sqrt(posErr)
-                                  << " velErr=" << std::sqrt(velErr) << " replayed=" << (history.size() - 1)
-                                  << std::endl;
+                        Log("move", "replayed correction tick={} posErr={} velErr={} replayed={}", motion.tick, std::sqrt(posErr), std::sqrt(velErr), (history.size() - 1));
                 }
                 history.pop_front();
                 handled = true;
@@ -552,7 +548,7 @@ namespace perlin {
             if (it->tick < nextTick) {
                 rec.motion = it->velocity;
                 if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                    std::cout << "[move] motion_apply stamp=" << it->tick << " target=" << nextTick << std::endl;
+                    Log("move", "motion_apply stamp={} target={}", it->tick, nextTick);
                 it = futureMotion.erase(it);
             } else {
                 ++it;

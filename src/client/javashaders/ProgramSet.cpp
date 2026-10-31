@@ -1,4 +1,5 @@
 #include "client/javashaders/ProgramSet.hpp"
+#include "util/Strings.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -48,12 +49,6 @@ namespace perlin::jshader {
             {"final", ""},
         };
 
-        std::string Trim(const std::string& s) {
-            size_t a = 0, b = s.size();
-            while (a < b && std::isspace(static_cast<unsigned char>(s[a]))) a++;
-            while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) b--;
-            return s.substr(a, b - a);
-        }
 
         struct NumParser {
             const std::string& s;
@@ -166,9 +161,9 @@ namespace perlin::jshader {
         const auto it = constants.find(name);
         if (it == constants.end())
             return fallback;
-        std::string v = Trim(it->second);
+        std::string v = str::Trim(it->second);
         while (!v.empty() && v.front() == '(' && v.back() == ')')
-            v = Trim(v.substr(1, v.size() - 2));
+            v = str::Trim(v.substr(1, v.size() - 2));
         if (v == "true" || v == "1")
             return true;
         if (v == "false" || v == "0")
@@ -180,9 +175,9 @@ namespace perlin::jshader {
         const auto it = constants.find(name);
         if (it == constants.end())
             return fallback;
-        std::string v = Trim(it->second);
+        std::string v = str::Trim(it->second);
         while (!v.empty() && v.front() == '(' && v.back() == ')')
-            v = Trim(v.substr(1, v.size() - 2));
+            v = str::Trim(v.substr(1, v.size() - 2));
         return v;
     }
 
@@ -366,7 +361,7 @@ namespace perlin::jshader {
     }
 
     static void ParseDrawBuffers(const std::string& text, MacroMap macros, ProgramSource& out) {
-        if (text.find("DRAWBUFFERS") == std::string::npos && text.find("RENDERTARGETS") == std::string::npos)
+        if (!text.contains("DRAWBUFFERS") && !text.contains("RENDERTARGETS"))
             return;
         const std::string active = ResolveConditionals(text, macros);
         size_t pos = 0;
@@ -490,21 +485,21 @@ namespace perlin::jshader {
                 std::istringstream in(active);
                 std::string line;
                 while (std::getline(in, line)) {
-                    const std::string t = Trim(line);
+                    const std::string t = str::Trim(line);
                     if (t.compare(0, 6, "const ") != 0)
                         continue;
                     const size_t eq = t.find('=');
                     const size_t semi = t.find(';', eq == std::string::npos ? 0 : eq);
                     if (eq == std::string::npos || semi == std::string::npos)
                         continue;
-                    const std::string left = Trim(t.substr(6, eq - 6));
+                    const std::string left = str::Trim(t.substr(6, eq - 6));
                     const size_t sp = left.find_last_of(" \t");
                     if (sp == std::string::npos)
                         continue;
-                    const std::string var = Trim(left.substr(sp + 1));
+                    const std::string var = str::Trim(left.substr(sp + 1));
                     if (!IsDirectiveName(var))
                         continue;
-                    directives.constants[var] = SubstituteMacros(Trim(t.substr(eq + 1, semi - eq - 1)), local);
+                    directives.constants[var] = SubstituteMacros(str::Trim(t.substr(eq + 1, semi - eq - 1)), local);
                 }
             }
         }

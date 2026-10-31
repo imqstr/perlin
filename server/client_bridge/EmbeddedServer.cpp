@@ -20,6 +20,7 @@ namespace perlin {
             const char* (*lastError)() = nullptr;
             int (*start)(ps_server*) = nullptr;
             int (*runAsync)(ps_server*) = nullptr;
+            int (*isRunning)(ps_server*) = nullptr;
             void (*tick)(ps_server*) = nullptr;
             void (*stop)(ps_server*) = nullptr;
             void (*destroy)(ps_server*) = nullptr;
@@ -83,6 +84,8 @@ namespace perlin {
                 return r == 1;
             }
             bool IsConnected() const override { return conn && api->alive(conn); }
+            // a local server cannot go quiet on a dead link: it is either connected or the connection reports it is gone
+            bool HasLivenessTimeout() const override { return true; }
             std::string LastError() const override { return {}; }
             const NetherNetServerInfo& Info() const override { return info; }
 
@@ -122,6 +125,7 @@ namespace perlin {
         BIND(lastError, "ps_last_error")
         BIND(start, "ps_start")
         BIND(runAsync, "ps_run_async")
+        BIND(isRunning, "ps_is_running")
         BIND(tick, "ps_tick")
         BIND(stop, "ps_stop")
         BIND(destroy, "ps_destroy")
@@ -164,7 +168,15 @@ namespace perlin {
         // the library stays mapped for any transport still alive; the shared Api keeps it until the last user is gone
     }
 
-    bool EmbeddedServer::Running() const { return impl->running; }
+    bool EmbeddedServer::Running() const {
+        if (!impl->running)
+            return false;
+        if (impl->api->isRunning(impl->server))
+            return true;
+        // the server's thread ended by itself (it crashed): drop it so the next join starts a fresh one
+        const_cast<EmbeddedServer*>(this)->Stop();
+        return false;
+    }
     void EmbeddedServer::Tick() {
         if (impl->running)
             impl->api->tick(impl->server);

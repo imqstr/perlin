@@ -14,6 +14,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include "util/Log.hpp"
 
 namespace perlin::packetlog {
     namespace fs = std::filesystem;
@@ -86,12 +87,12 @@ namespace perlin::packetlog {
                 }
                 std::fprintf(file, "=== %s capture started\n", Clock().c_str());
                 std::fflush(file);
-                std::cout << "[packetlog] capture started -> " << (dir / "packets.log").string() << std::endl;
+                Log("packetlog", "capture started -> {}", (dir / "packets.log").string());
             } else {
                 std::fprintf(file, "=== %s capture stopped\n", Clock().c_str());
                 std::fclose(file);
                 file = nullptr;
-                std::cout << "[packetlog] capture stopped" << std::endl;
+                Log("packetlog", "capture stopped");
             }
         }
     }

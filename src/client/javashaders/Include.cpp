@@ -1,4 +1,5 @@
 #include "client/javashaders/Include.hpp"
+#include "util/Strings.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -6,12 +7,6 @@
 
 namespace perlin::jshader {
     namespace {
-        std::string Trim(const std::string& s) {
-            size_t a = 0, b = s.size();
-            while (a < b && std::isspace(static_cast<unsigned char>(s[a]))) a++;
-            while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) b--;
-            return s.substr(a, b - a);
-        }
 
         bool IsIdent(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
 
@@ -65,7 +60,7 @@ namespace perlin::jshader {
                 d.comment = rest.substr(cm + 2);
                 rest = rest.substr(0, cm);
             }
-            d.value = Trim(rest);
+            d.value = str::Trim(rest);
             return true;
         }
 
@@ -101,7 +96,7 @@ namespace perlin::jshader {
             const size_t semi = line.find(';', i);
             if (semi == std::string::npos)
                 return false;
-            c.value = Trim(line.substr(i, semi - i));
+            c.value = str::Trim(line.substr(i, semi - i));
             const std::string after = line.substr(semi + 1);
             const size_t cm = after.find("//");
             c.comment = cm == std::string::npos ? std::string() : after.substr(cm + 2);
@@ -119,11 +114,11 @@ namespace perlin::jshader {
         }
 
         std::string ApplyOptions(IncludeContext& ctx, const std::string& file, const std::string& line) {
-            if (line.find("define") == std::string::npos && line.find("const") == std::string::npos)
+            if (!line.contains("define") && !line.contains("const"))
                 return line;
             DefineLine d;
             if (ParseDefine(line, d)) {
-                const bool hasList = d.comment.find('[') != std::string::npos;
+                const bool hasList = d.comment.contains('[');
                 if (d.value.empty() && (!d.commentedOut || true)) {
                     if (d.commentedOut && d.name.empty())
                         return line;
@@ -131,7 +126,7 @@ namespace perlin::jshader {
                     opt.name = d.name;
                     opt.kind = ShaderOption::Kind::Toggle;
                     opt.defaultOn = !d.commentedOut;
-                    opt.comment = Trim(d.comment);
+                    opt.comment = str::Trim(d.comment);
                     opt.file = file;
                     RecordOption(ctx, opt);
                     if (ctx.overrides) {
@@ -149,7 +144,7 @@ namespace perlin::jshader {
                     opt.kind = ShaderOption::Kind::Value;
                     opt.defaultValue = d.value;
                     opt.values = ParseValueList(d.comment);
-                    opt.comment = Trim(d.comment.substr(0, d.comment.find('[')));
+                    opt.comment = str::Trim(d.comment.substr(0, d.comment.find('[')));
                     opt.file = file;
                     RecordOption(ctx, opt);
                     if (ctx.overrides) {
@@ -161,7 +156,7 @@ namespace perlin::jshader {
                 return line;
             }
             ConstLine c;
-            if (ParseConst(line, c) && c.comment.find('[') != std::string::npos) {
+            if (ParseConst(line, c) && c.comment.contains('[')) {
                 ShaderOption opt;
                 opt.name = c.name;
                 opt.kind = ShaderOption::Kind::Const;
@@ -188,8 +183,8 @@ namespace perlin::jshader {
                 number++;
                 if (!line.empty() && line.back() == '\r')
                     line.pop_back();
-                const std::string t = Trim(line);
-                if (t.compare(0, 8, "#include") == 0 || (t.size() > 2 && t[0] == '#' && Trim(t.substr(1)).compare(0, 7, "include") == 0)) {
+                const std::string t = str::Trim(line);
+                if (t.compare(0, 8, "#include") == 0 || (t.size() > 2 && t[0] == '#' && str::Trim(t.substr(1)).compare(0, 7, "include") == 0)) {
                     const size_t q1 = t.find_first_of("\"<");
                     const size_t q2 = q1 == std::string::npos ? q1 : t.find_first_of("\">", q1 + 1);
                     if (q1 != std::string::npos && q2 != std::string::npos) {

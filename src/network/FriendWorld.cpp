@@ -1,6 +1,7 @@
 #include "network/FriendWorld.hpp"
 
 #include "network/XboxAuth.hpp"
+#include "util/Log.hpp"
 
 #ifdef __EMSCRIPTEN__
 
@@ -19,6 +20,7 @@ namespace perlin::friendworld {
 
 #include "network/Http.hpp"
 #include "util/Json.hpp"
+#include "util/Strings.hpp"
 
 #include <httplib.h>
 
@@ -72,11 +74,6 @@ namespace perlin::friendworld {
         std::string Upper(std::string s) {
             for (char& c : s)
                 c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-            return s;
-        }
-        std::string Lower(std::string s) {
-            for (char& c : s)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             return s;
         }
 
@@ -611,7 +608,7 @@ namespace perlin::friendworld {
                 auto inner = json::Document::Parse(envelope["Message"].str());
                 if (!inner)
                     return;
-                const std::string method = Lower(inner->root()["method"].str());
+                const std::string method = str::Lower(inner->root()["method"].str());
                 if (method == "signaling_deliverynotification_v1_0") {
                     waiters.Complete(inner->root()["params"]["messageId"].str(), {});
                 } else if (method == "signaling_webrtc_v1_0") {
@@ -734,7 +731,7 @@ namespace perlin::friendworld {
                 Connection candidate;
                 candidate.type = type;
                 if (type == kConnectionJsonRpc)
-                    candidate.hostNetworkId = Lower(c["PmsgId"].str());
+                    candidate.hostNetworkId = str::Lower(c["PmsgId"].str());
                 else if (type == kConnectionWebSocket)
                     candidate.hostNetworkId = c["RakNetGUID"].text();
                 else
@@ -768,7 +765,7 @@ namespace perlin::friendworld {
                 if (joined) {
                     joined = false;
                     const http::Response r = Mpsd("PUT", path, "{\"members\":{\"me\":null}}", authorization, {{"If-Match", "*"}});
-                    std::cout << "[friends] left the session (HTTP " << r.status << ")" << std::endl;
+                    Log("friends", "left the session (HTTP {})", r.status);
                 }
                 rta.Close();
             }
@@ -820,7 +817,7 @@ namespace perlin::friendworld {
         const int type = protocol == "NETHERNET_JSONRPC" ? kConnectionJsonRpc : kConnectionWebSocket;
         if (!OpenSignaling(service, type, *lease, error))
             return false;
-        lease->hostNetworkId = type == kConnectionJsonRpc ? Lower(address) : address;
+        lease->hostNetworkId = type == kConnectionJsonRpc ? str::Lower(address) : address;
         lease->issuer = service.issuer;
         lease->worldName = realmName;
         lease->hostName = realmName;
@@ -886,7 +883,7 @@ namespace perlin::friendworld {
             error = "that friend isn't hosting a world you can join";
             return false;
         }
-        std::cout << "[friends] world '" << worldName << "' hosted by " << hostName << ", connection type " << connection.type << std::endl;
+        Log("friends", "world '{}' hosted by {}, connection type {}", worldName, hostName, connection.type);
 
         say("Connecting to Xbox Live...");
         auto state = std::make_shared<SessionState>();
@@ -961,7 +958,7 @@ namespace perlin::friendworld {
             if (session.status == 200)
                 body = session.body;
         }
-        std::cout << "[friends] received a nonce from the host" << std::endl;
+        Log("friends", "received a nonce from the host");
 
         say("Opening a connection to the host...");
         auto lease = std::make_shared<Lease>();

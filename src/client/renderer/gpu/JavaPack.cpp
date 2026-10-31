@@ -259,7 +259,7 @@ namespace perlin::gpu {
             }
             std::vector<std::string> kept;
             for (const std::string& p : parts)
-                if (p.find('=') == std::string::npos)
+                if (!p.contains('='))
                     kept.push_back(p);
             if (kept.empty())
                 return {};
@@ -816,7 +816,7 @@ namespace perlin::gpu {
                 const std::string base = BaseName(entry);
                 if (base.empty())
                     continue;
-                const bool isPlain = entry.find('=') == std::string::npos;
+                const bool isPlain = !entry.contains('=');
                 auto it = nameToPackId.find(base);
                 if (it == nameToPackId.end() || (isPlain && !plain[base])) {
                     nameToPackId[base] = kv.first;

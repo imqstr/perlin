@@ -325,7 +325,6 @@ namespace rhi::d3d11 {
         DeviceStats Stats() const override { return stats; }
         float TimestampPeriodNs() const override { return 1.0f; }
 
-        // ---- internals shared with the command list and the swapchain
         ID3D11Device* Dev() const { return device.get(); }
         ID3D11Device1* Dev1() const { return device1.get(); }
         ID3D11DeviceContext* Imm() const { return immediate.get(); }

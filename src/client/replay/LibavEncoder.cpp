@@ -175,7 +175,7 @@ namespace perlin::replay::ffmpeg {
             av_dict_set(&opts, kv.first.c_str(), kv.second.c_str(), 0);
         const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(pix);
         const bool yuv = desc && !(desc->flags & AV_PIX_FMT_FLAG_RGB) && desc->nb_components >= 3 && !(desc->flags & AV_PIX_FMT_FLAG_PAL);
-        const bool fullRange = plan.pixFmt.rfind("yuvj", 0) == 0;
+        const bool fullRange = plan.pixFmt.starts_with("yuvj");
         if (plan.tagColors) {
             av_dict_set(&opts, "colorspace", "bt709", 0);
             av_dict_set(&opts, "color_primaries", "bt709", 0);

@@ -184,14 +184,14 @@ static void TestSkins() {
     CHECK(pixel(0, 40)[3] == 0);
 
     cfg.skinPath = (dir / "bad.png").string();
-    CHECK(!LoadSkinConfig(cfg, out, err) && err.find("50x50") != std::string::npos);
+    CHECK(!LoadSkinConfig(cfg, out, err) && err.contains("50x50"));
     cfg.skinPath = (dir / "missing.png").string();
-    CHECK(!LoadSkinConfig(cfg, out, err) && err.find("missing.png") != std::string::npos);
+    CHECK(!LoadSkinConfig(cfg, out, err) && err.contains("missing.png"));
     cfg.skinPath = (dir / "notpng.png").string();
     CHECK(!LoadSkinConfig(cfg, out, err));
     cfg.skinPath.clear();
     cfg.capePath = (dir / "skin128.png").string();
-    CHECK(!LoadSkinConfig(cfg, out, err) && err.find("cape") != std::string::npos);
+    CHECK(!LoadSkinConfig(cfg, out, err) && err.contains("cape"));
     fs::remove_all(dir);
 }
 
@@ -250,7 +250,7 @@ static void TestIdentity() {
     CHECK(payload && payload->root()["identityPublicKey"].str() == mojangA);
     CHECK(payload && payload->root()["certificateAuthority"].boolean());
     CHECK(cert->root()["chain"][1].str() == cert->root()["chain"][1].str());
-    CHECK(cert->root()["chain"][2].str().find('.') != std::string::npos);
+    CHECK(cert->root()["chain"][2].str().contains('.'));
 
     CHECK(BuildIdentityJson(id, new std::string("{\"chain\":[\"nodots\"]}"), err).empty());
 }

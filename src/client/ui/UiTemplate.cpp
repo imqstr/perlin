@@ -1,6 +1,7 @@
 #include "client/ui/UiTemplate.hpp"
 
 #include "util/Paths.hpp"
+#include "util/FileIo.hpp"
 
 #include <chrono>
 #include <cinttypes>
@@ -13,6 +14,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include "util/Log.hpp"
 
 namespace perlin::ui {
     namespace fs = std::filesystem;
@@ -39,15 +41,6 @@ namespace perlin::ui {
             return buf;
         }
 
-        bool ReadFile(const fs::path& file, std::string& out) {
-            std::ifstream in(file, std::ios::binary);
-            if (!in)
-                return false;
-            std::stringstream ss;
-            ss << in.rdbuf();
-            out = ss.str();
-            return true;
-        }
 
         bool SplitHeader(const std::string& content, uint64_t& hash, std::string& body) {
             const size_t prefix = std::char_traits<char>::length(kHeaderPrefix);
@@ -70,15 +63,14 @@ namespace perlin::ui {
 
         bool rewrite = true;
         std::string content, body;
-        if (fs::exists(file, ec) && ReadFile(file, content) && !content.empty()) {
+        if (fs::exists(file, ec) && file::Read(file, content) && !content.empty()) {
             uint64_t fileHash = 0;
             if (SplitHeader(content, fileHash, body)) {
                 if (fileHash == builtIn) {
                     rewrite = false;
                 } else if (Fnv1a(body) != fileHash) {
                     fs::copy_file(file, fs::path(file).concat(".old"), fs::copy_options::overwrite_existing, ec);
-                    std::cout << "[ui] " << fileName << " changed in this build; your edited copy was saved as "
-                              << fileName << ".old" << std::endl;
+                    Log("ui", "{} changed in this build; your edited copy was saved as {}.old", fileName, fileName);
                 }
             } else if (content != defaultText) {
                 fs::copy_file(file, fs::path(file).concat(".old"), fs::copy_options::overwrite_existing, ec);
@@ -135,5 +127,21 @@ namespace perlin::ui {
     void ExportScreenTemplates() {
         for (const auto& [fileName, text] : Registry())
             ScreenTemplate(fileName, text);
+    }
+
+    bool TemplateSlot::Refresh(const char* fileName, const std::string& defaultText, std::chrono::milliseconds every,
+                               std::chrono::steady_clock::time_point now, const char* logLabel) {
+        if (now - checkAt <= every && !text.empty())
+            return false;
+        checkAt = now;
+        uint64_t latest = 0;
+        std::string loaded = LoadUiTemplate(paths::DataDir(), fileName, defaultText, latest);
+        if (latest == version && !text.empty())
+            return false;
+        version = latest;
+        text = std::move(loaded);
+        if (logLabel)
+            Log("ui", "{}: loaded {}/ui/{}", logLabel, paths::DataDir(), fileName);
+        return true;
     }
 }

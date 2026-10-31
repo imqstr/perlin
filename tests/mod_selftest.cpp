@@ -108,13 +108,13 @@ int main(int argc, char** argv) {
         mm.Dispatch(abi::Event::Tick, 300.0);
     for (const std::string& name : names) {
         const ModInfo info = Find(name);
-        const bool spins = name.rfind("loop_", 0) == 0;
+        const bool spins = name.starts_with("loop_");
         std::printf("  %s after ticks: %s %s\n", name.c_str(), info.state.c_str(), info.error.c_str());
         CHECK(info.state == (spins ? "unresponsive" : "running"));
     }
 
     const std::string reloaded = names.front();
-    if (reloaded.rfind("loop_", 0) != 0) {
+    if (!reloaded.starts_with("loop_")) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1100));
         std::vector<unsigned char> grown = first;
         const unsigned char section[] = {0, 5, 4, 'p', 'a', 'd', '!'};

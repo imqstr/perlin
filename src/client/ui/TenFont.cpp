@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin::ui {
     namespace fs = std::filesystem;
@@ -117,10 +118,10 @@ namespace perlin::ui {
             impl = std::move(loaded);
             path = p.string();
             ready = true;
-            std::cout << "[ui] MinecraftTen font from the Bedrock install: " << path << std::endl;
+            Log("ui", "MinecraftTen font from the Bedrock install: {}", path);
             return true;
         }
-        std::cout << "[ui] no Bedrock install with minecraft-ten.ttf found; MinecraftTen labels use the regular font" << std::endl;
+        Log("ui", "no Bedrock install with minecraft-ten.ttf found; MinecraftTen labels use the regular font");
         return false;
     }
 

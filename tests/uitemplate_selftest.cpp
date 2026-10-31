@@ -49,7 +49,7 @@ int main() {
 
     CHECK(LoadUiTemplate(dir.string(), "x.rml", "<p>v2</p>", v) == "<p>v2</p>");
     CHECK(fs::exists(dir / "ui" / "x.rml.old"));
-    CHECK(Slurp(dir / "ui" / "x.rml.old").find("EDIT") != std::string::npos);
+    CHECK(Slurp(dir / "ui" / "x.rml.old").contains("EDIT"));
 
     fs::remove(dir / "ui" / "x.rml.old");
     CHECK(LoadUiTemplate(dir.string(), "x.rml", "<p>v3</p>", v) == "<p>v3</p>");

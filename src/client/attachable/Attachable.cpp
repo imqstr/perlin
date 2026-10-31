@@ -56,7 +56,7 @@ namespace perlin::attachable {
                 if (args.empty())
                     return num(0);
                 const std::string slot = args[0].s;
-                const std::string& item = slot.find("offhand") != std::string::npos ? s.offHandItem : s.mainHandItem;
+                const std::string& item = slot.contains("offhand") ? s.offHandItem : s.mainHandItem;
                 for (size_t i = 1; i < args.size(); i++)
                     if (args[i].isString && (args[i].s == item || args[i].s == Shorten(item)))
                         return num(1);
@@ -277,10 +277,10 @@ namespace perlin::attachable {
             std::stringstream ss(id);
             for (std::string p; std::getline(ss, p, '.');)
                 parts.push_back(p);
-            if (id.rfind("controller.animation.", 0) == 0 && parts.size() > 2)
+            if (id.starts_with("controller.animation.") && parts.size() > 2)
                 once("animation_controllers/" + parts[2] + ".animation_controllers.json",
                      [&](const std::string& t) { animations.LoadControllers(t); });
-            else if (id.rfind("animation.", 0) == 0 && parts.size() > 1)
+            else if (id.starts_with("animation.") && parts.size() > 1)
                 once("animations/" + parts[1] + ".animation.json", [&](const std::string& t) { animations.LoadAnimations(t); });
         }
         for (const std::string& rc : e.renderControllers) {

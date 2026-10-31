@@ -353,6 +353,8 @@ namespace rhi::d3d12 {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs[kMaxColorTargets]{};
         D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
         bool haveDepth = false;
+        bool attachmentMissing = false;
+        passBroken = false;
         targetWidth = targetHeight = 0;
         colorCount = desc.colorCount;
         colorFormats.fill(Format::Unknown);
@@ -364,6 +366,7 @@ namespace rhi::d3d12 {
             TextureRec* t = device.textures.Get(a.texture);
             if (!t) {
                 Fail("BeginRendering: unknown colour attachment");
+                attachmentMissing = true;
                 continue;
             }
             if (!Has(t->desc.usage, TextureUsage::ColorTarget))
@@ -387,6 +390,7 @@ namespace rhi::d3d12 {
             TextureRec* t = device.textures.Get(a.texture);
             if (!t) {
                 Fail("BeginRendering: unknown depth attachment");
+                attachmentMissing = true;
             } else {
                 if (!Has(t->desc.usage, TextureUsage::DepthTarget))
                     Fail("BeginRendering: '" + t->name + "' lacks DepthTarget usage");
@@ -409,6 +413,12 @@ namespace rhi::d3d12 {
             }
         }
 
+        if (attachmentMissing) {
+            passBroken = true;
+            inRendering = true;
+            havePipeline = false;
+            return;
+        }
         list->OMSetRenderTargets(desc.colorCount, rtvs, FALSE, haveDepth ? &dsv : nullptr);
         inRendering = true;
 
@@ -431,6 +441,11 @@ namespace rhi::d3d12 {
             return;
         }
         inRendering = false;
+        if (passBroken) {
+            passBroken = false;
+            pendingResolves.clear();
+            return;
+        }
 
         // msaa resolve happens here: the targets are borrowed from their render state for the copy and given back
         for (const ResolvePair& p : pendingResolves) {
@@ -468,6 +483,8 @@ namespace rhi::d3d12 {
             Fail("SetPipeline: unknown pipeline");
             return;
         }
+        if (passBroken)
+            return;
         if (p->compute == inRendering)
             Fail(p->compute ? "compute pipeline set inside a rendering pass" : "graphics pipeline set outside a rendering pass");
         pipeline = *p;

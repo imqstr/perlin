@@ -16,6 +16,7 @@
 #include <string>
 
 #include "util/Resources.hpp"
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -70,7 +71,7 @@ namespace perlin {
     std::vector<std::pair<int32_t, std::string>> PreviewBlockList() {
         std::vector<std::pair<int32_t, std::string>> blocks;
         for (auto& entry : BlockPalette::Instance().OneStatePerName())
-            if (entry.second.rfind("minecraft:", 0) == 0)
+            if (entry.second.starts_with("minecraft:"))
                 blocks.push_back(std::move(entry));
         return blocks;
     }
@@ -302,7 +303,7 @@ namespace perlin {
         set(-3, padY + 1, -3, torch);
         if (std::getenv("PERLIN_PREVIEW_GLASSWALL")) {
             const uint16_t purple = ids.Get("purple_stained_glass"), tinted = ids.Get("tinted_glass");
-            std::cout << "[preview] glass wall pad y=" << padY << std::endl;
+            Log("preview", "glass wall pad y={}", padY);
             for (int x = -3; x <= 3; x++)
                 for (int y = padY + 1; y <= padY + 4; y++)
                     set(x, y, -6, x >= 2 ? purple : (x <= -3 ? tinted : glass));

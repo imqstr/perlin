@@ -1,5 +1,6 @@
 #include "network/FastDownload.hpp"
 #include "network/Http.hpp"
+#include "util/Log.hpp"
 
 #ifndef __EMSCRIPTEN__
 #include <httplib.h>
@@ -34,7 +35,7 @@ namespace perlin::download {
         }
 
         std::string Absolute(const Url& base, const std::string& location) {
-            if (location.rfind("http://", 0) == 0 || location.rfind("https://", 0) == 0)
+            if (location.starts_with("http://") || location.starts_with("https://"))
                 return location;
             if (!location.empty() && location[0] == '/')
                 return base.origin + location;
@@ -49,7 +50,7 @@ namespace perlin::download {
             cli->set_write_timeout(timeoutSecs);
             cli->set_follow_location(false);
             cli->set_keep_alive(true);
-            if (origin.rfind("https://", 0) == 0)
+            if (origin.starts_with("https://"))
                 perlin::http::UseSystemCa(*cli);
             cli->set_default_headers({{"User-Agent", "Perlin"}});
 #ifdef PERLIN_FASTDL_TEST
@@ -117,7 +118,7 @@ namespace perlin::download {
             httplib::Result res = cli->Get(dest.path, httplib::Headers{{"Range", "bytes=0-0"}});
             if (!res) {
                 if (++failures >= 3) {
-                    std::cout << "[download] could not reach " << dest.origin << ": " << perlin::http::Describe(res) << std::endl;
+                    Log("download", "could not reach {}: {}", dest.origin, perlin::http::Describe(res));
                     return false;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(400 * failures));
@@ -143,7 +144,7 @@ namespace perlin::download {
                 fs::rename(part, target, ec);
                 return !ec;
             }
-            std::cout << "[download] " << current << " answered " << res->status << std::endl;
+            Log("download", "{} answered {}", current, res->status);
             return false;
         }
         if (!ranges)
@@ -207,7 +208,7 @@ namespace perlin::download {
                     }
                 }
                 if (!ok) {
-                    std::cout << "[download] chunk " << index << " of " << current << " failed" << std::endl;
+                    Log("download", "chunk {} of {} failed", index, current);
                     failed = true;
                     return;
                 }

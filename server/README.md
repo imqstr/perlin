@@ -4,17 +4,27 @@ Server software that lives inside the Perlin tree but builds on its own. One cod
 
 | Target | What it is |
 | --- | --- |
-| `perlin-server` | Dedicated server, like Bedrock Dedicated Server. Reads `server.json`, loads plugins, takes console commands on stdin. |
+| `perlin-server` | Dedicated server, like Bedrock Dedicated Server. Reads `server.properties` (the same keys as BDS), `allowlist.json` and `permissions.json`, loads plugins, takes console commands on stdin. |
 | `perlin_server` (`.dll` / `.so` / `.dylib`) | The same server behind a small C API (`include/perlin/server.h`) for singleplayer inside the client. |
 | `perlin_server_core` | Static library both of the above are made from. |
 
 ```
 cmake -S server -B build-server && cmake --build build-server -j
-./build-server/perlin-server --data run        # writes run/server.json on first start
+./build-server/perlin-server --data run        # writes run/server.properties, allowlist.json and permissions.json on first start
 ctest --test-dir build-server
 ```
 
-From the root tree: `-DPERLIN_BUILD_SERVER=ON`. Needs a C++23 compiler, Python 3 (the Bedrock packet codecs are generated from `protocol/` by the client's own `tools/protogen`, so the server speaks exactly what the client decodes), and network access for the first configure (libdatachannel, cpp-httplib, miniz, wasm3 through FetchContent). Options: `PERLIN_SERVER_NETHERNET` (default ON), `PERLIN_SERVER_GPU` (OFF, see below), `PERLIN_SERVER_BUILD_SHARED`, `PERLIN_SERVER_BUILD_EXE`.
+From the root tree the server is built by default (`PERLIN_BUILD_SERVER`, on for desktop, off for web and Android): the client build also produces `perlin_server` beside the executable, which is what the Singleplayer button loads, and `perlin-server`; `cmake --install` puts both in the package (the library goes inside the app bundle on macOS), with the block tables in `resources/`. Needs a C++23 compiler, Python 3 (the Bedrock packet codecs are generated from `protocol/` by the client's own `tools/protogen`, so the server speaks exactly what the client decodes), and network access for the first configure (libdatachannel, cpp-httplib, miniz, wasm3 through FetchContent). Options: `PERLIN_SERVER_NETHERNET` (default ON), `PERLIN_SERVER_GPU` (OFF, see below), `PERLIN_SERVER_BUILD_SHARED`, `PERLIN_SERVER_BUILD_EXE`.
+
+## Configuration
+
+`server.properties` is the BDS file: same keys, same order, same defaults (written in full on first start), plus a few `perlin-*` keys for what BDS does not have (`perlin-generator` flat or vanilla, `perlin-terrain-backend`, `perlin-plugin-dir`, `perlin-block-data-dir`, `perlin-flat-layers`, ICE settings). Keys this server does not act on are kept when it rewrites the file. A directory with only the old `server.json` still loads, and `server.properties` wins when both exist.
+
+Applied: `server-name`, `gamemode`, `difficulty`, `max-players`, `online-mode`, `allow-list`, `server-port`, `server-ip`, `server-udp-ports` (a shared port, a range, or `public:local`; see below), `transport`, `enable-lan-visibility`, `view-distance`, `tick-distance`, `player-idle-timeout`, `max-threads`, `level-name`, `level-seed` (empty is random, a number is used as is, other text is hashed like Java's `String.hashCode`), `default-player-permission-level`, `compression-threshold` (default 1, as BDS), `chat-restriction`.
+
+Read and kept, not acted on yet: `force-gamemode` and `allow-cheats` (nothing is saved to apply them to), `server-portv6`, the `server-authoritative-*` and position thresholds, ticking-area limits, content log, script debugging, `disable-persona`, `disable-custom-skins`, `enable-packet-rate-limiter` (and `packetlimitconfig.json`), `server-build-radius-ratio`.
+
+Differences from BDS that are deliberate or forced: `transport=raknet` is refused (NetherNet only); `compression-algorithm=snappy` falls back to zlib with a warning; `block-network-ids-are-hashes=false` is ignored; `client-side-chunk-generation-enabled` is read but the server always sends it off, since the client would generate its own terrain outside the server's radius; the public half of a `server-udp-ports` mapping is parsed but WebRTC does not announce it, so forward the same port numbers; `online-mode` defaults to false and `allow-list` to false here, where BDS defaults both to true.
 
 ## Transport: NetherNet only
 
@@ -26,16 +36,20 @@ There is no RakNet in the server. A player joins the way the client's direct joi
 
 DTLS already secures the channel, so the Bedrock encryption handshake is not used (the client replies to `ServerToClientHandshake` without encryption on NetherNet). Compression is raw deflate with a 256 byte threshold.
 
-Reachability: forward one port, TCP for the signalling and UDP for WebRTC, both `port` (default 19133). `ice_udp_mux` (default on) puts every player on that one UDP port. `ice_servers` takes `stun:host:port` / `turn:` URLs, or `["none"]` for LAN only. `ice_bind_address` pins the interface (needed on hosts without IPv6).
+Reachability: forward one port, TCP for the signalling and UDP for WebRTC, both `port` (default 19132). `ice_udp_mux` (default on) puts every player on that one UDP port. `ice_servers` takes `stun:host:port` / `turn:` URLs, or `["none"]` for LAN only. `ice_bind_address` pins the interface (needed on hosts without IPv6).
 
 The in-process `LoopbackListener` skips the network entirely and is what singleplayer uses.
 
 ## What works
 
 - Bedrock 1.26.60 (protocol 2225) login: network settings, login, resource pack negotiation (no packs offered), start game, chunk radius, chunk streaming, spawn.
-- Flat world (`flat_layers` in `server.json`, default bedrock / 2 dirt / grass, surface at y -60), sections that are one block are stored and sent as a single value.
+- Vanilla terrain by default (below); with `perlin-generator=flat`, a flat world (`perlin-flat-layers` in `server.properties`, default bedrock / 2 dirt / grass, surface at y -60), sections that are one block are stored and sent as a single value.
 - Multiplayer: any number of sessions, player list, other players appear with their own skin, movement is relayed, join and leave messages.
-- Chat (`Text`), commands (`/help /list /say /tp /kick /plugins /stop`), command list sent to the client. Operators are listed in `operators` (names, or Xbox ids); in embedded singleplayer the one player is an operator.
+- Chat (`Text`) and commands with Java's syntax, one overload list per command, tab completion through `AvailableCommands`, and Java's error messages (`Unknown or incomplete command, see below for error`, the `/cmd<--[HERE]` marker, `Expected integer`, `No player was found`, `Unknown item 'minecraft:x'`). Arguments are typed (integer, float, word, text, selector, position with `~` and `^`, item, block, biome, enum). Selectors: `@s @p @a @r @e` with `[name= distance= x= y= z= limit= sort= gamemode= type=]`. Commands: `/help /list /say /me /msg /tell /w /tp /teleport /kick /ban /pardon /stop /give /gamemode /defaultgamemode /op /deop /allowlist /whitelist /permission /tick /time /weather /difficulty /gamerule /setworldspawn /spawnpoint /seed /title /locate /flyspeed /plugins`. A command an ordinary player may not use answers with the unknown-command message, as in Java. Not there: `/kill /effect /xp /summon /fill /setblock /clone` and anything about entities, since the server has none.
+- Spectator mode (`/gamemode spectator`, game type 6): the player flies through blocks, cannot build, break, fight or open things. While spectating the mouse wheel in the Perlin client cycles the fly speed 1x, 2x, 5x, 10x, 20x (`/flyspeed <1|2|5|10|20>` does the same from chat); the server sends it as the ability's `flySpeed`. Other players are not hidden from or by spectators.
+- `/locate biome <biome>` and `/locate structure <structure>`: biomes are searched in expanding rings with the generator's own climate (on worker threads, so the tick does not wait); structures do not exist yet and say so.
+- Permissions and the allowlist use BDS's files and formats. `permissions.json` is `[{"permission": "operator", "xuid": "2535..."}]` with `operator`, `member` or `visitor`; players not listed get `default-player-permission-level`. `allowlist.json` is `[{"ignoresPlayerLimit": false, "name": "Steve", "xuid": "2535..."}]`, used when `allow-list=true` (off by default here; BDS ships it on). As in BDS, a `whitelist.json` that exists is read instead of `allowlist.json`, and an old `ops.json` is imported into `permissions.json` once. An entry matches by Xbox id when both sides have one, otherwise by name; a name-only entry gets its xuid filled in on the first join. `/allowlist <on|off|add|remove|list|reload>` (`/whitelist` still works), `/permission <list|reload>`, `/op` and `/deop` (which write `operator` and `member`) manage them. Visitors cannot build, break, fight or open things. In embedded singleplayer the one player is an operator automatically but keeps the world's game mode (survival by default).
+- Creative inventory with every block item, grouped into the vanilla tabs; survival attributes (health, hunger, experience) so the client's HUD has something to show; arm swings, emotes, skin changes and sounds are relayed to other players.
 - Building: the creative menu (every block the client knows, from its own `block_states.json`), placing, breaking, pick block, the 36-slot inventory with cursor, hotbar selection, swap / take / place / drop / destroy through the server-authoritative item stack requests (with stack ids and atomic rollback). Reach is checked, plugins can cancel a place or break, and a refused action sends the real block back so the client undoes its guess. In survival, placing spends one item and breaking pays the block straight into the inventory; bedrock does not break.
 - WASM plugins.
 - Xbox authentication (see below), GPU terrain (see below).
@@ -44,18 +58,18 @@ Not modelled on purpose: entities other than players, so no item entities (a dro
 
 ## Xbox authentication
 
-`"xbox_auth": true` in `server.json` makes the server accept only Xbox Live identities. Every login's certificate chain is always checked (ES384 signatures, each link signed by the key the previous link named, expiry, the client data signed by the last key); `xbox_auth` decides what a valid chain is worth:
+`online-mode=true` in `server.properties` (`"xbox_auth": true` in the older `server.json`) makes the server accept only Xbox Live identities. Every login's certificate chain is always checked (ES384 signatures, each link signed by the key the previous link named, expiry, the client data signed by the last key); `xbox_auth` decides what a valid chain is worth:
 
 - **off (default):** the chain only proves the player holds the key it names. The name is a label anyone can pick; no Xbox id is trusted.
 - **on:** the chain must pass through a trusted root key (Mojang's, or the keys in `auth_root_keys`), the name and Xbox id come from the links after the root's signature only, and over NetherNet the offer's `a=identity` assertion must be signed by the player's key and cover this connection's DTLS fingerprints, so a captured login cannot be replayed from another machine. Anything else is disconnected with "not authenticated" (the client words it as needing an Xbox login).
 
-Operators can then be listed by Xbox id (`"operators": ["2535412345678"]`); with `xbox_auth` on, a name in the list no longer counts, since names are not unique to an account.
+Operators can then be listed by Xbox id (an xuid in `permissions.json`); with `online-mode` on, a name in the list no longer counts, since names are not unique to an account.
 
 Checked with locally generated keys against a custom root, including a forged self-signed link, tampering, expiry and a replayed login. **Not checked against a real Microsoft-issued chain**: the built-in Mojang root keys are two constants (current and pre-2020); they parse as valid P-384 keys, but I could not confirm the current one against a live login. If real players are refused, set `auth_root_keys` to the key the client's chain is signed with. The newer OpenID `Token` is not verified; the client still sends the certificate chain, which is what is checked.
 
 ## Plugins
 
-Same shape as client plugins: a `.wasm` in `plugins/` (optional `name.json` with `name`, `version`, `author`, `description`), the same engine (`WasmRuntime`), one import `perlin.call(op, in, in_len, out, out_cap)` and the exports `perlin_alloc`, `perlin_free`, `perlin_subscriptions`, `perlin_event`. The contract is `sdk/perlin_server.h`: events (enable, disable, tick, join, quit, chat, command, block change, block break, block place) and ops (log, broadcast, message, kick, register command, players, teleport, set/get block, give item, server info).
+Same shape as client plugins: a `.wasm` in `plugins/` (optional `name.json` with `name`, `version`, `author`, `description`), the same wrapper the client uses, on wasm3 (the client itself runs plugins on WasmEdge on desktop; both load the same modules), one import `perlin.call(op, in, in_len, out, out_cap)` and the exports `perlin_alloc`, `perlin_free`, `perlin_subscriptions`, `perlin_event`. The contract is `sdk/perlin_server.h`: events (enable, disable, tick, join, quit, chat, command, block change, block break, block place) and ops (log, broadcast, message, kick, register command, players, teleport, set/get block, give item, server info).
 
 `examples/hello_server` is a complete plugin in freestanding C: welcome message, a chat filter that cancels a message, and a `/hello` command. `examples/hello_server/build.sh` needs only clang with the wasm32 target and `wasm-ld`.
 
@@ -65,13 +79,13 @@ A plugin that traps is disabled and logged; the server keeps running.
 
 The title screen has a **Singleplayer** button. Hovering it shows a note that singleplayer is in very early development and not playable yet. Clicking it starts the server inside the client (`client_bridge/EmbeddedServer` loads `perlin_server` from the folder of the executable, loopback only, you are the operator), then joins it through `BedrockSession` over an in-process transport. The client writes its own `block_states.json` and `block_destroy.tsv` into `<data dir>/singleplayer/` for the server to read.
 
-Build it with `-DPERLIN_BUILD_SERVER=ON` on the root; without it the button explains that this build has no singleplayer. The bridge and the shared library are tested end to end (`server_embed_test`); the button itself and the full client join were **not run**, only compiled.
+It is part of the normal build; configure with `-DPERLIN_BUILD_SERVER=OFF` to leave it out, and the button then explains that this build has no singleplayer. The bridge and the shared library are tested end to end (`server_embed_test`); the button itself and the full client join were **not run**, only compiled.
 
 ## Terrain backends and the GPU
 
 World generation goes through `TerrainBackend` (`src/world/Generator.hpp`): a batch of chunk positions in, columns out, same result for the same seed and position. `ChunkManager` runs it on a worker thread and asks for `PreferredBatch()` positions at a time.
 
-`terrain_backend` in `server.json`: `cpu`, `gpu`, or `auto`. The GPU backend (`src/gpu/GpuTerrainRhi.cpp` and `src/gpu/shaders/terrain_flat.slang`) runs a compute pass on the client's RHI: one thread per cell for up to 16 chunks per dispatch, one readback, the block a function of (x, y, z, seed). `auto` takes it only if it starts on a hardware device **and** matches the CPU reference on a probe batch; otherwise it falls back and logs why.
+`perlin-terrain-backend` in `server.properties` (`terrain_backend` in `server.json`): `cpu`, `gpu`, or `auto`. The GPU backend (`src/gpu/GpuTerrainRhi.cpp` and `src/gpu/shaders/terrain_flat.slang`) runs a compute pass on the client's RHI: one thread per cell for up to 16 chunks per dispatch, one readback, the block a function of (x, y, z, seed). `auto` takes it only if it starts on a hardware device **and** matches the CPU reference on a probe batch; otherwise it falls back and logs why.
 
 Build it with `-DPERLIN_SERVER_GPU=ON` (needs `slangc`, fetched unless `PERLIN_SLANGC` is set). Only the Vulkan shader is compiled; D3D12 and Metal need their shader targets added to the pack and their bindings checked.
 
@@ -79,7 +93,41 @@ Build it with `-DPERLIN_SERVER_GPU=ON` (needs `slangc`, fetched unless `PERLIN_S
 
 **For a flat world the GPU does not help**: the CPU fills a whole uniform section with one store, so dispatch, readback and copy-out only add time (on SwiftShader, 127 ms against 0.5 ms for the same 108 chunks). That is why `auto` keeps flat terrain on the CPU. The backend exists for generators that do real work per block (noise, caves); `terrain_backend: "gpu"` forces it, and `BackendsAgree` is the check every future generator has to pass against its CPU twin.
 
+**Vanilla terrain** (`perlin-generator=vanilla`) needs no files and no setting: its data is compiled in. Where each part comes from (looked up in this order: bedrock-samples, the dedicated server package, then Java):
+
+- **bedrock-samples**: what each biome is made of (`behavior_pack/biomes/*.biome.json`, `minecraft:surface_builder`: top, mid, foundation and sea floor materials, sea floor depth, builder type), with Mojang's documentation for what those fields mean. Baked in by `tools/gen_biome_tables.py`.
+- **the dedicated server package**: nothing usable for terrain. Its versioned behavior packs hold the ore features and feature rules (used, below); it has no terrain noise, density or placement data.
+- **Java 26.3**, hardcoded: the shape of the overworld (density functions, noises, noise settings, 49 KB deflated, `tools/gen_overworld_shape.py`) and where biomes go (the 7,594 climate boxes of `OverworldBiomeBuilder`, dumped by `tools/javaref/BiomeDump.java`, which runs the game's own class). Neither bedrock-samples nor the server package has these; Bedrock's own live inside the closed binary. Java's biome names are mapped to Bedrock's (56 biomes, `tools/gen_biome_tables.py`). These generated files hold Mojang's data, so check the Minecraft EULA before redistributing builds that contain them.
+
+The pipeline has four stages, each with a GPU implementation (`src/gpu/shaders/terrain_vanilla.slang`, host in `src/gpu/GpuVanillaRhi.cpp`, `VanillaGpuProgram.*`) and a CPU reference (`src/world/vanilla`):
+
+1. **density**: `final_density`, in two passes per batch of up to 16 chunks: the 214 expensive nodes at every cell corner (5 x 5 x 49 per chunk), then the 17 per-block nodes with the trilinear blend from those corners.
+2. **biome**: per column, the ground height from the densities, the six climate functions at the column's quart cell at that height, and the nearest of the 7,594 boxes.
+3. **surface**: per block, the block id from the biome's Bedrock materials: top block, 3 of the mid material, then the foundation (stone, deepslate below y 0), bedrock at the floor, water to sea level 63; under water the sea floor material replaces the skin past `sea_floor_depth` below the surface of the water, and grass becomes dirt.
+4. the host turns block ids into chunk sections, after the **ore features** below have been placed into them.
+
+**Ores from Bedrock's feature rules** (`src/world/vanilla/VanillaFeatures.cpp`). The dedicated server's behavior packs hold the modern `ore_feature` definitions (block counts, `discard_chance_on_air_exposure`, which blocks each ore replaces: stone gets the plain ore, deepslate the deepslate ore) and their `feature_rules` (iterations per chunk, uniform or triangle y ranges, `scatter_chance`, coordinate order, `has_biome_tag` filters). `tools/extract_bds_features.py` unpacks and merges the packs' brarchive files (newer versions win), `tools/gen_features.py` bakes the 24 ore features and 30 active rules (rules with 0 iterations are deprecated and dropped) into `FeatureData.cpp`, with each rule's biome filter already evaluated against bedrock-samples' biome tags into one bit per biome. That covers coal, iron (upper, middle, small), copper (and the dripstone variant), gold (and badlands, lower), redstone, lapis, diamond (four rules), emerald in mountains, clay in lush caves, gravel, granite, diorite, andesite, tuff and silverfish blocks in mountains. A blob that starts in a neighbouring chunk is placed in this one too; each blob draws all its random numbers before any test, so neighbours agree on the seams. Runs on the CPU for both backends (about 20 ms a chunk); the GPU returns the biome of each column so the filters can be applied.
+
+The kernel is float32 for values and float64 for coordinates (as Java), every float operation is `precise` (checked in the compiled SPIR-V: no multiply can fuse with an add), and divisions go through double so they round exactly (Vulkan allows 2.5 ulp for a float divide). It needs a device with 64-bit shader floats, which many integrated GPUs lack. The graph must fit the kernel (at most 512 nodes, splines nested at most 7 deep, 4 x 8 cells); the overworld's is 233.
+
+**GPU first, CPU when a stage can't.** `perlin-terrain-backend`: `auto` and `gpu` try the GPU, `cpu` forces the reference. At start the GPU backend generates five probe chunks (including (-2048, 2047) and (100000, -100000)) and checks each stage against the CPU on its own: densities bit for bit (chunk (0,0) in full, the rest sampled), then every column's ground height and biome, then every block. A stage that disagrees or cannot run drops to the CPU while the earlier stages stay on the GPU, and the log says which (`gpu: density, biome; cpu: surface`). If even the density stage fails, or there is no device, `auto` uses the CPU entirely and logs why, and `gpu` refuses to start. If the device stops answering mid-run (30 s per submit) everything falls back to the CPU for the rest of the session.
+
+**What was verified, and what was not.**
+- The CPU biome search matches Java's own `findValueBruteForce` on all 30,000 reference samples (`tools/javaref/biome_lookup_ref.txt`, half placed on box edges), and the density graph matches the real engine on all reference values.
+- The kernel source was compiled by Slang to C++ and run against the CPU reference on 8 chunks (including far ones) for 10 seeds: 0 differences in 126,304 density positions, 2,048 columns (ground height and biome) and 786,432 blocks per seed. That checks the algorithm, the table packing and the four-phase scheme (`tools/kernel_on_cpu/run.sh` repeats it).
+- It was **not run on a GPU**: this build environment has no Vulkan device with 64-bit shader floats (SwiftShader does not). The buffer upload, barriers, push constants and readback of the host code, and the float behaviour of real hardware (fused operations, denormals, divide), are untested; the per-stage start-up check exists to catch exactly that. Speed on a real GPU is unmeasured. Only the Vulkan shader is in the pack.
+
+**Where it departs from Bedrock and Java** (so nobody mistakes it for either):
+- Terrain shape is Java's, which Bedrock's resembles but does not reproduce for the same seed.
+- Java's R-tree breaks ties between climate boxes by what it found last on that thread, so exact edge hits can't be matched; the first box in the table wins here. Real noise values rarely land exactly on an edge.
+- Java blends biomes at block level with a seeded jitter; here each column reads the biome of its 4x4 cell, so biome borders are straight.
+- Surface depth is a flat 1 + 3 layers, not Bedrock's or Java's noise-varied depth; badlands have no terracotta strata; `surface_material_adjustments`, mountain parameters and the frozen-ocean icebergs from the biome files are not applied; there are no aquifers, carvers, trees, flowers, grass, structures or other features.
+- Ores: the counts, heights, rules and biome filters are Bedrock's data, but Bedrock's ore code is closed, so the blob shape is the classic capsule chain and the random numbers are our own: veins are not the same as a real Bedrock world's, and the air-exposure test only looks at neighbours inside the chunk. A rule limited to some biomes tests the biome at the blob's start, or at the nearest column of the chunk being built when the start lies in a neighbour, so such an ore can be cut off at a chunk edge. Everything else in the packs (trees, flowers, grass, cacti, kelp, structures) is native code in Bedrock, not data, so it cannot be ported from Bedrock's files.
+
 ## Not done / known limits
+
+- LAN discovery (UDP 7551, so the world shows up in a vanilla client's Friends tab) is not implemented: its packet layout is only partly documented and could not be checked against a real client here.
+- Terrain: `perlin-generator` is `vanilla` (default, also in singleplayer) or `flat`. The shape of the overworld is Java's, checked bit for bit against the real engine; the biome and surface stages are new (above). Not ported: Bedrock's own terrain (closed), biome blending, aquifers, carvers, structures and the non-ore features.
 
 - No world persistence: chunks are regenerated each run, edits are lost.
 - Resource packs are not served; `BiomeDefinitionList` and `AvailableEntityIdentifiers` are sent empty. Everything is tested against the client's own packet codecs and chunk decoder, **not against the running Perlin client or a vanilla Bedrock client in a game**.

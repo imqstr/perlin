@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
             state.onGround = og != 0;
             state.horizontalCollision = cx || cz;
             state.verticalCollision = cy != 0;
-            skipping = !opt.only.empty() && name.find(opt.only) == std::string::npos;
+            skipping = !opt.only.empty() && !name.contains(opt.only);
             rep = nullptr;
             havePrev = false;
             if (!skipping) {

@@ -62,8 +62,8 @@ int main() {
     result = client.Get("/state?token=" + token);
     CHECK(result && result->status == 401);
     result = client.Get("/?token=" + token);
-    CHECK(result && result->status == 200 && result->body.find(token) != std::string::npos &&
-          result->body.find("__PERLIN_TOKEN__") == std::string::npos);
+    CHECK(result && result->status == 200 && result->body.contains(token) &&
+          !result->body.contains("__PERLIN_TOKEN__"));
     CHECK(server.TakeCommands().empty());
     client.set_default_headers({{"X-Perlin-Token", token}});
     result = client.Post("/command", R"({"op":"input","actions":["forward","jump"],"ticks":20})", "application/json");
@@ -104,7 +104,7 @@ int main() {
     CHECK(state && state->actors.size() == 1 && state->actors[0].runtimeId == actor.runtimeId &&
           state->actors[0].uniqueId == actor.uniqueId && state->actors[0].vehicleUid == actor.vehicleUid &&
           state->actors[0].position[2] == 6);
-    CHECK(result && result->body.find("\"9007199254740993\"") != std::string::npos);
+    CHECK(result && result->body.contains("\"9007199254740993\""));
     const uint8_t bgra[16] = {0,0,255,255, 0,0,255,255, 0,0,255,255, 0,0,255,255};
     server.Frame(2, 2, 8, bgra, false);
     for (int i = 0; i < 200; ++i) {

@@ -56,10 +56,10 @@ namespace perlin::ui {
                 if (!raw.empty() && raw.back() == '\r')
                     raw.pop_back();
                 std::string cls = "poem";
-                if (raw.rfind("\u00a73", 0) == 0) {
+                if (raw.starts_with("\u00a73")) {
                     cls = "poem3";
                     raw.erase(0, 3);
-                } else if (raw.rfind("\u00a72", 0) == 0) {
+                } else if (raw.starts_with("\u00a72")) {
                     cls = "poem2";
                     raw.erase(0, 3);
                 }

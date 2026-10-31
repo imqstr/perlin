@@ -1,6 +1,7 @@
 #include "client/multiplayer/PackDownloader.hpp"
 #include "client/resources/ServerPacks.hpp"
 #include "network/Http.hpp"
+#include "util/Strings.hpp"
 
 #include <openssl/evp.h>
 
@@ -10,18 +11,15 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin {
 
     namespace {
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-            return s;
-        }
 
         std::string BareId(const std::string& id) {
             const size_t us = id.find('_');
-            return Lower(us == std::string::npos ? id : id.substr(0, us));
+            return str::Lower(us == std::string::npos ? id : id.substr(0, us));
         }
 
         std::string SafeName(std::string s) {
@@ -41,10 +39,10 @@ namespace perlin {
 
         bool SplitUrl(const std::string& url, bool& tls, std::string& host, uint16_t& port, std::string& path) {
             size_t p = 0;
-            if (url.rfind("https://", 0) == 0) {
+            if (url.starts_with("https://")) {
                 tls = true;
                 p = 8;
-            } else if (url.rfind("http://", 0) == 0) {
+            } else if (url.starts_with("http://")) {
                 tls = false;
                 p = 7;
             } else {
@@ -126,7 +124,7 @@ namespace perlin {
             if (Have(fileName, pack.size)) {
                 cached++;
                 donePacks++;
-                std::cout << "[packs] " << uuid << " " << pack.version << " already downloaded" << std::endl;
+                Log("packs", "{} {} already downloaded", uuid, pack.version);
                 continue;
             }
             if (!pack.cdnUrl.empty()) {
@@ -134,24 +132,22 @@ namespace perlin {
                 std::string host, path;
                 uint16_t port = 443;
                 if (SplitUrl(pack.cdnUrl, tls, host, port, path)) {
-                    std::cout << "[packs] " << uuid << " from " << pack.cdnUrl << std::endl;
+                    Log("packs", "{} from {}", uuid, pack.cdnUrl);
                     auto resp = http::Request(host, port, tls, "GET", path, {}, {}, {}, 60);
                     if (resp.status >= 200 && resp.status < 300 && !resp.body.empty()) {
                         std::vector<uint8_t> bytes(resp.body.begin(), resp.body.end());
                         if (Store(fileName, bytes)) {
                             downloaded++;
                             donePacks++;
-                            std::cout << "[packs] " << uuid << " downloaded (" << bytes.size() << " bytes)"
-                                      << std::endl;
+                            Log("packs", "{} downloaded ({} bytes)", uuid, bytes.size());
                             continue;
                         }
                     }
-                    std::cout << "[packs] CDN download failed (HTTP " << resp.status
-                              << "), asking the server instead" << std::endl;
+                    Log("packs", "CDN download failed (HTTP {}), asking the server instead", resp.status);
                 }
             }
-            awaiting.insert(Lower(uuid));
-            fileFor[Lower(uuid)] = fileName;
+            awaiting.insert(str::Lower(uuid));
+            fileFor[str::Lower(uuid)] = fileName;
             request.push_back(uuid + "_" + pack.version);
         }
         return request;
@@ -200,8 +196,7 @@ namespace perlin {
         a.hash = info.hash;
         a.fileName = fileFor.count(key) ? fileFor[key] : SafeName(key) + ".zip";
         a.data.reserve(static_cast<size_t>(std::min<uint64_t>(info.size, 512ull << 20)));
-        std::cout << "[packs] " << info.packId << ": " << info.size << " bytes in " << a.chunkCount << " chunks"
-                  << std::endl;
+        Log("packs", "{}: {} bytes in {} chunks", info.packId, info.size, a.chunkCount);
         if (info.size > (512ull << 20)) {
             r.step = Step::Failed;
             r.message = "pack " + info.packId + " is larger than 512 MB";
@@ -240,7 +235,7 @@ namespace perlin {
             std::chrono::steady_clock::now() - cur->second.gapSince > std::chrono::seconds(3)) {
             Active& a = cur->second;
             a.gapSince = std::chrono::steady_clock::now();
-            std::cout << "[packs] chunk " << a.next << " of " << a.packId << " is missing, asking again" << std::endl;
+            Log("packs", "chunk {} of {} is missing, asking again", a.next, a.packId);
             Result again;
             again.step = Step::RequestChunk;
             again.packId = a.packId;
@@ -249,7 +244,7 @@ namespace perlin {
         }
         if (!currentKey.empty() && !stallReported && std::chrono::steady_clock::now() - requestedAt > std::chrono::seconds(10)) {
             stallReported = true;
-            std::cout << "[packs] no chunk for 10 s, still waiting" << std::endl;
+            Log("packs", "no chunk for 10 s, still waiting");
         }
         return {};
     }
@@ -289,18 +284,15 @@ namespace perlin {
             return r;
         }
         if (a.size != 0 && a.data.size() != a.size)
-            std::cout << "[packs] warning: " << a.packId << " is " << a.data.size() << " bytes, the server said "
-                      << a.size << std::endl;
+            Log("packs", "warning: {} is {} bytes, the server said {}", a.packId, a.data.size(), a.size);
         if (!a.hash.empty() && Sha256(a.data) != a.hash)
-            std::cout << "[packs] warning: " << a.packId << " does not match the SHA-256 the server announced"
-                      << std::endl;
+            Log("packs", "warning: {} does not match the SHA-256 the server announced", a.packId);
         if (!Store(a.fileName, a.data)) {
             r.step = Step::Failed;
             r.message = "could not write " + a.fileName + " to " + directory;
             return r;
         }
-        std::cout << "[packs] " << a.packId << " saved as " << a.fileName << " (" << a.data.size() << " bytes)"
-                  << std::endl;
+        Log("packs", "{} saved as {} ({} bytes)", a.packId, a.fileName, a.data.size());
         downloaded++;
         donePacks++;
         r.step = Step::PackDone;

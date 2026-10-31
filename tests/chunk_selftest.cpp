@@ -68,6 +68,31 @@ int main() {
         CHECK(parsed.size() == 2);
         CHECK(ChunkCodec::ParseColumn(column.data(), column.size(), 2, 0, 24, parsed, consumed));
         CHECK(parsed.size() == 2);
+        // 3d biomes follow the sub-chunks; their palette header (bpb << 1 | 1) is 0x01 or 0x09
+        std::vector<uint8_t> biomes = {0x01, 0x00};
+        biomes.insert(biomes.end(), 23, 0xff);
+        biomes.push_back(0x00);
+        std::vector<uint8_t> withBiomes = column;
+        withBiomes.insert(withBiomes.end(), biomes.begin(), biomes.end());
+        CHECK(ChunkCodec::ParseColumn(withBiomes.data(), withBiomes.size(), 2, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 2 && consumed == column.size());
+        CHECK(ChunkCodec::ParseColumn(biomes.data(), biomes.size(), 0, -4, 24, parsed, consumed));
+        CHECK(parsed.empty() && consumed == 0);
+        std::vector<uint8_t> wideBiome = column;
+        wideBiome.push_back(0x09);
+        wideBiome.insert(wideBiome.end(), 512 * 4, 0x00);
+        wideBiome.push_back(0x02);
+        wideBiome.push_back(0x00);
+        CHECK(ChunkCodec::ParseColumn(wideBiome.data(), wideBiome.size(), 2, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 2 && consumed == column.size());
+        // an empty sub-chunk (no layers) still takes its slot
+        std::vector<uint8_t> empty = {9, 0, 0xfc};
+        empty.insert(empty.end(), column.begin() + static_cast<std::ptrdiff_t>(firstSize), column.end());
+        CHECK(ChunkCodec::ParseColumn(empty.data(), empty.size(), 2, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 2 && parsed[1].first == -3 && consumed == empty.size());
+        // a count below the payload: further sub-chunks continuing the heights are still read
+        CHECK(ChunkCodec::ParseColumn(withBiomes.data(), withBiomes.size(), 1, -4, 24, parsed, consumed));
+        CHECK(parsed.size() == 2 && consumed == column.size());
         // a count with no payload at all is still an error
         CHECK(!ChunkCodec::ParseColumn(nullptr, 0, 2, -4, 24, parsed, consumed));
         CHECK(ChunkCodec::ParseColumn(nullptr, 0, 0, -4, 24, parsed, consumed));

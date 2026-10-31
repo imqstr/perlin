@@ -269,9 +269,9 @@ namespace perlin::particle {
 
     bool ParticleSystem::SpawnNamed(const std::string& rawName, const glm::dvec3& at) {
         std::string name = rawName;
-        if (name.rfind("minecraft:", 0) == 0)
+        if (name.starts_with("minecraft:"))
             name = name.substr(10);
-        const auto has = [&](const char* s) { return name.find(s) != std::string::npos; };
+        const auto has = [&](const char* s) { return name.contains(s); };
         const auto burst = [&](Kind k, int n, double spread, float scale = 1.0f) {
             for (int i = 0; i < n; i++)
                 Spawn(k, at + glm::dvec3((Rand() - 0.5) * spread, Rand() * spread * 0.5, (Rand() - 0.5) * spread), glm::dvec3(0.0), scale);

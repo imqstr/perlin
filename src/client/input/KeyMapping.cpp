@@ -41,7 +41,7 @@ namespace perlin {
     }
 
     Binding Binding::Parse(const std::string& text) {
-        if (text.rfind("pad.", 0) == 0) {
+        if (text.starts_with("pad.")) {
             const int code = Pad::FromName(text.substr(4));
             return code >= 0 ? PadButton(code) : Binding{};
         }

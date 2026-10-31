@@ -365,14 +365,27 @@ namespace perlin {
         // across the union of both so terrain below the declared floor still applies
         const int loY = std::min(firstSubY, -4);
         const int hiY = std::max(firstSubY + slots, 20);
+        uint32_t read = 0;
         while (offset < size && static_cast<int>(parsed.size()) < (hiY - loY)) {
             // trailing block-entity nbt starts with a compound tag, never a sub-chunk version
             const uint8_t version = data[offset];
             if (version != 1 && version != 8 && version != 9)
                 break;
+            // past the count come the biome palettes, whose header (bpb << 1 | 1) reads as version 1 or 9:
+            // only a well-formed v8/v9 sub-chunk continuing the heights counts, anything else ends the column
+            const bool counted = read < count;
+            if (!counted && version == 1)
+                break;
             SubChunkData sc;
             size_t used = 0;
-            if (!ParseSubChunk(data + offset, size - offset, sc, used, err)) return false;
+            if (!ParseSubChunk(data + offset, size - offset, sc, used, err)) {
+                if (counted)
+                    return false;
+                break;
+            }
+            if (!counted && (sc.storages.empty() || (sc.hasYIndex && sc.yIndex != nextY)))
+                break;
+            ++read;
             int64_t y;
             if (sc.hasYIndex) {
                 y = sc.yIndex;

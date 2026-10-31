@@ -46,7 +46,7 @@ namespace perlin::destroy {
 
     BlockInfo Lookup(const std::string& blockName) {
         std::string n = blockName;
-        if (n.rfind("minecraft:", 0) == 0)
+        if (n.starts_with("minecraft:"))
             n.erase(0, 10);
         const auto& t = Table();
         if (const auto it = t.find(n); it != t.end())
@@ -60,7 +60,7 @@ namespace perlin::destroy {
         if (c.creative || block.hardness == 0.0f)
             return 1.0f;
         std::string held = c.heldItem;
-        if (held.rfind("minecraft:", 0) == 0)
+        if (held.starts_with("minecraft:"))
             held.erase(0, 10);
         int heldTool = 0;
         if (Ends(held, "_pickaxe")) heldTool = 1;
@@ -72,7 +72,7 @@ namespace perlin::destroy {
         float speed = 1.0f;
         int level = 0;
         if (heldTool != 0 && heldTool != 5) {
-            const auto is = [&](const char* m) { return held.rfind(m, 0) == 0; };
+            const auto is = [&](const char* m) { return held.starts_with(m); };
             if (is("wooden_")) { speed = 2; level = 1; }
             else if (is("stone_")) { speed = 4; level = 2; }
             else if (is("copper_")) { speed = 5; level = 2; }
@@ -109,8 +109,8 @@ namespace perlin::destroy {
 
 namespace perlin::destroy {
     namespace {
-        std::string Bare(const std::string& n) { return n.rfind("minecraft:", 0) == 0 ? n.substr(10) : n; }
-        bool Has(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
+        std::string Bare(const std::string& n) { return n.starts_with("minecraft:") ? n.substr(10) : n; }
+        bool Has(const std::string& s, const char* part) { return s.contains(part); }
     }
 
     bool NeedsSupportBelow(const std::string& blockName) {

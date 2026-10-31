@@ -207,6 +207,9 @@ set(NO_TESTS ON CACHE BOOL "" FORCE)
 set(LIBSRTP_TEST_APPS OFF CACHE BOOL "" FORCE)
 set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+# position independent: the static library is also linked into the singleplayer server library
+set(PERLIN_SAVED_PIC "${CMAKE_POSITION_INDEPENDENT_CODE}")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 CPMAddPackage(
     NAME libdatachannel
     GITHUB_REPOSITORY paullouisageneau/libdatachannel
@@ -214,6 +217,7 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     OPTIONS "USE_GNUTLS OFF" "USE_NICE OFF" "NO_TESTS ON" "NO_EXAMPLES ON"
 )
+set(CMAKE_POSITION_INDEPENDENT_CODE "${PERLIN_SAVED_PIC}")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 endif()
 
@@ -585,7 +589,7 @@ if(MSVC)
                                -Wno-language-extension-token -Wno-c++98-compat -Wno-pragma-pack)
     endif()
     target_compile_options(Perlin PRIVATE /Zi)
-    target_link_options(Perlin PRIVATE /DEBUG /OPT:REF /OPT:ICF /MAP)
+    target_link_options(Perlin PRIVATE /DEBUG /OPT:REF /OPT:ICF)
     string(REGEX REPLACE "[/-]RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     set_property(TARGET Perlin PROPERTY MSVC_RUNTIME_CHECKS "")
     file(GLOB_RECURSE PERLIN_HOT_SOURCES
@@ -649,10 +653,6 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
     install(FILES packaging/linux/io.perlin.client.desktop DESTINATION share/applications)
     install(DIRECTORY packaging/linux/icons/ DESTINATION share/icons/hicolor)
 endif()
-if(MSVC)
-    install(FILES "$<TARGET_PDB_FILE:Perlin>" DESTINATION . OPTIONAL)
-    install(FILES "$<TARGET_FILE_DIR:Perlin>/Perlin.map" DESTINATION . OPTIONAL)
-endif()
 # FFmpeg libraries compiled straight into Perlin: video export then needs no ffmpeg program at all.
 # Windows CI installs a static build with vcpkg (see .github/workflows/build.yml) and passes -DFFMPEG_ROOT=...;
 # Linux/macOS use pkg-config. If nothing is found Perlin still builds and falls back to its built-in AVI encoder.
@@ -698,11 +698,11 @@ if(PERLIN_LIBAV AND NOT EMSCRIPTEN AND NOT ANDROID)
     endif()
 endif()
 
-# Ship ffmpeg next to Perlin.exe on Windows so video export works with nothing to install.
+# Ship ffmpeg next to perlin.exe on Windows so video export works with nothing to install.
 # The LGPL build is used (no GPL obligations on redistribution); Perlin also has a built-in
 # AVI/MJPEG encoder as a last resort and can download the full GPL build from the export dialog.
 if(WIN32 AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT PERLIN_LIBAV_FOUND)
-    option(PERLIN_BUNDLE_FFMPEG "Download an LGPL ffmpeg build and ship it next to Perlin.exe" ON)
+    option(PERLIN_BUNDLE_FFMPEG "Download an LGPL ffmpeg build and ship it next to perlin.exe" ON)
     # The download is kept in a fixed per-user cache so it happens once, not on every fresh build directory.
     if(PERLIN_BUNDLE_FFMPEG)
         if(DEFINED ENV{LOCALAPPDATA})
@@ -1345,7 +1345,9 @@ foreach(PERLIN_LOCAL_TARGET IN LISTS PERLIN_LOCAL_TARGETS)
 endforeach()
 
 # perlin server: dedicated exe, shared library for singleplayer, plugins; see server/README.md
-option(PERLIN_BUILD_SERVER "Build the Perlin server (dedicated executable and perlin_server library)" OFF)
+# on by default: the title screen's Singleplayer button loads perlin_server from beside the executable.
+# not built for the web or android (no processes or shared libraries to load there); the button then says so
+option(PERLIN_BUILD_SERVER "Build the Perlin server and singleplayer (dedicated executable and perlin_server library)" ON)
 if(PERLIN_BUILD_SERVER AND NOT EMSCRIPTEN AND NOT ANDROID)
     add_subdirectory(server)
     # singleplayer: the client loads perlin_server beside the executable and joins it in process
@@ -1354,8 +1356,15 @@ if(PERLIN_BUILD_SERVER AND NOT EMSCRIPTEN AND NOT ANDROID)
         target_include_directories(Perlin PRIVATE server/client_bridge server/include)
         target_compile_definitions(Perlin PRIVATE PERLIN_SINGLEPLAYER=1 PERLIN_SERVER_STATIC)
         add_dependencies(Perlin perlin_server)
-        add_custom_command(TARGET perlin_server POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:perlin_server> $<TARGET_FILE_DIR:Perlin>
-            VERBATIM)
+        target_link_libraries(Perlin PRIVATE ${CMAKE_DL_LIBS})
+        # next to the executable in the package (on macOS the copy above already sits inside the app bundle)
+        if(NOT APPLE)
+            install(TARGETS perlin_server RUNTIME DESTINATION . LIBRARY DESTINATION .)
+        endif()
+    endif()
+    # the dedicated server ships beside the client with the block tables it reads
+    if(TARGET perlin-server)
+        install(TARGETS perlin-server RUNTIME DESTINATION .)
+        install(FILES resources/block_states.json resources/block_destroy.tsv resources/extra_items.txt DESTINATION resources)
     endif()
 endif()

@@ -1,6 +1,7 @@
 #include "core/Log.hpp"
 #include "gpu/GpuTerrain.hpp"
 #include "world/Generator.hpp"
+#include "world/vanilla/VanillaTerrain.hpp"
 
 namespace perlin::server {
 
@@ -27,6 +28,28 @@ namespace perlin::server {
 
     BackendChoice CreateTerrainBackend(const ServerConfig& config) {
         BackendChoice out;
+        if (config.generator == "vanilla") {
+            // the gpu path is the default; "cpu" forces the reference, and anything the gpu cannot do falls back to it with the reason in the note
+            std::string error;
+            if (config.terrainBackend != "cpu") {
+                std::string note;
+                if (std::unique_ptr<TerrainBackend> gpu = CreateGpuVanillaBackend(config, note)) {
+                    out.backend = std::move(gpu);
+                    out.note = note;
+                    return out;
+                }
+                if (config.terrainBackend == "gpu") {
+                    out.note = "gpu terrain requested but unavailable: " + note;
+                    return out;
+                }
+                out.backend = vanilla::VanillaCpuBackend::Create(config, error);
+                out.note = out.backend ? "java terrain port on the cpu: " + note : error;
+                return out;
+            }
+            out.backend = vanilla::VanillaCpuBackend::Create(config, error);
+            out.note = out.backend ? "java terrain port on the cpu, forced by config" : error;
+            return out;
+        }
         auto cpu = std::make_unique<FlatCpuBackend>(config);
         if (config.terrainBackend == "cpu") {
             out.backend = std::move(cpu);

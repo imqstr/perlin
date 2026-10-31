@@ -1,6 +1,7 @@
 #include "client/resources/ShaderPack.hpp"
 #include "client/ui/Json.hpp"
 #include "client/resources/BundledShaderPack.hpp"
+#include "util/Strings.hpp"
 
 #include <miniz.h>
 
@@ -14,6 +15,7 @@
 #include <mutex>
 #include <set>
 #include <unordered_map>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace fs = std::filesystem;
@@ -21,10 +23,6 @@ namespace perlin {
     namespace {
         const char* const kBackends[] = {"dxbc", "glsl", "spirv", "essl", "metal"};
 
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-            return s;
-        }
 
         bool IsBackend(const std::string& s) {
             for (const char* b : kBackends)
@@ -159,7 +157,7 @@ namespace perlin {
             }
             impl->meta = BundledShaderMeta();
             impl->label = kBundledPackName;
-            std::cout << "[shaders] opened bundled pack " << kBundledPackName << std::endl;
+            Log("shaders", "opened bundled pack {}", kBundledPackName);
             return true;
         }
         if (!fs::exists(source, ec)) {
@@ -203,7 +201,7 @@ namespace perlin {
                     continue;
                 std::string path = st.m_filename;
                 std::replace(path.begin(), path.end(), '\\', '/');
-                const std::string lower = Lower(path);
+                const std::string lower = str::Lower(path);
                 if (!found && lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".bin") == 0) {
                     const size_t slash = lower.rfind('/');
                     if (slash != std::string::npos) {
@@ -407,7 +405,7 @@ namespace perlin {
         if (impl->zipMode) {
             if (!impl->zipOpen)
                 return false;
-            const auto it = impl->index.find(Lower(rel));
+            const auto it = impl->index.find(str::Lower(rel));
             if (it == impl->index.end())
                 return false;
             size_t size = 0;

@@ -55,7 +55,7 @@ namespace rhi::d3d11 {
         return finished.get();
     }
 
-    // ---- barriers: the immediate context orders everything, so these only keep the statistics honest ------------------
+    // barriers: the immediate context orders everything, so these only keep the statistics honest
 
     void CmdList::Barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) {
         device.MutableStats().barriers += textures.size() + buffers.size();
@@ -63,7 +63,6 @@ namespace rhi::d3d11 {
     void CmdList::UavBarrier(BufferHandle) { device.MutableStats().barriers++; }
     void CmdList::UavBarrier(TextureHandle) { device.MutableStats().barriers++; }
 
-    // ---- copies -------------------------------------------------------------------------------------------------------
 
     void CmdList::CopyToConstant(Buffer& b, uint64_t offset, uint64_t size) {
         if (!b.constant)
@@ -199,7 +198,6 @@ namespace rhi::d3d11 {
         ctx->ResolveSubresource(d->resource.get(), 0, s->resource.get(), 0, d->formats.view);
     }
 
-    // ---- passes -------------------------------------------------------------------------------------------------------
 
     // the runtime forces a resource to null when it becomes a target while still bound for reading; clear our own bindings first
     void CmdList::ClearBindings() {
@@ -287,7 +285,6 @@ namespace rhi::d3d11 {
         inPass = false;
     }
 
-    // ---- state --------------------------------------------------------------------------------------------------------
 
     void CmdList::SetPipeline(PipelineHandle p) {
         pipeline = p;
@@ -369,7 +366,6 @@ namespace rhi::d3d11 {
             ctx->OMSetDepthStencilState(p->depthStencil.get(), stencilRef);
     }
 
-    // ---- binding ------------------------------------------------------------------------------------------------------
 
     bool CmdList::BindSets(const Pipeline& p) {
         const uint32_t first = p.compute ? kStageCompute : kStageVertex;
@@ -639,7 +635,6 @@ namespace rhi::d3d11 {
         DrawIndexedIndirect(args, offset, maxDraws, stride);
     }
 
-    // ---- compute ------------------------------------------------------------------------------------------------------
 
     void CmdList::Dispatch(uint32_t x, uint32_t y, uint32_t z) {
         recorded = true;

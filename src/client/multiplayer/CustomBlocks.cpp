@@ -33,7 +33,7 @@ namespace perlin {
             }
             std::sort(states.begin(), states.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
             std::string name = block.name;
-            if (!name.empty() && name.find(':') == std::string::npos)
+            if (!name.empty() && !name.contains(':'))
                 name = "minecraft:" + name;
             const int32_t hash = BlockPalette::HashState(name, states);
             BlockPalette::Instance().LearnState(hash, name, std::move(states));
@@ -108,7 +108,7 @@ namespace perlin {
         ServerBlocks::Instance().ClearItems();
         size_t count = 0;
         for (const proto::ItemstatesEntry& item : items) {
-            if (item.name.rfind("minecraft:", 0) == 0 || item.nbt.bytes.empty())
+            if (item.name.starts_with("minecraft:") || item.nbt.bytes.empty())
                 continue;
             ui::Json nbt;
             if (!NetworkNbtToJson(item.nbt.bytes, nbt) || !nbt.IsObject())
@@ -170,7 +170,7 @@ namespace perlin {
                     {"facing_direction", {"down", "up", "north", "south", "west", "east"}},
                 };
                 static const char* kConnections[] = {"connection_north", "connection_east", "connection_south", "connection_west"};
-                const auto key = [](const std::string& n) { return n.rfind("minecraft:", 0) == 0 ? n.substr(10) : n; };
+                const auto key = [](const std::string& n) { return n.starts_with("minecraft:") ? n.substr(10) : n; };
                 std::vector<std::string> enabled;
                 const auto collect = [&](const std::string& traitName, const ui::Json& trait) {
                     const ui::Json* flags = trait.IsObject() ? trait.Find("enabled_states") : nullptr;

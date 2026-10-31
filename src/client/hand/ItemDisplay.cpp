@@ -45,7 +45,7 @@ namespace perlin::itemdisplay {
                 e.kind = Entry::Kind::Block;
             else {
                 e.kind = Entry::Kind::Special;
-                e.special = kind.rfind("special:", 0) == 0 ? kind.substr(8) : kind;
+                e.special = kind.starts_with("special:") ? kind.substr(8) : kind;
             }
             e.model = row[2].str();
             const size_t index = static_cast<size_t>(row[1].integer(-1));
@@ -93,7 +93,7 @@ namespace perlin::itemdisplay {
 
     const Entry& Lookup(const std::string& name, bool ground) {
         const Table& t = Get();
-        const std::string bare = name.rfind("minecraft:", 0) == 0 ? name.substr(10) : name;
+        const std::string bare = name.starts_with("minecraft:") ? name.substr(10) : name;
         const auto& map = ground ? t.ground : t.hand;
         const auto it = map.find(bare);
         return it == map.end() ? t.missing : it->second;

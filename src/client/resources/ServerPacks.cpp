@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace fs = std::filesystem;
@@ -57,9 +58,9 @@ namespace perlin {
         }
 
         bool SafeRel(const std::string& rel) {
-            if (rel.empty() || rel[0] == '/' || rel.find(':') != std::string::npos)
+            if (rel.empty() || rel[0] == '/' || rel.contains(':'))
                 return false;
-            return rel.find("..") == std::string::npos;
+            return !rel.contains("..");
         }
 
         std::string LowerName(std::string s) {
@@ -87,13 +88,13 @@ namespace perlin {
                 return;
             std::vector<uint8_t> plain;
             if (!DecryptCfb8(contentKey, raw.data() + 0x100, raw.size() - 0x100, plain)) {
-                std::cout << "[packs] could not decrypt contents.json in " << dir.string() << std::endl;
+                Log("packs", "could not decrypt contents.json in {}", dir.string());
                 return;
             }
             ui::Json doc;
             std::string error;
             if (!ui::Json::Parse(std::string(plain.begin(), plain.end()), doc, error)) {
-                std::cout << "[packs] contents.json is not valid after decrypting (wrong content key?) in " << dir.string() << std::endl;
+                Log("packs", "contents.json is not valid after decrypting (wrong content key?) in {}", dir.string());
                 return;
             }
             const ui::Json* list = doc.Find("content");
@@ -112,7 +113,7 @@ namespace perlin {
                 if (DecryptCfb8(key->string, enc.data(), enc.size(), dec) && WriteFileBytes(file, dec))
                     decrypted++;
             }
-            std::cout << "[packs] decrypted " << decrypted << " files in " << dir.filename().string() << std::endl;
+            Log("packs", "decrypted {} files in {}", decrypted, dir.filename().string());
         }
     }
 
@@ -124,7 +125,7 @@ namespace perlin {
                 return false;
             base = root;
             for (const std::string& d : dirs)
-                if (d.find(LowerName(id)) != std::string::npos)
+                if (d.contains(LowerName(id)))
                     return true;
         }
         std::error_code ec;
@@ -135,7 +136,7 @@ namespace perlin {
             fs::create_directories(out, ec);
             mz_zip_archive zip{};
             if (!mz_zip_reader_init_file(&zip, zipPath.c_str(), 0)) {
-                std::cout << "[packs] cannot open " << zipPath << std::endl;
+                Log("packs", "cannot open {}", zipPath);
                 return false;
             }
             const mz_uint count = mz_zip_reader_get_num_files(&zip);
@@ -152,7 +153,7 @@ namespace perlin {
                 void* data = mz_zip_reader_extract_to_heap(&zip, i, &size, 0);
                 if (!data) {
                     if (failed++ < 3)
-                        std::cout << "[packs] cannot extract " << name << " from " << zipPath << std::endl;
+                        Log("packs", "cannot extract {} from {}", name, zipPath);
                     continue;
                 }
                 extracted++;
@@ -160,14 +161,14 @@ namespace perlin {
                 mz_free(data);
             }
             mz_zip_reader_end(&zip);
-            std::cout << "[packs] extracted " << extracted << " of " << count << " entries (" << failed << " failed)" << std::endl;
+            Log("packs", "extracted {} of {} entries ({} failed)", extracted, count, failed);
             const fs::path packRoot = FindPackRoot(out);
             {
                 std::error_code ls;
                 std::string top;
                 for (const auto& e : fs::directory_iterator(packRoot, ls))
                     top += (top.empty() ? "" : ", ") + e.path().filename().string() + (e.is_directory() ? "/" : "");
-                std::cout << "[packs] pack root holds: " << top << std::endl;
+                Log("packs", "pack root holds: {}", top);
             }
             if (!contentKey.empty())
                 DecryptPack(packRoot, contentKey);
@@ -183,7 +184,7 @@ namespace perlin {
         std::lock_guard lock(mutex);
         dirs.push_back(packRoot);
         generation++;
-        std::cout << "[packs] mounted " << packRoot << std::endl;
+        Log("packs", "mounted {}", packRoot);
         return true;
     }
 

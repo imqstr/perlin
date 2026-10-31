@@ -19,8 +19,27 @@ namespace perlin::server {
             const std::string s = suffix;
             return n.size() >= s.size() && n.compare(n.size() - s.size(), s.size(), s) == 0;
         };
+        const auto has = [&](const char* s) { return n.contains(s); };
         if (ends("_shulker_box") || n == "minecraft:shulker_box" || ends("_bed"))
             return 1;
+        if (!item->block) {
+            // tools, weapons, armor and the other items that never stack
+            if (has("_sword") || has("_pickaxe") || has("_axe") || has("_shovel") || has("_hoe") || has("_helmet") || has("_chestplate") || has("_leggings") ||
+                has("_boots") || has("_horse_armor") || has("_boat") || has("_raft") || has("_minecart") || has("_bed") || has("_bundle") || has("_harness") ||
+                has("potion") || has("_pottery_sherd") && false)
+                return 1;
+            for (const char* single : {"bow", "crossbow", "shield", "trident", "mace", "fishing_rod", "carrot_on_a_stick", "warped_fungus_on_a_stick", "flint_and_steel", "shears",
+                                       "elytra", "saddle", "totem_of_undying", "brush", "spyglass", "compass", "recovery_compass", "clock", "map", "filled_map", "writable_book",
+                                       "written_book", "enchanted_book", "bucket", "water_bucket", "lava_bucket", "milk_bucket", "powder_snow_bucket", "cod_bucket", "salmon_bucket",
+                                       "pufferfish_bucket", "tropical_fish_bucket", "axolotl_bucket", "tadpole_bucket", "armor_stand", "lead", "name_tag", "goat_horn", "music_disc"})
+                if (n == std::string("minecraft:") + single)
+                    return 1;
+            if (has("music_disc") || ends("_banner_pattern") || ends("_smithing_template"))
+                return 1;
+            if (has("ender_pearl") || has("snowball") || ends("_egg") && !has("spawn") || ends("_sign") || ends("_banner") || n == "minecraft:honey_bottle" || n == "minecraft:bucket")
+                return 16;
+            return 64;
+        }
         if (ends("_sign") || ends("_banner"))
             return 16;
         return 64;
@@ -100,7 +119,7 @@ namespace perlin::server {
         out.count = stack.count;
         out.hasStackId = true;
         out.stackId = stack.stackId;
-        if (const CatalogItem* item = BlockCatalog::Instance().ItemById(stack.networkId))
+        if (const CatalogItem* item = BlockCatalog::Instance().ItemById(stack.networkId); item && item->block)
             out.blockRuntimeId = static_cast<uint32_t>(item->blockHash);
         return out;
     }
@@ -170,10 +189,15 @@ namespace perlin::server {
             }
             case Action::Drop:
             case Action::Destroy: {
-                // no item entities exist yet: a dropped stack is simply gone
                 ItemStack* src = work.Resolve(a.source.slotType.containerId, a.source.slot);
                 if (!src || !StackIdMatches(*src, a.source.stackId) || src->Empty() || src->count < a.count || a.count == 0)
                     return result;
+                // destroy (the creative trash) deletes; drop throws the stack into the world
+                if (a.typeId == Action::Drop) {
+                    ItemStack out = *src;
+                    out.count = a.count;
+                    result.dropped.push_back(out);
+                }
                 src->count = static_cast<uint16_t>(src->count - a.count);
                 if (src->count == 0)
                     *src = ItemStack{};

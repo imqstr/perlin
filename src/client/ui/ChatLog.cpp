@@ -2,6 +2,7 @@
 #include "client/ui/ChatLog.hpp"
 #include "client/ui/McFont.hpp"
 #include "client/ui/TextEdit.hpp"
+#include "util/Strings.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -121,7 +122,7 @@ namespace perlin::ui {
 
     void ChatLog::AddMessage(const std::string& original, uint64_t tick) {
         std::string text = original;
-        if (text.find(" is at ") != std::string::npos && text.rfind('<', 0) != 0 && text.find("\xC2\xA7" "a[") == std::string::npos) {
+        if (text.contains(" is at ") && !text.starts_with('<') && !text.contains("\xC2\xA7" "a[")) {
             const auto found = FindCoordinates(text);
             for (auto it = found.rbegin(); it != found.rend(); ++it)
                 text.replace(it->begin, it->end - it->begin, "\xC2\xA7" "a[" + it->x + ", " + it->y + ", " + it->z + "]\xC2\xA7" "r");
@@ -343,13 +344,8 @@ namespace perlin::ui {
     }
 
     namespace {
-        std::string Lower(std::string s) {
-            for (char& c : s)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            return s;
-        }
         bool Matches(const std::string& candidateLower, const std::string& prefixLower) {
-            if (candidateLower.rfind(prefixLower, 0) == 0)
+            if (candidateLower.starts_with(prefixLower))
                 return true;
             const size_t colon = candidateLower.find(':');
             return colon != std::string::npos && candidateLower.compare(colon + 1, prefixLower.size(), prefixLower) == 0;
@@ -369,11 +365,11 @@ namespace perlin::ui {
         if (ws > caret)
             return;
         suggestWordStart = ws;
-        const std::string prefix = Lower(input.substr(ws, caret - ws));
+        const std::string prefix = str::Lower(input.substr(ws, caret - ws));
         std::vector<std::string> found;
         if (ws == 1) {
             for (const CommandInfo& c : commands)
-                if (Matches(Lower(c.name), prefix))
+                if (Matches(str::Lower(c.name), prefix))
                     found.push_back(c.name);
         } else {
             std::vector<std::string> tokens;
@@ -390,10 +386,10 @@ namespace perlin::ui {
             if (tokens.empty())
                 return;
             const size_t argIndex = tokens.size() - 1;
-            const std::string name = Lower(tokens[0]);
+            const std::string name = str::Lower(tokens[0]);
             std::set<std::string> seen;
             for (const CommandInfo& c : commands) {
-                if (Lower(c.name) != name)
+                if (str::Lower(c.name) != name)
                     continue;
                 for (const auto& overload : c.overloads) {
                     if (argIndex >= overload.size())
@@ -402,7 +398,7 @@ namespace perlin::ui {
                     if (hint.empty())
                         hint = p.optional ? "[" + p.name + "]" : "<" + p.name + ">";
                     auto offer = [&](const std::string& v) {
-                        if (Matches(Lower(v), prefix) && seen.insert(v).second)
+                        if (Matches(str::Lower(v), prefix) && seen.insert(v).second)
                             found.push_back(v);
                     };
                     for (const std::string& v : p.values)
@@ -411,20 +407,20 @@ namespace perlin::ui {
                         for (const char* sel : {"@s", "@p", "@a", "@r", "@e", "@initiator"})
                             offer(sel);
                         for (const std::string& pl : players)
-                            offer(pl.find(' ') == std::string::npos ? pl : "\"" + pl + "\"");
+                            offer(!pl.contains(' ') ? pl : "\"" + pl + "\"");
                     }
                 }
             }
         }
         std::sort(found.begin(), found.end(), [&](const std::string& a, const std::string& b) {
-            const bool pa = Lower(a).rfind(prefix, 0) == 0, pb = Lower(b).rfind(prefix, 0) == 0;
+            const bool pa = str::Lower(a).starts_with(prefix), pb = str::Lower(b).starts_with(prefix);
             if (pa != pb)
                 return pa;
-            return Lower(a) < Lower(b);
+            return str::Lower(a) < str::Lower(b);
         });
         if (found.size() > 300)
             found.resize(300);
-        if (found.size() == 1 && Lower(found[0]) == prefix)
+        if (found.size() == 1 && str::Lower(found[0]) == prefix)
             found.clear();
         suggestions = std::move(found);
         if (!suggestions.empty())
@@ -571,11 +567,11 @@ namespace perlin::ui {
             };
             while (i < input.size() && input[i] == ' ') i++;
             const auto head = word();
-            const std::string name = Lower(input.substr(head.first, head.second - head.first));
+            const std::string name = str::Lower(input.substr(head.first, head.second - head.first));
             size_t maxArgs = 0;
             bool known = commands.empty();
             for (const CommandInfo& ci : commands)
-                if (Lower(ci.name) == name) {
+                if (str::Lower(ci.name) == name) {
                     known = true;
                     for (const auto& o : ci.overloads)
                         maxArgs = std::max(maxArgs, o.size());
@@ -618,7 +614,7 @@ namespace perlin::ui {
             s.chatSuggestMore[1] = first + window < suggestions.size();
             const std::string typed = input.substr(suggestWordStart, caret - suggestWordStart);
             const std::string& chosen = suggestions[suggestIndex];
-            if (chosen.size() > typed.size() && Lower(chosen.substr(0, typed.size())) == Lower(typed) && caret == input.size())
+            if (chosen.size() > typed.size() && str::Lower(chosen.substr(0, typed.size())) == str::Lower(typed) && caret == input.size())
                 s.chatGhost = chosen.substr(typed.size());
             else
                 s.chatGhost.clear();

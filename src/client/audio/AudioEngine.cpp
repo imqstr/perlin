@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin::audio {
     namespace {
@@ -27,13 +28,13 @@ namespace perlin::audio {
         if (category == "player") return Category::Player;
         if (category == "ambient") return Category::Ambient;
         if (category == "ui") return Category::Master;
-        if (name.rfind("music.", 0) == 0) return Category::Music;
-        if (name.rfind("record.", 0) == 0) return Category::Record;
-        if (name.rfind("ambient.weather", 0) == 0 || name.rfind("weather.", 0) == 0) return Category::Weather;
-        if (name.rfind("ambient.", 0) == 0) return Category::Ambient;
-        if (name.rfind("mob.", 0) == 0) return Category::Neutral;
-        if (name.rfind("step.", 0) == 0 || name.rfind("dig.", 0) == 0 || name.rfind("break.", 0) == 0 || name.rfind("place.", 0) == 0 ||
-            name.rfind("hit.", 0) == 0 || name.rfind("fall.", 0) == 0 || name.rfind("block.", 0) == 0)
+        if (name.starts_with("music.")) return Category::Music;
+        if (name.starts_with("record.")) return Category::Record;
+        if (name.starts_with("ambient.weather") || name.starts_with("weather.")) return Category::Weather;
+        if (name.starts_with("ambient.")) return Category::Ambient;
+        if (name.starts_with("mob.")) return Category::Neutral;
+        if (name.starts_with("step.") || name.starts_with("dig.") || name.starts_with("break.") || name.starts_with("place.") ||
+            name.starts_with("hit.") || name.starts_with("fall.") || name.starts_with("block."))
             return Category::Block;
         return Category::Player;
     }
@@ -46,7 +47,7 @@ namespace perlin::audio {
         rate = sampleRate;
         if (!SDL_WasInit(SDL_INIT_AUDIO)) {
             if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-                std::cout << "[audio] no audio subsystem: " << SDL_GetError() << std::endl;
+                Log("audio", "no audio subsystem: {}", SDL_GetError());
                 return false;
             }
             initialisedSubsystem = true;
@@ -57,11 +58,11 @@ namespace perlin::audio {
         spec.freq = sampleRate;
         stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &AudioEngine::Callback, this);
         if (!stream) {
-            std::cout << "[audio] cannot open the playback device: " << SDL_GetError() << std::endl;
+            Log("audio", "cannot open the playback device: {}", SDL_GetError());
             return false;
         }
         SDL_ResumeAudioStreamDevice(stream);
-        std::cout << "[audio] playing at " << sampleRate << " Hz" << std::endl;
+        Log("audio", "playing at {} Hz", sampleRate);
         return true;
     }
 

@@ -291,7 +291,6 @@ namespace rhi::vk {
         std::string DebugReport() override;
         float TimestampPeriodNs() const override { return caps.limits.timestampPeriodNs; }
 
-        // ---- internals shared with CmdList and Swapchain
         VkFormat FormatToVk(Format f) const;
         VkImageView View(TextureRec& tex, const SubresourceRange& range, TextureDim dim, Format format, bool stencil);
         VkImageView AttachmentView(TextureHandle h, uint32_t mip, uint32_t layer);

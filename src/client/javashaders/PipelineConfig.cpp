@@ -1,4 +1,5 @@
 #include "client/javashaders/PipelineConfig.hpp"
+#include "util/Strings.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -6,12 +7,8 @@
 
 namespace perlin::jshader {
     namespace {
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
         bool IsTrue(const std::string& v) {
-            const std::string l = Lower(v);
+            const std::string l = str::Lower(v);
             return l == "true" || l == "on" || l == "1" || l == "yes";
         }
 
@@ -31,7 +28,7 @@ namespace perlin::jshader {
         void ParseBlend(const std::string& value, BlendFactors& out) {
             const std::vector<std::string> w = SplitWords(value);
             out.set = true;
-            if (w.empty() || Lower(w[0]) == "off") { out.off = true; return; }
+            if (w.empty() || str::Lower(w[0]) == "off") { out.off = true; return; }
             if (w.size() >= 2) {
                 out.src = GlEnumFromName(w[0]);
                 out.dst = GlEnumFromName(w[1]);
@@ -135,7 +132,7 @@ namespace perlin::jshader {
         cfg.dynamicHandLight = p.Bool("dynamicHandLight", true);
         cfg.frustumCulling = p.Bool("frustum.culling", true);
         cfg.shadowTranslucent = p.Bool("shadowTranslucent", true);
-        cfg.clouds = Lower(p.Get("clouds", "default"));
+        cfg.clouds = str::Lower(p.Get("clouds", "default"));
         if (p.Has("texture.noise")) cfg.noiseTexture = p.Get("texture.noise");
 
         for (const auto& kv : p.entries) {
@@ -157,7 +154,7 @@ namespace perlin::jshader {
                 AlphaTest& a = cfg.programs[key.substr(10)].alpha;
                 a.set = true;
                 const auto w = SplitWords(val);
-                if (w.empty() || Lower(w[0]) == "off") a.off = true;
+                if (w.empty() || str::Lower(w[0]) == "off") a.off = true;
                 else {
                     a.func = GlEnumFromName(w[0]);
                     if (w.size() > 1) a.ref = static_cast<float>(std::atof(w[1].c_str()));

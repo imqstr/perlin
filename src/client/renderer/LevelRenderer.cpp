@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -166,7 +167,7 @@ namespace perlin {
         const std::string vanillaDir = options.bedrockSamplesDir + "/repo/resource_pack";
         if (!BedrockSamples::Available(options.bedrockSamplesDir)) {
             if (PERLIN_ENV("PERLIN_PREVIEW"))
-                std::cout << "[preview] samples not available at " << options.bedrockSamplesDir << std::endl;
+                Log("preview", "samples not available at {}", options.bedrockSamplesDir);
             return;
         }
         if (!texturePackResolved) {
@@ -174,7 +175,7 @@ namespace perlin {
             std::string error;
             TexturePack::Instance().OpenStack(paths::DataDir() + "/texturepacks", options.texturePacks, error);
             if (!error.empty())
-                std::cout << "[textures] " << error << " (using default textures)" << std::endl;
+                Log("textures", "{} (using default textures)", error);
             blocks.SetTexturePack(TexturePack::Instance().Active());
             BlockLibrary::SetMaxTiles(context.MaxAtlasLayers(BlockLibrary::TilePx()));
         }
@@ -185,14 +186,10 @@ namespace perlin {
         const bool tintsOk = blocksOk && biomeTints.EnsureLoaded(vanillaDir);
         {
             const auto end = std::chrono::steady_clock::now();
-            std::cout << "[startup] asset pass: blocks "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(blocksDone - loadStart).count()
-                      << " ms, tints "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(end - blocksDone).count() << " ms"
-                      << std::endl;
+            Log("startup", "asset pass: blocks {} ms, tints {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(blocksDone - loadStart).count(), std::chrono::duration_cast<std::chrono::milliseconds>(end - blocksDone).count());
         }
         if (PERLIN_ENV("PERLIN_PREVIEW"))
-            std::cout << "[preview] blocksOk=" << blocksOk << " tintsOk=" << tintsOk << std::endl;
+            Log("preview", "blocksOk={} tintsOk={}", blocksOk, tintsOk);
         if (!blocksOk)
             return;
         if (!lightingConfigured)

@@ -1,3 +1,4 @@
+#include "client/PerlinInternal.hpp"
 #include <filesystem>
 #include <fstream>
 #include "client/Perlin.hpp"
@@ -14,6 +15,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include "util/Log.hpp"
 
 #ifndef __EMSCRIPTEN__
 #include <httplib.h>
@@ -85,8 +87,8 @@ namespace perlin {
             if (sa->sa_family == AF_INET) {
                 const auto* v4 = reinterpret_cast<const sockaddr_in*>(sa);
                 const uint32_t a = ntohl(v4->sin_addr.s_addr);
-                return (a >> 24) == 127 || (a >> 24) == 10 || (a >> 24) == 0 || (a >> 16) == 0xC0A8 || (a >> 20) == 0xAC1 || (a >> 16) == 0xA9FE ||
-                       (a >> 22) == 0x191;
+                return (a >> 24) == 127 || (a >> 24) == 10 || (a >> 24) == 0 || (a >> 16) == 0xC0A8 ||
+                       (a >> 20) == 0xAC1 || (a >> 16) == 0xA9FE || (a >> 22) == 0x191;
             }
             if (sa->sa_family == AF_INET6) {
                 const auto* v6 = reinterpret_cast<const sockaddr_in6*>(sa);
@@ -100,9 +102,11 @@ namespace perlin {
                     return true;
                 static const uint8_t mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF};
                 if (std::memcmp(b, mapped, 12) == 0) {
-                    const uint32_t a = (static_cast<uint32_t>(b[12]) << 24) | (static_cast<uint32_t>(b[13]) << 16) |
+                    const uint32_t a = (static_cast<uint32_t>(b[12]) << 24) |
+                                       (static_cast<uint32_t>(b[13]) << 16) |
                                        (static_cast<uint32_t>(b[14]) << 8) | b[15];
-                    return (a >> 24) == 127 || (a >> 24) == 10 || (a >> 16) == 0xC0A8 || (a >> 20) == 0xAC1 || (a >> 16) == 0xA9FE;
+                    return (a >> 24) == 127 || (a >> 24) == 10 || (a >> 16) == 0xC0A8 || (a >> 20) == 0xAC1 ||
+                           (a >> 16) == 0xA9FE;
                 }
             }
             return false;
@@ -132,9 +136,11 @@ namespace perlin {
                 char buf[64] = {};
                 const addrinfo* p = list;
                 if (p->ai_family == AF_INET)
-                    inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in*>(p->ai_addr)->sin_addr, buf, sizeof(buf));
+                    inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in*>(p->ai_addr)->sin_addr, buf,
+                              sizeof(buf));
                 else
-                    inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6*>(p->ai_addr)->sin6_addr, buf, sizeof(buf));
+                    inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6*>(p->ai_addr)->sin6_addr, buf,
+                              sizeof(buf));
                 address = buf;
             } else {
                 error = "requests to local or private network addresses are blocked";
@@ -145,11 +151,12 @@ namespace perlin {
 #endif
     }
 
-    void Perlin::StartModHttp(const std::string& plugin, uint32_t id, std::string method, std::string url, int timeoutMs,
-                              std::vector<std::pair<std::string, std::string>> headers, std::vector<uint8_t> body, std::string savePath) {
+    void Perlin::StartModHttp(const std::string& plugin, uint32_t id, std::string method, std::string url,
+                              int timeoutMs, std::vector<std::pair<std::string, std::string>> headers,
+                              std::vector<uint8_t> body, std::string savePath) {
         modHttpActive++;
-        std::thread([this, plugin, id, method = std::move(method), url = std::move(url), timeoutMs, headers = std::move(headers),
-                     body = std::move(body), savePath = std::move(savePath)]() {
+        std::thread([this, plugin, id, method = std::move(method), url = std::move(url), timeoutMs,
+                     headers = std::move(headers), body = std::move(body), savePath = std::move(savePath)]() {
             abi::EventHttp ev;
             ev.id = id;
 #ifdef __EMSCRIPTEN__
@@ -163,17 +170,19 @@ namespace perlin {
                 }
                 const size_t hostStart = scheme.size();
                 size_t pathStart = url.find_first_of("/?#", hostStart);
-                std::string authority = url.substr(hostStart, pathStart == std::string::npos ? std::string::npos : pathStart - hostStart);
+                std::string authority = url.substr(
+                    hostStart, pathStart == std::string::npos ? std::string::npos : pathStart - hostStart);
                 std::string path = pathStart == std::string::npos ? "/" : url.substr(pathStart);
                 if (path[0] != '/')
                     path = "/" + path;
-                if (authority.find('@') != std::string::npos || authority.empty()) {
+                if (authority.contains('@') || authority.empty()) {
                     ev.error = "invalid URL";
                     break;
                 }
                 int port = 443;
                 std::string host = authority;
-                if (const size_t colon = authority.rfind(':'); colon != std::string::npos && authority.find(']') == std::string::npos) {
+                if (const size_t colon = authority.rfind(':');
+                    colon != std::string::npos && !authority.contains(']')) {
                     host = authority.substr(0, colon);
                     port = std::atoi(authority.c_str() + colon + 1);
                     if (port <= 0 || port > 65535) {
@@ -199,8 +208,10 @@ namespace perlin {
                 req.path = path;
                 for (const auto& h : headers) {
                     std::string lower = h.first;
-                    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                    if (lower == "host" || lower == "content-length" || lower == "transfer-encoding" || lower == "connection")
+                    std::transform(lower.begin(), lower.end(), lower.begin(),
+                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    if (lower == "host" || lower == "content-length" || lower == "transfer-encoding" ||
+                        lower == "connection")
                         continue;
                     req.headers.emplace(h.first, h.second);
                 }
@@ -219,7 +230,8 @@ namespace perlin {
                 httplib::Error err = httplib::Error::Success;
                 const bool ok = cli.send(req, res, err);
                 if (tooLarge) {
-                    ev.error = savePath.empty() ? "response larger than 4 MiB" : "download larger than 64 MiB";
+                    ev.error =
+                        savePath.empty() ? "response larger than 4 MiB" : "download larger than 64 MiB";
                     ev.body.clear();
                     break;
                 }
@@ -230,14 +242,16 @@ namespace perlin {
                 ev.status = res.status;
                 for (const auto& h : res.headers) {
                     std::string key = h.first;
-                    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    std::transform(key.begin(), key.end(), key.begin(),
+                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                     ev.headers.emplace_back(std::move(key), h.second);
                 }
                 if (!savePath.empty() && ev.status >= 200 && ev.status < 300) {
                     std::error_code ec;
                     std::filesystem::create_directories(std::filesystem::path(savePath).parent_path(), ec);
                     std::ofstream out(savePath, std::ios::binary | std::ios::trunc);
-                    out.write(reinterpret_cast<const char*>(ev.body.data()), static_cast<std::streamsize>(ev.body.size()));
+                    out.write(reinterpret_cast<const char*>(ev.body.data()),
+                              static_cast<std::streamsize>(ev.body.size()));
                     if (!out)
                         ev.error = "could not write the file";
                     ev.body.clear();
@@ -252,7 +266,8 @@ namespace perlin {
         }).detach();
     }
 
-    void Perlin::NoteModSound(const std::string& name, double x, double y, double z, float volume, float pitch) {
+    void Perlin::NoteModSound(const std::string& name, double x, double y, double z, float volume,
+                              float pitch) {
         if (!mods::ModManager::Instance().WantsEvent(abi::Event::Sound))
             return;
         abi::EventSound e;
@@ -285,7 +300,8 @@ namespace perlin {
             return false;
         if (text[0] == '/') {
             const size_t space = text.find(' ');
-            const std::string name = text.substr(1, space == std::string::npos ? std::string::npos : space - 1);
+            const std::string name =
+                text.substr(1, space == std::string::npos ? std::string::npos : space - 1);
             const std::string args = space == std::string::npos ? std::string() : text.substr(space + 1);
             for (const mods::PluginCommand& cmd : mm.Commands())
                 if (cmd.name == name) {
@@ -313,7 +329,8 @@ namespace perlin {
             return;
         const uint32_t serverVersion = live ? live->CommandsVersion() : 0;
         const uint64_t pluginVersion = mm.CommandVersion();
-        const std::string signature = std::to_string(serverVersion) + ":" + std::to_string(pluginVersion) + ":" + (live ? "1" : "0");
+        const std::string signature =
+            std::to_string(serverVersion) + ":" + std::to_string(pluginVersion) + ":" + (live ? "1" : "0");
         if (signature == modCommandSig)
             return;
         modCommandSig = signature;
@@ -339,7 +356,8 @@ namespace perlin {
             s.actionBarAlpha = std::clamp(remaining * 2.0f, 0.0f, 1.0f);
         }
         if (s.titleAlpha <= 0.0f && !modTitleText.empty()) {
-            const int elapsed = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(now - modTitleStart).count());
+            const int elapsed = static_cast<int>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - modTitleStart).count());
             const int total = modTitleFadeIn + modTitleStay + modTitleFadeOut;
             if (elapsed >= total) {
                 modTitleText.clear();
@@ -349,7 +367,8 @@ namespace perlin {
                 if (elapsed < modTitleFadeIn)
                     alpha = static_cast<float>(elapsed) / static_cast<float>(std::max(1, modTitleFadeIn));
                 else if (elapsed > modTitleFadeIn + modTitleStay)
-                    alpha = static_cast<float>(total - elapsed) / static_cast<float>(std::max(1, modTitleFadeOut));
+                    alpha = static_cast<float>(total - elapsed) /
+                            static_cast<float>(std::max(1, modTitleFadeOut));
                 s.title = modTitleText;
                 s.subtitle = modSubtitleText;
                 s.titleAlpha = std::clamp(alpha, 0.0f, 1.0f);
@@ -375,7 +394,8 @@ namespace perlin {
             buttonKey += b.def.id + (b.hover ? "+" : "-") + b.def.label + "|";
         const int w = static_cast<int>(hud.GuiWidth()), h = static_cast<int>(hud.GuiHeight());
         const uint64_t version = mm.LayerVersion();
-        if (modLayerShown && version == modLayerVersion && w == modLayerW && h == modLayerH && onScreen == modLayerOnScreen && buttonKey == modLayerButtons)
+        if (modLayerShown && version == modLayerVersion && w == modLayerW && h == modLayerH &&
+            onScreen == modLayerOnScreen && buttonKey == modLayerButtons)
             return;
         modLayerVersion = version;
         modLayerW = w;
@@ -384,7 +404,7 @@ namespace perlin {
         modLayerButtons = buttonKey;
         std::vector<mods::UiLayer> layers;
         for (mods::UiLayer& l : mm.Layers())
-            if (l.name.rfind("screen:", 0) == 0 ? onScreen : !onScreen)
+            if (l.name.starts_with("screen:") ? onScreen : !onScreen)
                 layers.push_back(std::move(l));
         if (onScreen && !modScreenButtons.empty()) {
             mods::UiLayer buttons;
@@ -395,10 +415,27 @@ namespace perlin {
             for (const ScreenButtonView& b : modScreenButtons) {
                 const float x = static_cast<float>(b.def.x), y = static_cast<float>(b.def.y);
                 const float bw = static_cast<float>(b.def.width), bh = static_cast<float>(b.def.height);
-                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Rect)).put(x).put(y).put(bw).put(bh).put<uint32_t>(b.hover ? 0x505050E0u : 0x303030D0u);
-                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Border)).put(x).put(y).put(bw).put(bh).put<uint32_t>(b.hover ? 0xFFFFFFFFu : 0x000000FFu).put(1.0f);
-                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Text)).put(x + bw * 0.5f).put(y + (bh - 8.0f) * 0.5f).put<uint32_t>(b.hover ? 0xFFFFA0FFu : 0xE0E0E0FFu)
-                    .put(1.0f).put<uint8_t>(1).put<uint8_t>(1).str(b.def.label);
+                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Rect))
+                    .put(x)
+                    .put(y)
+                    .put(bw)
+                    .put(bh)
+                    .put<uint32_t>(b.hover ? 0x505050E0u : 0x303030D0u);
+                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Border))
+                    .put(x)
+                    .put(y)
+                    .put(bw)
+                    .put(bh)
+                    .put<uint32_t>(b.hover ? 0xFFFFFFFFu : 0x000000FFu)
+                    .put(1.0f);
+                c.put<uint8_t>(static_cast<uint8_t>(abi::Draw::Text))
+                    .put(x + bw * 0.5f)
+                    .put(y + (bh - 8.0f) * 0.5f)
+                    .put<uint32_t>(b.hover ? 0xFFFFA0FFu : 0xE0E0E0FFu)
+                    .put(1.0f)
+                    .put<uint8_t>(1)
+                    .put<uint8_t>(1)
+                    .str(b.def.label);
             }
             buttons.commands.assign(c.Data(), c.Data() + c.Size());
             layers.push_back(std::move(buttons));
@@ -412,7 +449,7 @@ namespace perlin {
         std::string error;
         modLayerShown = hud.Overlay().SetPluginLayer(ui::BuildPluginLayerRml(layers, w, h), error);
         if (!modLayerShown)
-            std::cout << "[mods] " << error << std::endl;
+            Log("mods", "{}", error);
     }
 
     void Perlin::TickMods(BedrockSession*) {
@@ -475,12 +512,17 @@ namespace perlin {
 
         const std::vector<mods::PluginKey> keys = mm.Keys();
         if (!keys.empty()) {
-            const bool free = input.Captured() && !input.TextMode() && !pauseShown && !chat.IsOpen() && !invShown && !deathShown;
+            const bool free = input.Captured() && !input.TextMode() && !pause.shown && !chat.IsOpen() &&
+                              !inventory.shown && !death.shown;
             const bool inScreen = !input.TextMode() && CurrentScreen() != abi::Screen::None;
             for (const mods::PluginKey& key : keys) {
                 const Binding b = Binding::Parse(key.binding);
-                const bool active = key.context == abi::KeyContext::Any ? (free || inScreen) : key.context == abi::KeyContext::InScreen ? inScreen : free;
-                const bool mods = (!key.ctrl || input.IsKeyDown(Key::Control)) && (!key.shift || input.IsKeyDown(Key::Shift)) && (!key.alt || input.IsKeyDown(Key::Alt));
+                const bool active = key.context == abi::KeyContext::Any        ? (free || inScreen)
+                                    : key.context == abi::KeyContext::InScreen ? inScreen
+                                                                               : free;
+                const bool mods = (!key.ctrl || input.IsKeyDown(Key::Control)) &&
+                                  (!key.shift || input.IsKeyDown(Key::Shift)) &&
+                                  (!key.alt || input.IsKeyDown(Key::Alt));
                 bool down = false;
                 if (active && mods && b.device == Binding::Device::Keyboard)
                     down = input.IsKeyDown(b.code);
@@ -575,7 +617,8 @@ namespace perlin {
         }
 
         if (mm.WantsEvent(abi::Event::EntityAdded) || mm.WantsEvent(abi::Event::EntityRemoved)) {
-            const std::vector<entity::Entity> list = live ? live->Entities().Snapshot() : previewEntities.Snapshot();
+            const std::vector<entity::Entity> list =
+                live ? live->Entities().Snapshot() : previewEntities.Snapshot();
             std::unordered_set<uint64_t> current;
             current.reserve(list.size());
             for (const entity::Entity& e : list)
@@ -637,7 +680,7 @@ namespace perlin {
         if (mm.WantsEvent(abi::Event::Frame)) {
             abi::EventFrame f;
             f.dt = dt;
-            f.fps = static_cast<float>(fpsShown);
+            f.fps = static_cast<float>(debug.fps);
             f.guiWidth = modGuiW;
             f.guiHeight = modGuiH;
             abi::Writer w;
@@ -652,7 +695,9 @@ namespace perlin {
         if (inputManager.TakeGrabFailsafe() && (mm.GrabsMouse() || mm.GrabsKeyboard())) {
             mm.ReleaseGrabs();
             inputManager.SetPluginGrab(false, false);
-            chat.AddMessage("\xC2\xA7" "eA plugin was holding the mouse and keyboard; Escape x3 gave them back.", hudAnim.ticks);
+            chat.AddMessage("\xC2\xA7"
+                            "eA plugin was holding the mouse and keyboard; Escape x3 gave them back.",
+                            hudAnim.ticks);
         }
         const bool gm = mm.GrabsMouse(), gk = mm.GrabsKeyboard();
         if (renderer) {
@@ -683,7 +728,7 @@ namespace perlin {
             modGrabKeyboardWas = gk;
             if (gk)
                 input.SetTextMode(true);
-            else if (!pauseShown && !chat.IsOpen() && !exportUi.open && !kfUi.open)
+            else if (!pause.shown && !chat.IsOpen() && !exportUi.open && !kfUi.open)
                 input.SetTextMode(false);
         }
         std::vector<InputManager::PluginInput> events = inputManager.TakePluginInput();

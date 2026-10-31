@@ -3,6 +3,7 @@
 #include <cctype>
 #include <iterator>
 #include "client/i18n/Lang.hpp"
+#include "util/Strings.hpp"
 
 namespace perlin::ui {
     namespace {
@@ -96,19 +97,15 @@ namespace perlin::ui {
             {"Your Game Mode", "", "createWorldScreen.gameMode.personal.description", "Select your preferred game mode.", 0},
         };
 
-        std::string Lower(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
     }
 
     bool FindSettingInfo(const std::string& label, SettingInfo& out) {
-        const std::string l = Lower(label);
+        const std::string l = str::Lower(label);
         for (const Entry& e : kEntries) {
-            bool match = l == Lower(e.english);
+            bool match = l == str::Lower(e.english);
             if (!match && *e.labelKey) {
                 const std::string t = i18n::Tr(e.labelKey);
-                match = t != e.labelKey && Lower(t) == l;
+                match = t != e.labelKey && str::Lower(t) == l;
             }
             if (!match)
                 continue;

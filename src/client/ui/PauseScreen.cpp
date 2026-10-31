@@ -233,7 +233,7 @@ div { display: block; position: absolute; }
             if (!row.icon.empty()) {
                 const std::string at = "left: " + std::to_string(static_cast<int>(l.x[static_cast<size_t>(i)]) + 3) + "px; top: " +
                                        std::to_string(static_cast<int>(l.y[static_cast<size_t>(i)]) + 2) + "px; width: 16px; height: 16px; z-index: 9;";
-                if (row.icon.rfind("item:", 0) == 0)
+                if (row.icon.starts_with("item:"))
                     d += "<mcitem key=\"" + EscapeRml(row.icon.substr(5)) + ";0\" style=\"" + at + "\"></mcitem>\n";
                 else
                     d += "<mcimg src=\"" + EscapeRml(row.icon) + "\" style=\"" + at + "\"></mcimg>\n";

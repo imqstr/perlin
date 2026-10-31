@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <unordered_set>
+#include "util/Log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -99,7 +100,7 @@ namespace perlin::ui {
             if (const char* pf = std::getenv("ProgramFiles")) {
                 const fs::path apps = fs::path(pf) / "WindowsApps";
                 for (fs::directory_iterator it(apps, ec), end; !ec && it != end; it.increment(ec))
-                    if (it->path().filename().string().rfind("Microsoft.MinecraftUWP", 0) == 0)
+                    if (it->path().filename().string().starts_with("Microsoft.MinecraftUWP"))
                         dirs.push_back(it->path() / "data" / "fonts");
             }
 #else
@@ -122,18 +123,18 @@ namespace perlin::ui {
             const auto rank = [](const fs::path& path) {
                 std::string n = path.filename().string();
                 std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                if (n.find("mojangles") != std::string::npos)
+                if (n.contains("mojangles"))
                     return 0;
-                if (n.find("minecraft") != std::string::npos)
+                if (n.contains("minecraft"))
                     return 1;
-                if (n.find("unifont") != std::string::npos)
+                if (n.contains("unifont"))
                     return 3;
                 return 2;
             };
             std::stable_sort(found.begin(), found.end(), [&](const fs::path& a, const fs::path& b) { return rank(a) < rank(b); });
             for (const fs::path& path : found)
                 if (font.AddTtf(path.string()))
-                    std::cout << "[font] fallback font " << path.string() << std::endl;
+                    Log("font", "fallback font {}", path.string());
         }
     }
 
@@ -460,7 +461,7 @@ namespace perlin::ui {
             }
             if (name == "glow_ink_sac")
                 candidates.push_back("dye_powder_glow");
-            if (name.rfind("music_disc_", 0) == 0)
+            if (name.starts_with("music_disc_"))
                 candidates.push_back("record_" + name.substr(11));
             for (const auto& [from, to] : kAlias)
                 if (name == from)
@@ -518,7 +519,7 @@ namespace perlin::ui {
                 out.handheld = false;
                 return true;
             }
-            if (name.rfind("leather_", 0) == 0 && name != "leather_horse_armor") {
+            if (name.starts_with("leather_") && name != "leather_horse_armor") {
                 const uint32_t rgb = dyeColor >= 0 ? static_cast<uint32_t>(dyeColor) & 0xFFFFFFu : 0xA06540u;
                 const float cr = ((rgb >> 16) & 255) / 255.0f, cg = ((rgb >> 8) & 255) / 255.0f, cb = (rgb & 255) / 255.0f;
                 bool anyMask = false;
@@ -541,7 +542,7 @@ namespace perlin::ui {
                     px[1] = static_cast<uint8_t>(std::clamp(l * cg * 255.0f, 0.0f, 255.0f));
                     px[2] = static_cast<uint8_t>(std::clamp(l * cb * 255.0f, 0.0f, 255.0f));
                 }
-            } else if (name.rfind("leather_", 0) == 0) {
+            } else if (name.starts_with("leather_")) {
                 for (size_t i = 3; i < t.pixels.size(); i += 4)
                     if (t.pixels[i] != 0 && t.pixels[i] < 16)
                         t.pixels[i] = 255;
@@ -551,10 +552,10 @@ namespace perlin::ui {
             out.w = t.width;
             out.h = t.height;
             out.rgba = std::move(t.pixels);
-            const bool tool = name.find("sword") != std::string::npos || name.find("pickaxe") != std::string::npos ||
-                              name.find("_axe") != std::string::npos || name.find("shovel") != std::string::npos ||
-                              name.find("hoe") != std::string::npos || name == "stick" || name.rfind("bow", 0) == 0 || name.rfind("crossbow", 0) == 0 ||
-                              name.find("rod") != std::string::npos || name == "trident" || name == "mace" ||
+            const bool tool = name.contains("sword") || name.contains("pickaxe") ||
+                              name.contains("_axe") || name.contains("shovel") ||
+                              name.contains("hoe") || name == "stick" || name.starts_with("bow") || name.starts_with("crossbow") ||
+                              name.contains("rod") || name == "trident" || name == "mace" ||
                               name == "shears" || name == "carrot_on_a_stick" || name == "blaze_rod" || name == "bone";
             out.handheld = tool;
             return true;
@@ -668,7 +669,7 @@ namespace perlin::ui {
         CustomItemDef custom;
         const bool customItem = ServerBlocks::Instance().Item(id, custom);
         std::string iconKey = customItem ? custom.icon : std::string();
-        if (iconKey.empty() && id.find(':') != std::string::npos && id.rfind("minecraft:", 0) != 0)
+        if (iconKey.empty() && id.contains(':') && !id.starts_with("minecraft:"))
             iconKey = id;
         bool flat = FlatSprite(name, aux, sprite, dye, iconKey);
         if (!flat) {
@@ -695,7 +696,7 @@ namespace perlin::ui {
             }
         }
         if (!flat && blocks && blocks->Ready()) {
-            const BlockAppearance* a = id.find(':') != std::string::npos ? blocks->LookByName(id) : nullptr;
+            const BlockAppearance* a = id.contains(':') ? blocks->LookByName(id) : nullptr;
             if (!a)
                 a = blocks->LookByName("minecraft:" + name);
             if (a) {
@@ -714,10 +715,10 @@ namespace perlin::ui {
                             tg = ((rgb >> 8) & 255) / 255.0f;
                             tb = (rgb & 255) / 255.0f;
                         };
-                        if (name.find("spruce_leaves") != std::string::npos) { set(0x619961); tintTop = tintSide = true; }
-                        else if (name.find("birch_leaves") != std::string::npos) { set(0x80A755); tintTop = tintSide = true; }
-                        else if (name.find("_leaves") != std::string::npos && name.find("cherry") == std::string::npos &&
-                                 name.find("azalea") == std::string::npos) { set(0x48B518); tintTop = tintSide = true; }
+                        if (name.contains("spruce_leaves")) { set(0x619961); tintTop = tintSide = true; }
+                        else if (name.contains("birch_leaves")) { set(0x80A755); tintTop = tintSide = true; }
+                        else if (name.contains("_leaves") && !name.contains("cherry") &&
+                                 !name.contains("azalea")) { set(0x48B518); tintTop = tintSide = true; }
                         else if (a->overlayTile != 0) { set(0x79C05A); tintTop = true; }
                         else if (name == "short_grass" || name == "tallgrass" || name == "fern" || name == "large_fern" ||
                                  name == "tall_grass" || name == "grass") { set(0x79C05A); tintTop = tintSide = true; }
@@ -768,8 +769,7 @@ namespace perlin::ui {
         if (!sprite.ok) {
             static std::unordered_set<std::string> reported;
             if (reported.insert(id).second)
-                std::cout << "[items] no texture found for " << id << (customItem ? " (icon '" + custom.icon + "')" : std::string())
-                          << ", using a generic icon" << std::endl;
+                Log("items", "no texture found for {}{}, using a generic icon", id, (customItem ? " (icon '" + custom.icon + "')" : std::string()));
             MakeGenericIcon(id, sprite);
         }
         auto inserted = items.emplace(key, std::move(sprite)).first;
@@ -792,7 +792,7 @@ namespace perlin::ui {
         ClearItemCache();
         std::lock_guard lock(mutex);
         // featured server logos belong to the menu, whose rows survive level exits
-        std::erase_if(heads, [](const auto& entry) { return entry.first.rfind("fs:", 0) != 0; });
+        std::erase_if(heads, [](const auto& entry) { return !entry.first.starts_with("fs:"); });
         lang.clear();
         langLoaded = false;
     }
@@ -915,10 +915,10 @@ namespace perlin::ui {
                 tb = (rgb & 255) / 255.0f;
                 tinted = true;
             };
-            if (name.find("spruce_leaves") != std::string::npos) set(0x619961);
-            else if (name.find("birch_leaves") != std::string::npos) set(0x80A755);
-            else if (name.find("_leaves") != std::string::npos && name.find("cherry") == std::string::npos &&
-                     name.find("azalea") == std::string::npos && name.find("pale") == std::string::npos) set(0x48B518);
+            if (name.contains("spruce_leaves")) set(0x619961);
+            else if (name.contains("birch_leaves")) set(0x80A755);
+            else if (name.contains("_leaves") && !name.contains("cherry") &&
+                     !name.contains("azalea") && !name.contains("pale")) set(0x48B518);
             else if (name == "short_grass" || name == "tallgrass" || name == "fern" || name == "large_fern" ||
                      name == "tall_grass" || name == "grass_block" || name == "grass" || name == "grass_path" ||
                      name == "sugar_cane" || name == "reeds") set(0x79C05A);

@@ -271,6 +271,8 @@ namespace rhi::d3d12 {
         PipelineLayoutHandle layoutHandle;
         bool havePipeline = false;
         bool inRendering = false;
+        // a pass whose attachments no longer exist: it is recorded as empty (draws are dropped) instead of handing the driver null views
+        bool passBroken = false;
         std::array<BindGroupHandle, kMaxBindGroups> groups{};
         std::array<std::array<uint32_t, kMaxDynamicOffsets>, kMaxBindGroups> dynamicOffsets{};
         std::array<uint32_t, kMaxBindGroups> dynamicCounts{};
@@ -374,7 +376,6 @@ namespace rhi::d3d12 {
         std::string DebugReport() override;
         float TimestampPeriodNs() const override { return caps.limits.timestampPeriodNs; }
 
-        // ---- internals shared with CmdList and Swapchain
         TextureHandle WrapSwapchainImage(ID3D12Resource* resource, const TextureDesc& desc);
         void DestroyWrapped(TextureHandle h);
         D3D12_CPU_DESCRIPTOR_HANDLE RenderView(TextureRec& tex, uint32_t mip, uint32_t layer, bool depth, bool readOnly = false);

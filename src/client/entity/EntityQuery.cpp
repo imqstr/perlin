@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include "util/Log.hpp"
 
 namespace perlin::entity {
     using molang::Value;
@@ -21,7 +22,7 @@ namespace perlin::entity {
 
         std::string Short(std::string s) {
             std::transform(s.begin(), s.end(), s.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            if (s.rfind("minecraft:", 0) == 0)
+            if (s.starts_with("minecraft:"))
                 s = s.substr(10);
             return s;
         }
@@ -31,11 +32,11 @@ namespace perlin::entity {
         std::string SlotItem(const Entity& e, const molang::Value& slot, int index) {
             if (slot.isString) {
                 const std::string& s = slot.s;
-                if (s.find("offhand") != std::string::npos) return e.offHand;
-                if (s.find("armor.head") != std::string::npos) return e.armor[0];
-                if (s.find("armor.chest") != std::string::npos) return e.armor[1];
-                if (s.find("armor.legs") != std::string::npos) return e.armor[2];
-                if (s.find("armor.feet") != std::string::npos) return e.armor[3];
+                if (s.contains("offhand")) return e.offHand;
+                if (s.contains("armor.head")) return e.armor[0];
+                if (s.contains("armor.chest")) return e.armor[1];
+                if (s.contains("armor.legs")) return e.armor[2];
+                if (s.contains("armor.feet")) return e.armor[3];
                 return e.mainHand;
             }
             (void)index;
@@ -227,7 +228,7 @@ namespace perlin::entity {
         if (name == "get_equipped_item_name") {
             bool off = false;
             if (!args.empty())
-                off = args[0].isString ? args[0].s.find("off") != std::string::npos : args[0].n == 1.0;
+                off = args[0].isString ? args[0].s.contains("off") : args[0].n == 1.0;
             out = Value::Str(Short(off ? e.offHand : e.mainHand));
             return true;
         }
@@ -275,7 +276,7 @@ namespace perlin::entity {
                     if (it2 != e.props.end())
                         return num(it2->second);
                 }
-                if (key.find("climate_variant") != std::string::npos) { out = Value::Str("temperate"); return true; }
+                if (key.contains("climate_variant")) { out = Value::Str("temperate"); return true; }
             }
             return num(0);
         }
@@ -319,7 +320,7 @@ namespace perlin::entity {
         if (PERLIN_ENV("PERLIN_MOLANG_LOG")) {
             static std::set<std::string> logged;
             if (logged.insert(name).second)
-                std::cout << "[molang] unhandled query." << name << " (" << e.type << ")" << std::endl;
+                Log("molang", "unhandled query.{} ({})", name, e.type);
         }
         return false;
     }

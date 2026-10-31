@@ -193,7 +193,7 @@ namespace perlin::ui {
                     if (lex.pos < lex.s.size() && lex.s[lex.pos] == '*') {
                         lex.pos++;
                         Json right = Unary();
-                        if (left.IsString() && left.string.find('%') != std::string::npos)
+                        if (left.IsString() && left.string.contains('%'))
                             left = Json(Format(left.string, right));  // '%.30s' * #title_text
                         else
                             left = Json(AsNumber(left) * AsNumber(right));
@@ -299,7 +299,7 @@ namespace perlin::ui {
     }
 
     bool UsesBindings(std::string_view text) {
-        return text.find('#') != std::string_view::npos;
+        return text.contains('#');
     }
 
     bool Truthy(const Json& v) {

@@ -213,7 +213,7 @@ namespace perlin::server::auth {
         while (std::getline(in, line)) {
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
-            if (line.rfind("a=fingerprint:", 0) == 0) {
+            if (line.starts_with("a=fingerprint:")) {
                 const std::string rest = line.substr(14);
                 const size_t sp = rest.find(' ');
                 if (sp == std::string::npos)
@@ -221,7 +221,7 @@ namespace perlin::server::auth {
                 payload += std::string(first ? "" : ",") + "{\"algorithm\":\"" + json::Escape(rest.substr(0, sp)) + "\",\"digest\":\"" +
                            json::Escape(rest.substr(sp + 1)) + "\"}";
                 first = false;
-            } else if (line.rfind("a=identity:", 0) == 0 && assertionAttr.empty()) {
+            } else if (line.starts_with("a=identity:") && assertionAttr.empty()) {
                 assertionAttr = line.substr(11);
             }
         }

@@ -17,6 +17,7 @@ int main() {
     ps_options options{};
     options.loopback_only = 1;
     options.data_dir = "capi_test_data";
+    options.config_json = "{\"generator\":\"flat\",\"terrain_backend\":\"cpu\"}";
     ps_server* server = ps_create(&options);
     CHECK(server != nullptr);
     if (!server)

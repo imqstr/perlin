@@ -16,6 +16,9 @@ struct ps_server {
     std::unique_ptr<Server> server;
     std::thread thread;
     std::atomic<bool> asyncRunning{false};
+    // the tick thread ended: a stop was asked for, or the server threw and shut itself down
+    std::atomic<bool> finished{false};
+    std::atomic<bool> crashed{false};
 };
 
 struct ps_conn {
@@ -48,7 +51,7 @@ PS_API ps_server* ps_create(const ps_options* options) {
         ServerConfig config;
         std::string dir = options && options->data_dir ? options->data_dir : ".";
         std::string error;
-        config = ServerConfig::Load(dir + "/server.json", &error);
+        config = ServerConfig::LoadDirectory(dir, &error);
         if (!error.empty())
             LogWarn(error);
         config.dataDir = dir;
@@ -63,8 +66,10 @@ PS_API ps_server* ps_create(const ps_options* options) {
                 if (over["view_distance"].Int(0) > 0) config.viewDistance = static_cast<uint32_t>(over["view_distance"].Int());
                 if (over["max_players"].Int(0) > 0) config.maxPlayers = static_cast<uint32_t>(over["max_players"].Int());
                 if (over["terrain_backend"].IsString()) config.terrainBackend = over["terrain_backend"].text;
-                if (over["gamemode"].Int(-1) >= 0) config.gameMode = static_cast<int>(over["gamemode"].Int());
+                if (const int64_t gm = over["gamemode"].Int(-1); gm == 0 || gm == 1 || gm == 2 || gm == 6) config.gameMode = static_cast<int>(gm);
                 if (over["plugin_dir"].IsString()) config.pluginDir = over["plugin_dir"].text;
+                if (over["generator"].IsString()) config.generator = over["generator"].text;
+                if (over["seed"].kind == json::Value::Kind::Number) { config.seed = static_cast<uint64_t>(over["seed"].Int()); config.randomSeed = false; }
             } else {
                 g_error = "config_json: " + error;
                 return nullptr;
@@ -95,9 +100,23 @@ PS_API int ps_start(ps_server* s) {
 PS_API int ps_run_async(ps_server* s) {
     if (!s || s->asyncRunning.exchange(true))
         return -1;
-    s->thread = std::thread([s] { s->server->Run(); });
+    s->thread = std::thread([s] {
+        try {
+            s->server->Run();
+        } catch (const std::exception& e) {
+            // a bug in one tick must not take the host down with it: log it and let the host see the server is gone
+            LogError(std::string("server crashed: ") + e.what());
+            s->crashed = true;
+        } catch (...) {
+            LogError("server crashed");
+            s->crashed = true;
+        }
+        s->finished = true;
+    });
     return 0;
 }
+
+PS_API int ps_is_running(ps_server* s) { return s && s->asyncRunning && !s->finished ? 1 : 0; }
 
 PS_API void ps_tick(ps_server* s) {
     if (s)

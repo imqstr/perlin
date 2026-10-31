@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -219,7 +220,7 @@ namespace perlin {
             return 0;
         }
         if (staticUiMeshes >= staticUiMeshWarnAt) {
-            std::cout << "[render] " << staticUiMeshes << " UI meshes alive" << std::endl;
+            Log("render", "{} UI meshes alive", staticUiMeshes);
             staticUiMeshWarnAt *= 2;
         }
         return id;

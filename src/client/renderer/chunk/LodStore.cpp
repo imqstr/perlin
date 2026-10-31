@@ -10,7 +10,7 @@
 
 namespace perlin {
     namespace {
-        bool Has(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
+        bool Has(const std::string& s, const char* part) { return s.contains(part); }
     }
 
     LodStore::Rgb LodStore::ColourOf(uint16_t id, int biome, bool top, const BlockLibrary& blocks,
@@ -88,7 +88,7 @@ namespace perlin {
                     for (int y = hi; y >= lo; y--) {
                         uint16_t id = chunk.Get(x, y, z);
                         const uint16_t liquid = chunk.GetLiquid(x, y, z);
-                        const bool isWater = liquid != 0 || (id != 0 && BlockPalette::Instance().Name(id).find("water") != std::string::npos);
+                        const bool isWater = liquid != 0 || (id != 0 && BlockPalette::Instance().Name(id).contains("water"));
                         if (isWater) {
                             if (waterTop < Chunk::MIN_Y) {
                                 waterTop = y;

@@ -42,6 +42,7 @@
 #include <set>
 #include <streambuf>
 #include <thread>
+#include "util/Log.hpp"
 
 namespace perlin {
     namespace {
@@ -457,14 +458,9 @@ namespace perlin {
                     }
                     chainInfo += "(" + std::to_string(links) + " links)";
                 }
-                std::cout << "[login] multiplayer token: " << tokenInfo << std::endl;
-                std::cout << "[login] certificate chain: " << chainInfo << std::endl;
-                std::cout << "[login] client data: DeviceOS=" << skin.DeviceOS << " model='" << skin.DeviceModel
-                          << "' deviceId=" << skin.DeviceId << " playFabId=" << skin.PlayFabId
-                          << " selfSignedId=" << skin.SelfSignedId << " thirdPartyName=" << skin.ThirdPartyName
-                          << " serverAddress=" << skin.ServerAddress << " gameVersion=" << skin.GameVersion
-                          << " inputMode=" << skin.CurrentInputMode << "/" << skin.DefaultInputMode
-                          << " platformType=" << skin.PlatformType << std::endl;
+                Log("login", "multiplayer token: {}", tokenInfo);
+                Log("login", "certificate chain: {}", chainInfo);
+                Log("login", "client data: DeviceOS={} model='{}' deviceId={} playFabId={} selfSignedId={} thirdPartyName={} serverAddress={} gameVersion={} inputMode={}/{} platformType={}", skin.DeviceOS, skin.DeviceModel, skin.DeviceId, skin.PlayFabId, skin.SelfSignedId, skin.ThirdPartyName, skin.ServerAddress, skin.GameVersion, skin.CurrentInputMode, skin.DefaultInputMode, skin.PlatformType);
             }
             proto::LoginPacket login;
             login.protocolVersion = protocol;
@@ -573,7 +569,7 @@ namespace perlin {
         }
         playerUuid = RandomUuid();
         if (cachedKey) {
-            std::cout << "[auth] reusing the sign-in from earlier (" << cachedMinutes << " min left)" << std::endl;
+            Log("auth", "reusing the sign-in from earlier ({} min left)", cachedMinutes);
             authTask = std::async(std::launch::deferred, [] { return std::make_pair(true, std::string()); });
         } else if (pendingLogin.valid()) {
             const std::string publicKey = identity->PublicKeyB64();
@@ -640,8 +636,7 @@ namespace perlin {
             NetherNetServerInfo probe;
             std::string probeError;
             useRak = !NetherNet::Probe(host, port, probe, probeError, 3);
-            std::cout << "[perlin] transport: " << (useRak ? "raknet (no NetherNet endpoint found)" : "nethernet")
-                      << std::endl;
+            Log("perlin", "transport: {}", (useRak ? "raknet (no NetherNet endpoint found)" : "nethernet"));
         }
         if (injectedTransport) {
             if (!finishAuth())
@@ -654,8 +649,7 @@ namespace perlin {
             if (friendLease ? nether->ConnectFriend(*friendLease, *identity) : nether->Connect(host, port, *identity)) {
                 net = std::move(nether);
             } else if (!friendLease && transportMode == "auto") {
-                std::cout << "[perlin] nethernet failed (" << nether->LastError() << "), falling back to raknet"
-                          << std::endl;
+                Log("perlin", "nethernet failed ({}), falling back to raknet", nether->LastError());
                 useRak = true;
             } else {
                 lastError = "transport: " + nether->LastError();
@@ -851,9 +845,10 @@ namespace perlin {
         if (!replayMode && state == State::InGame && !transferring && !transferRequested && !diagLostLogged &&
             lastPacketMs.load() != 0 && net && !net->HasLivenessTimeout()) {
             const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (nowMs - lastPacketMs.load() > 30000) {
+            // a quiet server legitimately sends nothing for a while (a flat empty world, a plugin server): wait a full two minutes
+            if (nowMs - lastPacketMs.load() > 120000) {
                 diagLostLogged = true;
-                std::string why = "The server stopped responding (no data for 30 seconds).";
+                std::string why = "The server stopped responding (no data for 2 minutes).";
                 {
                     std::lock_guard<std::mutex> lk(disconnectMutex);
                     if (!lastViolation.empty())
@@ -862,7 +857,7 @@ namespace perlin {
                 SetDisconnectInfo(-1, why, true);
                 lastError = "connection lost";
                 state = State::Failed;
-                std::cout << "[net] CONNECTION LOST (silence watchdog) " << why << std::endl;
+                Log("net", "CONNECTION LOST (silence watchdog) {}", why);
             }
         }
         if (net && !net->IsConnected() && !diagLostLogged && state != State::Disconnected) {
@@ -872,9 +867,7 @@ namespace perlin {
                 lastError = "connection lost";
                 state = State::Failed;
             }
-            std::cout << "[net] CONNECTION LOST (transport closed) state=" << (int)state.load()
-                      << " lastError='" << lastError << "' transport='" << net->LastError()
-                      << "'" << std::endl;
+            Log("net", "CONNECTION LOST (transport closed) state={} lastError='{}' transport='{}'", (int)state.load(), lastError, net->LastError());
         }
         if (!net || !net->IsConnected())
             return;
@@ -890,10 +883,7 @@ namespace perlin {
                     std::lock_guard<std::mutex> lk(timeMutex);
                     known = timeTotal >= 0;
                 }
-                std::cout << "[net] 5s: " << (n - diagPrevPackets) << " packets (last id "
-                          << diagLastId.load() << " " << PacketName(diagLastId)
-                          << "), state=" << (int)state.load() << ", time " << (known ? "known" : "UNKNOWN")
-                          << ", chunks=" << chunksReceived << std::endl;
+                Log("net", "5s: {} packets (last id {} {}), state={}, time {}, chunks={}", (n - diagPrevPackets), diagLastId.load(), PacketName(diagLastId), (int)state.load(), (known ? "known" : "UNKNOWN"), chunksReceived.load());
                 diagPrevPackets = n;
                 std::map<uint32_t, uint64_t> counts;
                 {
@@ -903,7 +893,7 @@ namespace perlin {
                 std::string line;
                 for (const auto& [pid, c] : counts)
                     line += " " + std::string(PacketName(pid)) + "=" + std::to_string(c);
-                std::cout << "[net] totals by packet:" << line << std::endl;
+                Log("net", "totals by packet:{}", line);
             }
         }
         if (state == State::ResourcePacks) {
@@ -921,8 +911,7 @@ namespace perlin {
                 return;
             if ((++handled & 3) == 0 && std::chrono::steady_clock::now() - receiveStart > std::chrono::microseconds(handled > 400 ? 9000 : 4000)) {
                 if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-                    std::cout << "[net] receive budget reached batches=" << handled
-                              << " afterAuthTick=" << LastAuthTick() << std::endl;
+                    Log("net", "receive budget reached batches={} afterAuthTick={}", handled, LastAuthTick());
                 break;
             }
         }
@@ -1028,15 +1017,13 @@ namespace perlin {
                     h += hx[body[i] >> 4];
                     h += hx[body[i] & 15];
                 }
-                std::cout << "[net] packet #" << dumped << " id " << id << " len " << body.size() << " hex " << h
-                          << std::endl;
+                Log("net", "packet #{} id {} len {} hex {}", dumped, id, body.size(), h);
             }
         }
         {
             static std::set<uint32_t> seen;
             if (seen.insert(id).second)
-                std::cout << "[net] first " << PacketName(id) << " (id " << id << ", " << body.size()
-                          << " bytes)" << std::endl;
+                Log("net", "first {} (id {}, {} bytes)", PacketName(id), id, body.size());
         }
 
         packetlog::Record(false, id, body.data(), body.size());
@@ -1066,7 +1053,7 @@ namespace perlin {
             lastError = "login build failed: " + error;
             return false;
         }
-        std::cout << "[bedrock] sending Login (protocol " << serverProtocol << ")" << std::endl;
+        Log("bedrock", "sending Login (protocol {})", serverProtocol);
         return Send(*login);
     }
 
@@ -1079,7 +1066,7 @@ namespace perlin {
             case Status::HaveAllPacks: name = "downloadingfinished"; break;
             default: break;
         }
-        std::cout << "[bedrock] ResourcePackClientResponse " << static_cast<int>(status) << std::endl;
+        Log("bedrock", "ResourcePackClientResponse {}", static_cast<int>(status));
         proto::ResourcePackClientResponsePacket p;
         p.responseStatus = status;
         p.responseStatusName = name;
@@ -1097,7 +1084,7 @@ namespace perlin {
             }
             ready = columns >= 9 || now - spawnAt > std::chrono::seconds(3);
         } else if (now - startGameAt > std::chrono::seconds(8)) {
-            std::cout << "[bedrock] no PlayerSpawn after 8s, initialising anyway" << std::endl;
+            Log("bedrock", "no PlayerSpawn after 8s, initialising anyway");
             ready = true;
         }
         if (!ready)
@@ -1114,7 +1101,7 @@ namespace perlin {
         proto::RequestChunkRadiusPacket p;
         p.chunkRadius = chunkRadius;
         p.maxRadius = std::max(chunkRadius, maxViewDistance);
-        std::cout << "[bedrock] RequestChunkRadius " << chunkRadius << std::endl;
+        Log("bedrock", "RequestChunkRadius {}", chunkRadius);
         return Send(p);
     }
 
@@ -1124,7 +1111,7 @@ namespace perlin {
         proto::SetLocalPlayerAsInitializedPacket p;
         p.runtimeEntityId = runtimeId;
         initializedSent = true;
-        std::cout << "[bedrock] SetLocalPlayerAsInitialized" << std::endl;
+        Log("bedrock", "SetLocalPlayerAsInitialized");
         return Send(p);
     }
 
@@ -1145,12 +1132,12 @@ namespace perlin {
         const uint16_t port = transferPort;
         transferThread = std::thread([this, host, port] {
             transferThreadId = std::this_thread::get_id();
-            std::cout << "[bedrock] transferring to " << host << ":" << port << std::endl;
+            Log("bedrock", "transferring to {}:{}", host, port);
             ResetForTransfer();
             if (!ConnectImpl(host, port, true))
-                std::cout << "[bedrock] transfer failed: " << lastError << std::endl;
+                Log("bedrock", "transfer failed: {}", lastError);
             else
-                std::cout << "[bedrock] transfer complete" << std::endl;
+                Log("bedrock", "transfer complete");
             transferring = false;
         });
         while (transferThreadId == std::thread::id())
@@ -1238,16 +1225,14 @@ namespace perlin {
     void BedrockSession::FinishDimensionChange() {
         if (!dimAckPending.exchange(false))
             return;
-        std::cout << "[bedrock] dimension " << dimensionId.load() << " loaded, acknowledging" << std::endl;
+        Log("bedrock", "dimension {} loaded, acknowledging", dimensionId.load());
         if (PERLIN_ENV("PERLIN_BLOCK_DEBUG")) {
             const auto current = GetPose();
             const bool settled = ColumnSettled(static_cast<int>(std::floor(current.x)) >> 4,
                                                static_cast<int>(std::floor(current.z)) >> 4);
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - dimAckSince).count();
-            std::cout << "[bedrock] dimension_ack afterAuthTick=" << LastAuthTick()
-                      << " elapsedMs=" << elapsed << " columnSettled=" << settled
-                      << " pos=(" << current.x << ',' << current.y << ',' << current.z << ')' << std::endl;
+            Log("bedrock", "dimension_ack afterAuthTick={} elapsedMs={} columnSettled={} pos=({},{},{})", LastAuthTick(), elapsed, settled, current.x, current.y, current.z);
         }
         SendPlayerAction(static_cast<uint32_t>(proto::Action::DimensionChangeAck), 0, 0, 0, 0);
         SendLoadingScreen(false, dimLoadingId);
@@ -1380,9 +1365,7 @@ namespace perlin {
             f.rawMoveVector = {rx, rz};
         }
         if (movePacketsSent < 3 || movePacketsSent % 200 == 0)
-            std::cout << "[move] input #" << movePacketsSent << " tick=" << f.tick << " eye=(" << f.position.x << ","
-                      << f.position.y << "," << f.position.z << ") move=(" << f.moveVector.x << "," << f.moveVector.z
-                      << ") flags=" << f.inputData.size() << std::endl;
+            Log("move", "input #{} tick={} eye=({},{},{}) move=({},{}) flags={}", movePacketsSent, f.tick, f.position.x, f.position.y, f.position.z, f.moveVector.x, f.moveVector.z, f.inputData.size());
         movePacketsSent++;
         const bool sent = Send(f);
         if (predictionSyncCountdown > 0 && --predictionSyncCountdown == 0 && SendPredictionSync())
@@ -1422,7 +1405,7 @@ namespace perlin {
         }
         p.entityUniqueId = uniqueId;
         p.isFlying = flying;
-        std::cout << "[move] prediction sync" << std::endl;
+        Log("move", "prediction sync");
         return Send(p);
     }
 
@@ -1477,10 +1460,7 @@ namespace perlin {
         }
         serverMotions.push_back(motion);
         if (PERLIN_ENV("PERLIN_BLOCK_DEBUG"))
-            std::cout << "[move] queued_motion depth=" << serverMotions.size()
-                      << " teleport=" << motion.teleport << " correction=" << motion.correction
-                      << " stamped=" << motion.stampedVelocity << " tick=" << motion.tick
-                      << " ground=" << motion.onGround << std::endl;
+            Log("move", "queued_motion depth={} teleport={} correction={} stamped={} tick={} ground={}", serverMotions.size(), motion.teleport, motion.correction, motion.stampedVelocity, motion.tick, motion.onGround);
     }
 
     bool BedrockSession::TakeServerMotion(ServerMotion& out) {
@@ -1536,7 +1516,7 @@ namespace perlin {
         p.type = proto::TextPacketType::Chat;
         p.sourceName = playerName;
         p.message = message;
-        std::cout << "[bedrock] chat> " << message << std::endl;
+        Log("bedrock", "chat> {}", message);
         return Send(p);
     }
 
@@ -1556,7 +1536,7 @@ namespace perlin {
         p.origin.playerEntityId = 0;
         p.internal = false;
         p.version = "latest";
-        std::cout << "[bedrock] command> " << command << std::endl;
+        Log("bedrock", "command> {}", command);
         return Send(p);
     }
 
@@ -1564,7 +1544,7 @@ namespace perlin {
         proto::SettingsCommandPacket p;
         p.commandLine = !command.empty() && command[0] == '/' ? command : "/" + command;
         p.suppressOutput = false;
-        std::cout << "[bedrock] settings command> " << command << std::endl;
+        Log("bedrock", "settings command> {}", command);
         return Send(p);
     }
 
@@ -1629,7 +1609,7 @@ namespace perlin {
         r.position = {0, 0, 0};
         r.state = 2;
         r.runtimeEntityId = runtimeId;
-        std::cout << "[bedrock] respawn requested (client ready, runtime " << runtimeId << ")" << std::endl;
+        Log("bedrock", "respawn requested (client ready, runtime {})", runtimeId);
         Send(r);
     }
 
@@ -1640,8 +1620,7 @@ namespace perlin {
         p.position = {bx, by, bz};
         p.resultPosition = p.position;
         p.face = face;
-        std::cout << "[bedrock] PlayerAction " << action << " at (" << bx << "," << by << "," << bz << ")"
-                  << std::endl;
+        Log("bedrock", "PlayerAction {} at ({},{},{})", action, bx, by, bz);
         return Send(p);
     }
 
@@ -1678,10 +1657,10 @@ namespace perlin {
                 std::string error;
                 if (account->LoginMinecraft(identity->PublicKeyB64(), "1.26.60", creds, error)) {
                     StoreLogin(loginKey, identity->Key(), creds);
-                    std::cout << "[auth] signed in ahead of the join" << std::endl;
+                    Log("auth", "signed in ahead of the join");
                     return true;
                 }
-                std::cout << "[auth] early sign-in attempt " << attempt << " failed: " << error << std::endl;
+                Log("auth", "early sign-in attempt {} failed: {}", attempt, error);
                 std::this_thread::sleep_for(std::chrono::milliseconds(800 * attempt));
             }
             return false;
@@ -1707,11 +1686,7 @@ namespace perlin {
             logged++;
             if (interesting)
                 loggedFull++;
-            std::cout << "[chunk] LevelChunk (" << pkt.x << "," << pkt.z << ") dim=" << pkt.dimension
-                      << " subChunkCount=" << (int32_t)pkt.subChunkCount
-                      << " requestMode=" << IsRequestMode(pkt) << " limit=" << pkt.highestSubchunkCount.value_or(-1)
-                      << " cache=" << pkt.cacheEnabled << " payload=" << pkt.payload.size() << "B"
-                      << std::endl;
+            Log("chunk", "LevelChunk ({},{}) dim={} subChunkCount={} requestMode={} limit={} cache={} payload={}B", pkt.x, pkt.z, pkt.dimension, (int32_t)pkt.subChunkCount, IsRequestMode(pkt), pkt.highestSubchunkCount.value_or(-1), pkt.cacheEnabled, pkt.payload.size());
         }
         if (pkt.cacheEnabled) {
             static bool warned = false;
@@ -1726,8 +1701,7 @@ namespace perlin {
         if (pkt.dimension != dimensionId) {
             static int staleLogged = 0;
             if (staleLogged++ < 4)
-                std::cout << "[chunk] ignoring chunk for dimension " << pkt.dimension << " (in " << dimensionId.load()
-                          << ")" << std::endl;
+                Log("chunk", "ignoring chunk for dimension {} (in {})", pkt.dimension, dimensionId.load());
             return;
         }
         const DimensionInfo& dim = ChunkCodec::Dimension(pkt.dimension);
@@ -1771,9 +1745,7 @@ namespace perlin {
                     if (!blockPalette.SequenceVerified() && blockPalette.SequenceLoaded()) {
                         if (!blockPalette.CalibrateSequence(seen) && blockPalette.SequentialAir() != seen) {
                             blockPalette.SetSequentialAir(seen);
-                            std::cout << "[block] server uses sequential block ids but its air id " << seen
-                                      << " does not match our table; treating it as air (table says '"
-                                      << blockPalette.Name(blockPalette.InternRuntime(seen)) << "')" << std::endl;
+                            Log("block", "server uses sequential block ids but its air id {} does not match our table; treating it as air (table says '{}')", seen, blockPalette.Name(blockPalette.InternRuntime(seen)));
                         }
                     } else if (blockPalette.SequentialAir() < 0) {
                         blockPalette.SetSequentialAir(seen);
@@ -1922,8 +1894,7 @@ namespace perlin {
         static int logged = 0;
         if (logged < 3) {
             logged++;
-            std::cout << "[chunk] biome column (" << cx << "," << cz << ") subchunks=" << parsed
-                      << " payload=" << payload.size() << "B" << std::endl;
+            Log("chunk", "biome column ({},{}) subchunks={} payload={}B", cx, cz, parsed, payload.size());
         }
     }
 
@@ -1946,9 +1917,7 @@ namespace perlin {
             {
                 static int shown = 0;
                 if (shown++ < 12)
-                    std::cout << "[chunk] reply (" << cx << "," << absY << "," << cz
-                              << ") result=" << resultId << " payload=" << body.size() << "B"
-                              << std::endl;
+                    Log("chunk", "reply ({},{},{}) result={} payload={}B", cx, absY, cz, resultId, body.size());
             }
             if (result == SubChunkEntryEntryResult::SuccessAllAir) {
                 static const std::array<uint16_t, ChunkCodec::kCells> air{};
@@ -1962,8 +1931,7 @@ namespace perlin {
                     result != SubChunkEntryEntryResult::InvalidDimension);
                 static int logged = 0;
                 if (logged++ < 8)
-                    std::cout << "[chunk] SubChunk (" << cx << "," << absY << "," << cz
-                              << ") result=" << resultId << std::endl;
+                    Log("chunk", "SubChunk ({},{},{}) result={}", cx, absY, cz, resultId);
                 continue;
             }
             decodeJobs.push_back({cx, absY, cz, &body});
@@ -2001,8 +1969,7 @@ namespace perlin {
         if (sc.hasYIndex && sc.yIndex != absSubY) {
             static std::atomic<int> mismatches{0};
             if (mismatches++ < 16)
-                std::cout << "[chunk] sub-chunk (" << cx << "," << cz << ") y mismatch: placed at " << absSubY
-                          << " but payload says " << static_cast<int>(sc.yIndex) << std::endl;
+                Log("chunk", "sub-chunk ({},{}) y mismatch: placed at {} but payload says {}", cx, cz, absSubY, static_cast<int>(sc.yIndex));
             absSubY = sc.yIndex;
         }
         const PaletteStorage& st = sc.storages[0];
@@ -2010,9 +1977,7 @@ namespace perlin {
         if (!ChunkCodec::ExpandIndices(st, idx)) {
             static std::atomic<int> logged{0};
             if (logged++ < 8)
-                std::cout << "[chunk] sub-chunk (" << cx << "," << absSubY << "," << cz
-                          << ") storage did not expand (bpb=" << st.bitsPerBlock
-                          << " palette=" << st.palette.size() << ")" << std::endl;
+                Log("chunk", "sub-chunk ({},{},{}) storage did not expand (bpb={} palette={})", cx, absSubY, cz, st.bitsPerBlock, st.palette.size());
             return false;
         }
         std::vector<uint16_t> local(st.palette.size());
@@ -2024,8 +1989,7 @@ namespace perlin {
             if (local[i] != 0 && unknownLogged < 20 && BlockPalette::Instance().NamesLoaded() &&
                 BlockPalette::Instance().Name(local[i]).empty()) {
                 unknownLogged++;
-                std::cout << "[chunk] unknown block state hash " << st.palette[i] << " in sub-chunk (" << cx << ","
-                          << absSubY << "," << cz << ")" << std::endl;
+                Log("chunk", "unknown block state hash {} in sub-chunk ({},{},{})", st.palette[i], cx, absSubY, cz);
             }
         }
         std::array<uint16_t, ChunkCodec::kCells> cells;
@@ -2054,9 +2018,7 @@ namespace perlin {
         {
             static std::atomic<int> shown{0};
             if (shown++ < 12)
-                std::cout << "[chunk] applied (" << cx << "," << absSubY << "," << cz
-                          << ") bpb=" << st.bitsPerBlock << " palette=" << st.palette.size()
-                          << " layers=" << sc.storages.size() << std::endl;
+                Log("chunk", "applied ({},{},{}) bpb={} palette={} layers={}", cx, absSubY, cz, st.bitsPerBlock, st.palette.size(), sc.storages.size());
         }
         return true;
     }
@@ -2104,7 +2066,7 @@ namespace perlin {
             }
         }
         netLevel.MarkAllDirty();
-        std::cout << "[chunk] reload requested for " << cols.size() << " columns" << std::endl;
+        Log("chunk", "reload requested for {} columns", cols.size());
     }
 
     void BedrockSession::DropSlot(const std::tuple<int, int, int, int>& key,
@@ -2250,9 +2212,7 @@ namespace perlin {
         statFilled += missing.size();
         static int logged = 0;
         if (logged++ < 8)
-            std::cout << "[chunk] client-side generation: requesting " << missing.size()
-                      << " columns the server did not stream (" << statFilled << " so far, radius " << radius << ")"
-                      << std::endl;
+            Log("chunk", "client-side generation: requesting {} columns the server did not stream ({} so far, radius {})", missing.size(), statFilled, radius);
     }
 
     void BedrockSession::UpdateColumnLod() {
@@ -2394,13 +2354,7 @@ namespace perlin {
         lastStatLog = now;
         if (statLevelChunks == 0 && statRequestsSent == 0)
             return;
-        std::cout << "[chunk] stats: levelChunks=" << statLevelChunks << " requestsSent=" << statRequestsSent
-                  << " replies=" << statSubChunkReplies << " subChunksApplied=" << statSubChunksApplied
-                  << " failed=" << statSubChunksFailed << " results[0..6,other]=" << statResult[0] << ","
-                  << statResult[1] << "," << statResult[2] << "," << statResult[3] << "," << statResult[4]
-                  << "," << statResult[5] << "," << statResult[6] << "," << statResult[7]
-                  << " queued=" << reqQueue.size() << "+" << reqQueueFar.size() << " lodOnly=" << netLevel.lodOnlyCount.load() << " inflight=" << inflight.size()
-                  << " blocksKnown=" << BlockPalette::Instance().Count() << std::endl;
+        Log("chunk", "stats: levelChunks={} requestsSent={} replies={} subChunksApplied={} failed={} results[0..6,other]={},{},{},{},{},{},{},{} queued={}+{} lodOnly={} inflight={} blocksKnown={}", statLevelChunks, statRequestsSent, statSubChunkReplies, statSubChunksApplied.load(), statSubChunksFailed, statResult[0], statResult[1], statResult[2], statResult[3], statResult[4], statResult[5], statResult[6], statResult[7], reqQueue.size(), reqQueueFar.size(), netLevel.lodOnlyCount.load(), inflight.size(), BlockPalette::Instance().Count());
     }
 
 }

@@ -11,6 +11,7 @@
 #include <iostream>
 #include <map>
 #include <vector>
+#include "util/Log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -145,7 +146,7 @@ namespace perlin::clientassets {
                 saved++;
             else {
                 missing++;
-                std::cout << "[assets] missing source for " << name << std::endl;
+                Log("assets", "missing source for {}", name);
             }
         };
         const auto gui = [&](const std::string& rel) { return jar.Load(kBase + "gui/" + rel); };
@@ -284,7 +285,7 @@ namespace perlin::clientassets {
                 std::ofstream(dir / text, std::ios::binary) << bytes;
         }
 
-        std::cout << "[assets] built " << saved << " client images (" << missing << " missing)" << std::endl;
+        Log("assets", "built {} client images ({} missing)", saved, missing);
         if (saved < 30)
             return false;
         std::ofstream(dir / kMarker) << "1";

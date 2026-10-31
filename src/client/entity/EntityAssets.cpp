@@ -6,6 +6,7 @@
 #include "client/resources/ServerPacks.hpp"
 #include "util/Paths.hpp"
 #include "util/ThreadPool.hpp"
+#include "util/FileIo.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -13,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "util/Log.hpp"
 
 namespace perlin::entity {
     namespace fs = std::filesystem;
@@ -32,15 +34,6 @@ namespace perlin::entity {
     }
 
     namespace {
-        bool ReadAll(const fs::path& p, std::string& out) {
-            std::ifstream f(p, std::ios::binary);
-            if (!f)
-                return false;
-            std::stringstream ss;
-            ss << f.rdbuf();
-            out = ss.str();
-            return true;
-        }
 
         std::vector<fs::path> JsonFiles(const fs::path& dir) {
             std::vector<fs::path> files;
@@ -48,7 +41,7 @@ namespace perlin::entity {
             for (const auto& e : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec))
                 if (e.is_regular_file() && e.path().extension() == ".json")
                     files.push_back(e.path());
-            const auto legacy = [](const fs::path& p) { return p.filename().string().find(".v1.") != std::string::npos; };
+            const auto legacy = [](const fs::path& p) { return p.filename().string().contains(".v1."); };
             std::sort(files.begin(), files.end(), [&](const fs::path& a, const fs::path& b) {
                 if (legacy(a) != legacy(b))
                     return legacy(a);
@@ -170,8 +163,8 @@ namespace perlin::entity {
                             for (const auto& [k, v] : e.object) {
                                 rc.materials.push_back({LowerCase(k), ParseValue(v)});
                                 const std::string mat = LowerCase(v.StringOr(""));
-                                if (mat.find("alpha") != std::string::npos || mat.find("translucent") != std::string::npos ||
-                                    mat.find("spectator") != std::string::npos || mat.find("ghost") != std::string::npos)
+                                if (mat.contains("alpha") || mat.contains("translucent") ||
+                                    mat.contains("spectator") || mat.contains("ghost"))
                                     rc.translucent = true;
                             }
                 out[id] = std::move(rc);
@@ -322,7 +315,7 @@ namespace perlin::entity {
                 if (std::ifstream in(file, std::ios::binary); in) {
                     std::stringstream ss;
                     ss << in.rdbuf();
-                    current = ss.str().find("animation.player.java_marker_v2") != std::string::npos;
+                    current = ss.str().contains("animation.player.java_marker_v2");
                 }
                 if (!current) {
                     fs::create_directories(dir, ec);
@@ -337,7 +330,7 @@ namespace perlin::entity {
                     std::stringstream ss;
                     ss << in.rdbuf();
                     animations.LoadAnimations(ss.str());
-                    std::cout << "[entity] animation override " << p.filename().string() << std::endl;
+                    Log("entity", "animation override {}", p.filename().string());
                 }
         }
     }
@@ -347,17 +340,17 @@ namespace perlin::entity {
         std::string text;
         geometries.Load(kBuiltinGeometry);
         for (const fs::path& p : JsonFiles(fs::path(root) / "models" / "entity"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 geometries.Load(text);
-        if (ReadAll(fs::path(root) / "models" / "mobs.json", text))
+        if (file::Read(fs::path(root) / "models" / "mobs.json", text))
             geometries.Load(text);
         for (const fs::path& p : JsonFiles(fs::path(root) / "animations"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 animations.LoadAnimations(text);
         geometries.Detach("geometry.polarbear", {"head", "leg0", "leg1", "leg2", "leg3"});
         LoadJavaOverrides(animations);
         for (const fs::path& p : JsonFiles(fs::path(root) / "animation_controllers"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 animations.LoadControllers(text);
         ThreadPool pool(HardwareThreads());
         const auto parseAll = [&pool](const std::vector<fs::path>& files, std::vector<Json>& docs, std::vector<char>& ok) {
@@ -365,7 +358,7 @@ namespace perlin::entity {
             ok.assign(files.size(), 0);
             pool.ParallelFor(files.size(), [&](size_t i) {
                 std::string body, error;
-                ok[i] = ReadAll(files[i], body) && Json::Parse(body, docs[i], error) ? 1 : 0;
+                ok[i] = file::Read(files[i], body) && Json::Parse(body, docs[i], error) ? 1 : 0;
             });
         };
         {
@@ -450,8 +443,7 @@ namespace perlin::entity {
                     controllers[ref.id] = std::move(rc);
                 }
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-        std::cout << "[entity] loaded " << entities.size() << " entity definitions, " << geometries.Size() << " geometries, "
-                  << controllers.size() << " render controllers in " << static_cast<int>(ms) << " ms" << std::endl;
+        Log("entity", "loaded {} entity definitions, {} geometries, {} render controllers in {} ms", entities.size(), geometries.Size(), controllers.size(), static_cast<int>(ms));
     }
 
     void EntityAssets::LoadDirectory(const std::string& dir, bool overlay) {
@@ -459,35 +451,35 @@ namespace perlin::entity {
         std::string text;
         size_t before = entities.size();
         for (const fs::path& p : JsonFiles(fs::path(dir) / "models" / "entity"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 geometries.Load(text);
-        if (ReadAll(fs::path(dir) / "models" / "mobs.json", text))
+        if (file::Read(fs::path(dir) / "models" / "mobs.json", text))
             geometries.Load(text);
         for (const fs::path& p : JsonFiles(fs::path(dir) / "models" / "blocks"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 geometries.Load(text);
         for (const fs::path& p : JsonFiles(fs::path(dir) / "animations"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 animations.LoadAnimations(text);
         for (const fs::path& p : JsonFiles(fs::path(dir) / "animation_controllers"))
-            if (ReadAll(p, text))
+            if (file::Read(p, text))
                 animations.LoadControllers(text);
         for (const fs::path& p : JsonFiles(fs::path(dir) / "render_controllers")) {
             Json doc;
             std::string error;
-            if (ReadAll(p, text) && Json::Parse(text, doc, error))
+            if (file::Read(p, text) && Json::Parse(text, doc, error))
                 ParseRenderControllers(doc, controllers);
         }
         size_t failed = 0;
         for (const fs::path& p : JsonFiles(fs::path(dir) / "entity")) {
             Json doc;
             std::string error;
-            if (!ReadAll(p, text))
+            if (!file::Read(p, text))
                 continue;
             if (Json::Parse(text, doc, error))
                 ParseEntity(doc, entities);
             else if (failed++ < 3)
-                std::cout << "[entity] cannot parse " << p.string() << ": " << error << std::endl;
+                Log("entity", "cannot parse {}: {}", p.string(), error);
         }
         for (auto& [id, def] : entities)
             if (def.renderControllers.empty() && !def.geometries.empty())
@@ -500,8 +492,7 @@ namespace perlin::entity {
                     rc.textures.push_back(Expr::Parse("Texture.default"));
                     controllers[ref.id] = std::move(rc);
                 }
-        std::cout << "[entity] server pack " << dir << ": " << (entities.size() - before) << " new entity definitions, "
-                  << geometries.Size() << " geometries total" << std::endl;
+        Log("entity", "server pack {}: {} new entity definitions, {} geometries total", dir, (entities.size() - before), geometries.Size());
     }
 
     const ClientEntityDef* EntityAssets::Entity(const std::string& identifier) const {

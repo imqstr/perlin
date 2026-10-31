@@ -28,6 +28,7 @@
 #include <mutex>
 #include <set>
 #include "network/Http.hpp"
+#include "util/Log.hpp"
 
 namespace perlin::ui {
     namespace {
@@ -202,7 +203,7 @@ namespace perlin::ui {
                 return false;
             epoch = gImageEpoch;
         }
-        if (url.rfind("http", 0) != 0) {
+        if (!url.starts_with("http")) {
             std::lock_guard lock(gImageMutex);
             if (epoch == gImageEpoch)
                 gImages[url] = {};
@@ -494,7 +495,7 @@ namespace perlin::ui {
     }
 
     bool FormDismissDropdown(FormModel& form, const std::string& hoverId) {
-        if (form.openDropdown < 0 || hoverId.rfind("r:", 0) == 0 || hoverId.rfind("d:", 0) == 0)
+        if (form.openDropdown < 0 || hoverId.starts_with("r:") || hoverId.starts_with("d:"))
             return false;
         form.openDropdown = -1;
         return true;
@@ -503,7 +504,7 @@ namespace perlin::ui {
     bool FormClick(FormModel& form, const std::string& id, std::string& response) {
         if (id.size() < 2)
             return false;
-        if (id.rfind("fb:", 0) == 0) {
+        if (id.starts_with("fb:")) {
             const int index = std::atoi(id.c_str() + 3);
             if (form.type == FormModel::Type::Modal) {
                 response = index == 0 ? "true" : "false";
@@ -822,7 +823,7 @@ namespace perlin::ui {
             std::string full = ref;
             if (!full.empty() && full[0] == '@')
                 full.erase(0, 1);
-            if (full.find('.') == std::string::npos)
+            if (!full.contains('.'))
                 full = ns + "." + full;
             if (auto cached = animCache.find(full); cached != animCache.end())
                 return cached->second;
@@ -915,11 +916,11 @@ namespace perlin::ui {
             BuildReport modalReport;
             modalTree = BuildTree(library, "popup_dialog.modal_dialog_popup", modalVars, modalReport);
             for (const std::string& missing : report.missingControls)
-                std::cout << "[form] missing control " << missing << std::endl;
+                Log("form", "missing control {}", missing);
             for (const std::string& missing : modalReport.missingControls)
-                std::cout << "[form] modal missing control " << missing << std::endl;
+                Log("form", "modal missing control {}", missing);
             if (!modalTree)
-                std::cout << "[form] modal tree is null" << std::endl;
+                Log("form", "modal tree is null");
             state = 2;
         });
     }
@@ -940,10 +941,10 @@ namespace perlin::ui {
         const bool wantModal = form.type == FormModel::Type::Modal;
         const Node& screen = wantModal && modalTree ? *modalTree : *tree;
         if (wantModal && !modalTree)
-            std::cout << "[form] modal requested but no modal tree, using simple screen" << std::endl;
+            Log("form", "modal requested but no modal tree, using simple screen");
         const std::unique_ptr<LNode> root = EvaluateTree(screen, data, services, static_cast<float>(guiW), static_cast<float>(guiH));
         if (!root) {
-            std::cout << "[form] evaluate failed for '" << form.title << "'" << std::endl;
+            Log("form", "evaluate failed for '{}'", form.title);
             return false;
         }
         emitter.SetEditText([&form](const LNode& n, std::string& text, std::string& placeholder, bool& focused) {
@@ -997,17 +998,16 @@ namespace perlin::ui {
                 if (!word.empty())
                     break;
             }
-            if (!word.empty() && rml.find(word) == std::string::npos) {
+            if (!word.empty() && !rml.contains(word)) {
                 problem = "the ui files drew none of the form's text";
                 return false;
             }
         }
         const size_t buttons = form.type == FormModel::Type::Modal ? 2 : form.type == FormModel::Type::Custom ? 0 : form.buttons.size();
         // metadata rows can hide index zero while later collection entries produce the interactive controls
-        if (buttons > 0 && rml.find("id=\"fb:") == std::string::npos) {
+        if (buttons > 0 && !rml.contains("id=\"fb:")) {
             problem = "form buttons were not produced by the ui files";
-            std::cout << "[form] no buttons in rml for '" << form.title << "' (modal=" << wantModal
-                      << " hasModalTree=" << (modalTree != nullptr) << "), rml head: " << rml.substr(0, 600) << std::endl;
+            Log("form", "no buttons in rml for '{}' (modal={} hasModalTree={}), rml head: {}", form.title, wantModal, (modalTree != nullptr), rml.substr(0, 600));
             {
                 std::error_code ec;
                 std::filesystem::create_directories(paths::DataDir() + "/ui_generated", ec);

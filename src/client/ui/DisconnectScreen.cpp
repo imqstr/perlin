@@ -12,7 +12,7 @@ namespace perlin::ui {
     bool LooksLikeBan(const std::string& text) {
         std::string lower = text;
         std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
-        return lower.find("ban") != std::string::npos;
+        return lower.contains("ban");
     }
 
     std::string DefaultDisconnectScreenTemplate() {

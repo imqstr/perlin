@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "client/ui/Json.hpp"
+#include "util/FileIo.hpp"
 
 namespace perlin::particle {
     namespace fs = std::filesystem;
@@ -40,19 +41,10 @@ namespace perlin::particle {
                 out[i] = Ex(&j->array[static_cast<size_t>(i)]);
         }
 
-        bool ReadAll(const fs::path& p, std::string& out) {
-            std::ifstream f(p, std::ios::binary);
-            if (!f)
-                return false;
-            std::stringstream ss;
-            ss << f.rdbuf();
-            out = ss.str();
-            return true;
-        }
 
         std::string StripVariable(const std::string& name) {
             for (const char* prefix : {"variable.", "v."})
-                if (name.rfind(prefix, 0) == 0)
+                if (name.starts_with(prefix))
                     return name.substr(std::string(prefix).size());
             return name;
         }
@@ -126,7 +118,7 @@ namespace perlin::particle {
         std::string text;
         Json doc;
         std::string error;
-        if (!ReadAll(path, text) || !Json::Parse(text, doc, error))
+        if (!file::Read(path, text) || !Json::Parse(text, doc, error))
             return;
         const Json* effect = doc.Find("particle_effect");
         if (!effect || !effect->IsObject())
@@ -140,7 +132,7 @@ namespace perlin::particle {
         if (const Json* brp = desc->Find("basic_render_parameters")) {
             if (const Json* m = brp->Find("material")) {
                 const std::string material = m->StringOr("");
-                d.blend = material.find("add") != std::string::npos ? 1 : (material.find("blend") != std::string::npos ? 2 : 0);
+                d.blend = material.contains("add") ? 1 : (material.contains("blend") ? 2 : 0);
             }
             if (const Json* t = brp->Find("texture"))
                 d.texture = t->StringOr(d.texture);
@@ -518,7 +510,7 @@ namespace perlin::particle {
                 if (u)
                     u->Eval(scope);
             for (const auto& [name, value] : scope.variables)
-                if (name.rfind("emitter_", 0) != 0)
+                if (!name.starts_with("emitter_"))
                     e.variables[name] = value;
             const double before = e.age;
             e.age += dt;
@@ -652,7 +644,7 @@ namespace perlin::particle {
             } else if (f == "emitter_transform_yz") {
                 right = {0, 0, 1};
                 up = {0, 1, 0};
-            } else if (f.rfind("direction_", 0) == 0 || d.dirFacing == 1) {
+            } else if (f.starts_with("direction_") || d.dirFacing == 1) {
                 glm::vec3 v = glm::vec3(p.vel);
                 if (glm::dot(v, v) > d.minSpeed * d.minSpeed) {
                     up = glm::normalize(v);

@@ -20,6 +20,7 @@
 #include <memory>
 #include <iostream>
 #include <thread>
+#include "util/Log.hpp"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -230,7 +231,7 @@ void AppPlatform_SDL::RenewRenderSurface() {
     HWND child = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY, L"PerlinRenderSurface", L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
                                  0, 0, std::max<LONG>(1, rect.right), std::max<LONG>(1, rect.bottom), parent, nullptr, instance, nullptr);
     if (!child) {
-        std::cout << "[sdl] could not create a render surface (" << GetLastError() << "); keeping the game window" << std::endl;
+        perlin::Log("sdl", "could not create a render surface ({}); keeping the game window", GetLastError());
         return;
     }
     SetWindowPos(child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -239,7 +240,7 @@ void AppPlatform_SDL::RenewRenderSurface() {
     // creating a window must not move keyboard focus off the game window
     if (GetFocus() != parent && GetForegroundWindow() == parent)
         SetFocus(parent);
-    std::cout << "[sdl] new render surface for the next backend" << std::endl;
+    perlin::Log("sdl", "new render surface for the next backend");
 }
 
 void AppPlatform_SDL::ResizeRenderSurface() {
@@ -323,7 +324,7 @@ void AppPlatform_SDL::UpdateProgressWindow() {
         if (progWindow)
             progRenderer = SDL_CreateRenderer(progWindow, "software");
         if (!progWindow || !progRenderer) {
-            std::cout << "[sdl] could not create the export progress window: " << SDL_GetError() << std::endl;
+            perlin::Log("sdl", "could not create the export progress window: {}", SDL_GetError());
             if (progRenderer)
                 SDL_DestroyRenderer(progRenderer);
             if (progWindow)
@@ -371,7 +372,7 @@ void AppPlatform_SDL::ShowSignInCode(const std::string& url, const std::string& 
             SDL_SetClipboardText(job->code.c_str());
             SDL_OpenURL(job->url.c_str());
         },
-        new Job{url, code}, false);
+        new Job{url + (!url.contains('?') ? "?otc=" : "&otc=") + code, code}, false);
 }
 
 void AppPlatform_SDL::SetClipboard(const std::string& text) {
@@ -573,7 +574,7 @@ bool AppPlatform_SDL::Initialize() {
         touchMode = touchMode || std::atoi(t) != 0;
     SDL_SetAppMetadata("Perlin", nullptr, "io.perlin.client");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD)) {
-        std::cout << "[sdl] SDL_Init failed: " << SDL_GetError() << std::endl;
+        perlin::Log("sdl", "SDL_Init failed: {}", SDL_GetError());
         return false;
     }
 
@@ -595,7 +596,7 @@ bool AppPlatform_SDL::Initialize() {
     window = SDL_CreateWindowWithProperties(props);
     SDL_DestroyProperties(props);
     if (!window) {
-        std::cout << "[sdl] window creation failed: " << SDL_GetError() << std::endl;
+        perlin::Log("sdl", "window creation failed: {}", SDL_GetError());
         return false;
     }
     ApplyWindowIcon(window);
@@ -633,10 +634,10 @@ bool AppPlatform_SDL::Initialize() {
     }
 #endif
     if (!native.window) {
-        std::cout << "[sdl] no native window handle for video driver '" << drv << "'" << std::endl;
+        perlin::Log("sdl", "no native window handle for video driver '{}'", drv);
         return false;
     }
-    std::cout << "[sdl] video driver: " << drv << std::endl;
+    perlin::Log("sdl", "video driver: {}", drv);
 
     int w = 0, h = 0;
     SDL_GetWindowSizeInPixels(window, &w, &h);
@@ -998,7 +999,7 @@ void AppPlatform_SDL::PumpFrame() {
             if (resumed || surfaceLost) {
                 native.window = nw;
                 surfaceChanged = true;
-                std::cout << "[sdl] window surface replaced, rebuilding the swap chain" << std::endl;
+                perlin::Log("sdl", "window surface replaced, rebuilding the swap chain");
             }
             surfaceLost = false;
         }

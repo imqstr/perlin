@@ -1,4 +1,6 @@
 #pragma once
+#include "core/Access.hpp"
+#include "core/Commands.hpp"
 #include "core/Config.hpp"
 #include "net/Connection.hpp"
 #include "net/LoopbackListener.hpp"
@@ -8,10 +10,15 @@
 #include "world/ChunkManager.hpp"
 
 #include <atomic>
+#include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
+#include <set>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -20,11 +27,13 @@ namespace perlin::server {
     struct CommandDef {
         std::string name;
         std::string description;
+        // the overloads, in the notation of core/Commands.hpp; empty for plugin commands, which take any text
+        std::vector<OverloadSpec> overloads;
         // plugin that owns it, empty for built-ins
         std::string plugin;
         bool operatorOnly = false;
-        // built-ins run here; plugin commands are forwarded to the plugin
-        std::function<void(Session* source, const std::string& args)> run;
+        // built-ins run here once their arguments have parsed; plugin commands are forwarded to the plugin
+        std::function<void(CommandCtx&)> handler;
     };
 
     class Server final : public PluginApi {
@@ -50,6 +59,8 @@ namespace perlin::server {
         ChunkManager& Chunks() { return *chunks; }
         PluginHost& Plugins() { return *plugins; }
         uint64_t TickCount() const { return tick; }
+        // how long the host loop should wait after a tick: the target rate's period, or nothing while sprinting or stepping
+        std::chrono::nanoseconds TickDelay() const;
         const std::map<std::string, CommandDef>& Commands() const { return commands; }
 
         // session callbacks
@@ -63,13 +74,59 @@ namespace perlin::server {
         bool IsOperatorName(const std::string& name) const;
         // operators may be listed by name or by xuid; with xbox_auth only an xuid is a safe key
         bool IsOperator(const std::string& name, const std::string& xuid) const;
+        // allowlist.json (bds name; whitelist.json is read instead when it exists)
+        bool IsWhitelisted(const std::string& name, const std::string& xuid) const { return allowList.Contains(name, xuid); }
+        // "visitor", "member" or "operator": the permissions.json entry, else default-player-permission-level
+        std::string PermissionOf(const std::string& name, const std::string& xuid) const;
+        AccessList& Permissions() { return permissionList; }
+        AccessList& Whitelist() { return allowList; }
+        // where the allowlist is read and written
+        std::string AllowlistPath() const;
+        std::string PermissionsPath() const;
+        // true when the player is on the allowlist with ignoresPlayerLimit
+        bool IgnoresPlayerLimit(const std::string& name, const std::string& xuid) const;
+        // the loopback test and old callers: the same list as Permissions()
+        AccessList& Ops() { return permissionList; }
+        // grants or removes operator by name (online or not); returns a one-line result for the caller
+        std::string SetOperator(const std::string& name, bool op);
         bool Full() const;
-        double SpawnY() const;
+        // the world spawn (the first free block above the ground); the flat default until Start asks the terrain backend
+        double SpawnX() const { return static_cast<double>(spawnX); }
+        double SpawnY() const { return static_cast<double>(spawnY); }
+        double SpawnZ() const { return static_cast<double>(spawnZ); }
+        void SetWorldSpawn(int x, int y, int z);
+
+        // the world clock and weather that /time and /weather drive; the clock advances with the daylight cycle rule
+        int64_t DayTime() const { return dayTime; }
+        void SetDayTime(int64_t ticks);
+        // "clear", "rain" or "thunder"; the duration is in ticks (0 = until changed)
+        void SetWeather(const std::string& kind, int durationTicks);
+        bool Raining() const { return raining; }
+        bool Thundering() const { return thundering; }
+        // weather and game rules, for a player who just joined
+        void SendWorldState(Session& to);
+
+        // /gamerule. keys are lowercase
+        struct GameRule {
+            std::string display;
+            bool boolean = true;
+            int value = 0;
+        };
+        const std::map<std::string, GameRule>& GameRules() const { return gameRules; }
+        int RuleValue(const std::string& lowerName) const;
+        bool SetRule(const std::string& lowerName, int value);
+
+        bool IsBanned(const std::string& name, const std::string& xuid) const { return banList.Contains(name, xuid); }
+        AccessList& Bans() { return banList; }
 
         // players editing the world: the server validates, runs plugin events, applies and tells everyone who has the chunk
         bool PlayerBreak(Session& by, int x, int y, int z);
         bool PlayerPlace(Session& by, int x, int y, int z, int face);
         void SendBlockTo(Session& to, int x, int y, int z);
+        // items in the world: a player throws a stack, a broken block leaves one; Tick moves them and lets players pick them up
+        void DropFromPlayer(Session& by, const ItemStack& stack);
+        void SpawnItem(const ItemStack& stack, double x, double y, double z, double vx, double vy, double vz, int pickupDelay);
+        const std::vector<ItemEntity>& Items() const { return itemEntities; }
         const std::vector<uint8_t>& ItemRegistryBody() const { return itemRegistryBody; }
         const std::vector<uint8_t>& CreativeContentBody() const { return creativeBody; }
 
@@ -93,6 +150,7 @@ namespace perlin::server {
         // writes a block into the world and sends the change to every player who has that column
         void ApplyBlock(int x, int y, int z, uint16_t block);
         void Pump();
+        void TickItems();
         void ReapClosed();
 
         ServerConfig config;
@@ -101,12 +159,40 @@ namespace perlin::server {
         std::unique_ptr<LoopbackListener> loopback;
         std::unique_ptr<Listener> nethernet;
         EventQueue events;
+        int spawnX = 0, spawnY = 0, spawnZ = 0;
+        int64_t dayTime = 6000;
+        bool raining = false, thundering = false;
+        int weatherTicks = 0;
+        std::map<std::string, GameRule> gameRules;
+        AccessList banList{AccessList::Kind::Allowlist};
+        void InitGameRules();
+        void DrainLocate();
+        // /locate searches: run on their own threads, answered from the tick thread
+        std::mutex locateMutex;
+        std::vector<std::pair<uint64_t, std::string>> locateDone;
+        std::vector<std::thread> locateThreads;
+        std::set<uint64_t> locating;
+        std::atomic<bool> locateCancel{false};
+        AccessList permissionList{AccessList::Kind::Permissions}, allowList{AccessList::Kind::Allowlist};
 
         std::unordered_map<uint64_t, std::unique_ptr<Session>> sessions;
         uint64_t nextRuntimeId = 1;
         std::map<std::string, CommandDef> commands;
         std::vector<uint8_t> itemRegistryBody, creativeBody;
+        std::vector<ItemEntity> itemEntities;
+        uint64_t nextEntityId = 1'000'000;
         uint64_t tick = 0;
+        // /tick: the game clock can be slowed, sped up, frozen and stepped. networking keeps running while frozen
+        double tickRateTarget = 20.0;
+        bool frozen = false;
+        int64_t stepRemaining = 0;
+        int64_t sprintRemaining = 0;
+        int64_t sprintTotal = 0;
+        std::chrono::steady_clock::time_point sprintStarted;
+        std::deque<double> tickMillis;
+        std::string TickQuery() const;
+        void RunTickCommand(Session* from, const std::string& args);
+        void RunCommand(Session* from, const std::string& line);
         std::atomic<bool> stopRequested{false};
         bool started = false;
     };

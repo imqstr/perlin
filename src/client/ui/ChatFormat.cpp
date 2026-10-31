@@ -32,7 +32,7 @@ namespace perlin::ui {
             static const char* kPrefix[] = {"entity.", "item.", "tile.", "block.", "death.", "commands.", "chat.", "multiplayer.",
                                             "gameMode.", "enchantment.", "effect.", "potion."};
             for (const char* p : kPrefix)
-                if (key.rfind(p, 0) == 0)
+                if (key.starts_with(p))
                     return true;
             return false;
         }
@@ -136,10 +136,10 @@ namespace perlin::ui {
         std::string pattern;
         if (i18n::Lang::Get().Find(key, pattern))
             return prefix + Substitute(pattern, args);
-        if (Looks(key) && (key.rfind("entity.", 0) == 0 || key.rfind("item.", 0) == 0 || key.rfind("tile.", 0) == 0 ||
-                           key.rfind("block.", 0) == 0 || key.rfind("effect.", 0) == 0 || key.rfind("enchantment.", 0) == 0))
+        if (Looks(key) && (key.starts_with("entity.") || key.starts_with("item.") || key.starts_with("tile.") ||
+                           key.starts_with("block.") || key.starts_with("effect.") || key.starts_with("enchantment.")))
             return prefix + Pretty(key);
-        if (!parameters.empty() && key.find(' ') == std::string::npos && Looks(key)) {
+        if (!parameters.empty() && !key.contains(' ') && Looks(key)) {
             std::string out = key;
             for (const std::string& a : args)
                 out += " " + a;
@@ -181,7 +181,7 @@ namespace perlin::ui {
 
     std::string FormatCommandOutput(const std::string& messageId, bool success, const std::vector<std::string>& parameters) {
         std::string out = Translate(messageId, parameters);
-        if (!success && out.rfind("\xC2\xA7", 0) != 0)
+        if (!success && !out.starts_with("\xC2\xA7"))
             out = "\xC2\xA7" "c" + out;
         return out;
     }

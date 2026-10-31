@@ -23,10 +23,13 @@ namespace perlin::server {
     // owns loaded columns; generation runs on a worker so the tick never waits for terrain
     class ChunkManager {
     public:
-        explicit ChunkManager(std::unique_ptr<TerrainBackend> backend);
+        // maxThreads caps the generation workers (max-threads); 0 = from the core count
+        explicit ChunkManager(std::unique_ptr<TerrainBackend> backend, size_t maxThreads = 0);
         ~ChunkManager();
 
         const char* BackendName() const { return backend->Name(); }
+        // for the queries a terrain backend answers besides chunks (biome search)
+        TerrainBackend& Backend() { return *backend; }
 
         // null while the column is still being generated; asks for it on the first miss
         std::shared_ptr<ChunkEntry> Get(ChunkPos pos);
@@ -55,6 +58,7 @@ namespace perlin::server {
         std::deque<ChunkPos> queue;
         std::vector<std::pair<ChunkPos, std::shared_ptr<ChunkEntry>>> done;
         bool stopping = false;
-        std::thread worker;
+        // chunk generation scales with cores; the gpu backend serialises only its device section, so its cpu stages overlap across the workers
+        std::vector<std::thread> workers;
     };
 }
