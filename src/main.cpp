@@ -56,9 +56,14 @@ namespace {
         }
     }
 
+#ifndef __ANDROID__
+    // a pre-main marker separates a crash in the loader from one in startup, but on android the
+    // static constructors run inside System.loadLibrary, where asking sdl for the storage path is a
+    // jni call into a bridge that is not registered yet and aborts the process
     struct BootMarker {
         BootMarker() { BootMark("process started"); }
     } gBootMarker;
+#endif
 
     void AttachParentConsole() {
 #ifdef _WIN32
